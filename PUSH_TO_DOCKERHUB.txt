@@ -1,0 +1,81 @@
+═══════════════════════════════════════════════════════════════
+  PUSH YOUR DOCKER IMAGE TO DOCKER HUB
+═══════════════════════════════════════════════════════════════
+
+Your Docker Hub Username: vos404
+Your Image Name: vos-tool:runpod
+
+═══════════════════════════════════════════════════════════════
+STEP 1: Tag Your Image
+═══════════════════════════════════════════════════════════════
+
+Copy and paste this command:
+
+  docker tag vos-tool:runpod vos404/vos-tool:runpod
+
+Press Enter
+
+✅ This creates a copy with your Docker Hub username
+
+═══════════════════════════════════════════════════════════════
+STEP 2: Login to Docker Hub
+═══════════════════════════════════════════════════════════════
+
+Type this command:
+
+  docker login
+
+Press Enter
+
+Then:
+- Enter your Docker Hub username: vos404
+- Enter your Docker Hub password (you won't see it - that's normal!)
+- Press Enter
+
+✅ You should see "Login Succeeded"
+
+═══════════════════════════════════════════════════════════════
+STEP 3: Push to Docker Hub
+═══════════════════════════════════════════════════════════════
+
+Copy and paste this command:
+
+  docker push vos404/vos-tool:runpod
+
+Press Enter
+
+⏳ This will take 10-20 minutes (uploading large file)
+📊 You'll see progress bars as it uploads
+
+✅ When done, you'll see: "Pushed" or "latest: digest: ..."
+
+═══════════════════════════════════════════════════════════════
+STEP 4: Verify on Docker Hub
+═══════════════════════════════════════════════════════════════
+
+1. Go to: https://hub.docker.com/r/vos404/vos-tool
+2. You should see your image there!
+
+═══════════════════════════════════════════════════════════════
+AFTER PUSHING - USE ON RUNPOD:
+═══════════════════════════════════════════════════════════════
+
+When creating a pod on RunPod, use this image:
+
+  vos404/vos-tool:runpod
+
+═══════════════════════════════════════════════════════════════
+TROUBLESHOOTING:
+═══════════════════════════════════════════════════════════════
+
+Problem: "unauthorized: authentication required"
+Solution: Make sure you ran "docker login" first
+
+Problem: "denied: requested access to the resource is denied"
+Solution: Check your username is correct (vos404)
+
+Problem: Upload is very slow
+Solution: Normal! The image is large. Just wait.
+
+═══════════════════════════════════════════════════════════════
+

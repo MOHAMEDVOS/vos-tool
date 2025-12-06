@@ -1,0 +1,13 @@
+[server]
+# Enable file watcher for auto-reload (use "auto" for automatic detection)
+fileWatcherType = "auto"
+
+# Enable auto-reload when files change
+runOnSave = true
+
+# Enable development mode for better debugging
+headless = false
+
+[client]
+# Show less verbose messages
+showErrorDetails = false

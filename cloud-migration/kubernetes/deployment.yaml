@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vos-tool
+  namespace: vos-tool
+  labels:
+    app: vos-tool
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vos-tool
+  template:
+    metadata:
+      labels:
+        app: vos-tool
+    spec:
+      containers:
+      - name: vos-tool
+        image: your-registry/vos-tool:latest
+        ports:
+        - containerPort: 8501
+        env:
+        - name: DEPLOYMENT_MODE
+          value: "enterprise"
+        - name: FORCE_READYMODE
+          value: "true"
+        - name: POSTGRES_HOST
+          value: "postgres-service"
+        - name: POSTGRES_DB
+          value: "vos_tool"
+        - name: POSTGRES_USER
+          value: "vos_user"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: vos-tool-secrets
+              key: postgres-password
+        - name: READYMODE_USER
+          valueFrom:
+            secretKeyRef:
+              name: vos-tool-secrets
+              key: readymode-username
+        - name: READYMODE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: vos-tool-secrets
+              key: readymode-password
+        - name: REDIS_URL
+          value: "redis://redis-service:6379"
+        resources:
+          requests:
+            memory: "8Gi"
+            cpu: "2"
+          limits:
+            memory: "16Gi"
+            cpu: "4"
+        volumeMounts:
+        - name: recordings-storage
+          mountPath: /app/Recordings
+        - name: user-data-storage
+          mountPath: /app/data
+        livenessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: recordings-storage
+        persistentVolumeClaim:
+          claimName: recordings-pvc
+      - name: user-data-storage
+        persistentVolumeClaim:
+          claimName: user-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vos-tool-service
+  namespace: vos-tool
+spec:
+  selector:
+    app: vos-tool
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8501
+  type: ClusterIP

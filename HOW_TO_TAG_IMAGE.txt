@@ -1,0 +1,76 @@
+═══════════════════════════════════════════════════════════════
+  WHAT IS "TAGGING" AND HOW TO DO IT (SUPER SIMPLE!)
+═══════════════════════════════════════════════════════════════
+
+WHAT IS TAGGING?
+────────────────
+Think of it like this:
+- You built an image called: vos-tool:runpod
+- Docker Hub needs to know it belongs to YOU (vos404)
+- So we "tag" it (rename it) to: vos404/vos-tool:runpod
+
+It's like putting your name on a box before shipping it!
+
+═══════════════════════════════════════════════════════════════
+HOW TO DO IT (STEP BY STEP):
+═══════════════════════════════════════════════════════════════
+
+STEP 1: Open Command Prompt
+────────────────────────────
+1. Press Windows key + R
+2. Type: cmd
+3. Press Enter
+
+STEP 2: Go to Your Project Folder
+──────────────────────────────────
+Type this and press Enter:
+
+  cd "C:\Users\vos\Desktop\save v.1"
+
+STEP 3: Tag Your Image
+──────────────────────
+Type this EXACT command and press Enter:
+
+  docker tag vos-tool:runpod vos404/vos-tool:runpod
+
+That's it! Nothing will happen - no message, no error = SUCCESS! ✅
+
+═══════════════════════════════════════════════════════════════
+HOW TO CHECK IF IT WORKED:
+═══════════════════════════════════════════════════════════════
+
+Type this command:
+
+  docker images
+
+Press Enter
+
+You should see TWO images:
+1. vos-tool:runpod (your original)
+2. vos404/vos-tool:runpod (the tagged one)
+
+If you see both = IT WORKED! ✅
+
+═══════════════════════════════════════════════════════════════
+WHAT THE COMMAND DOES:
+═══════════════════════════════════════════════════════════════
+
+docker tag vos-tool:runpod vos404/vos-tool:runpod
+         │                  │
+         │                  └─ New name (with your username)
+         └─ Old name (what you built)
+
+It's like copying a file and giving it a new name!
+
+═══════════════════════════════════════════════════════════════
+EXAMPLE - WHAT YOU'LL SEE:
+═══════════════════════════════════════════════════════════════
+
+C:\Users\vos\Desktop\save v.1> docker tag vos-tool:runpod vos404/vos-tool:runpod
+
+C:\Users\vos\Desktop\save v.1> 
+
+(No error = Success! ✅)
+
+═══════════════════════════════════════════════════════════════
+

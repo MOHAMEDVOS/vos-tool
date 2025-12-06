@@ -1,0 +1,105 @@
+# VOS TOOL - Security & Privacy Protection
+
+# ────────────── SENSITIVE FILES (NEVER COMMIT) ──────────────
+# Environment files with credentials
+.env
+.env.local
+.env.production
+.env.staging
+.env.development
+
+# Backup files that may contain credentials
+config_backup.py
+.env_backup
+
+*.tar
+models/*.gguf
+models/.cache/
+
+# Dashboard data (contains user information)
+dashboard_data/
+*.json
+
+# Audio recordings (privacy protection)
+Recordings/
+recordings/
+*.mp3
+*.wav
+*.m4a
+*.flac
+
+# Chrome profile sessions (may contain login data)
+chrome_profile_sessions/
+
+# ────────────── PYTHON & DEVELOPMENT ──────────────
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ────────────── LOGS & TEMPORARY FILES ──────────────
+# Log files
+*.log
+logs/
+log/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Test files
+test_*.py
+debug_*.py
+*_test.py
+
+# ────────────── SECURITY NOTES ──────────────
+# This .gitignore protects:
+# 1. Environment variables with credentials
+# 2. User data and recordings (privacy)
+# 3. Session data and temporary files
+# 4. Development and debug files
+#
+# Always verify before committing:
+# git status --ignored
+# git add -n . (dry run to see what would be added)

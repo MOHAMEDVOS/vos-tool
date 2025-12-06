@@ -1,0 +1,100 @@
+═══════════════════════════════════════════════════════════════
+  UPLOAD PROJECT TO GITHUB - SUPER SIMPLE STEPS
+═══════════════════════════════════════════════════════════════
+
+METHOD 1: Using GitHub Desktop (EASIEST!)
+═══════════════════════════════════════════════════════════════
+
+STEP 1: Download GitHub Desktop
+────────────────────────────────
+1. Go to: https://desktop.github.com/
+2. Click "Download for Windows"
+3. Install it (double-click, Next, Next, Done)
+
+STEP 2: Login
+─────────────
+1. Open GitHub Desktop
+2. Click "Sign in to GitHub.com"
+3. Enter username and password
+4. Click "Sign in"
+
+STEP 3: Add Your Project
+─────────────────────────
+1. Click "File" → "Add Local Repository"
+2. Click "Choose..."
+3. Go to: C:\Users\vos\Desktop\save v.1
+4. Click "Select Folder"
+
+STEP 4: Publish
+───────────────
+1. Click "Publish repository" button
+2. Type name: vos-tool (or any name you want)
+3. Add description (optional)
+4. UNCHECK "Keep this code private" (unless you want private)
+5. Click "Publish Repository"
+
+✅ DONE! Your code is on GitHub!
+
+═══════════════════════════════════════════════════════════════
+METHOD 2: Using Command Line
+═══════════════════════════════════════════════════════════════
+
+STEP 1: Install Git
+───────────────────
+1. Go to: https://git-scm.com/download/win
+2. Download and install (Next, Next, Next...)
+
+STEP 2: Open Git Bash
+──────────────────────
+1. Go to your folder: C:\Users\vos\Desktop\save v.1
+2. Right-click in the folder
+3. Click "Git Bash Here"
+
+STEP 3: Initialize Git
+──────────────────────
+Type: git init
+Press Enter
+
+STEP 4: Add Files
+──────────────────
+Type: git add .
+Press Enter
+
+STEP 5: Commit
+──────────────
+Type: git commit -m "Initial commit"
+Press Enter
+
+STEP 6: Create Repository on GitHub
+─────────────────────────────────────
+1. Go to: https://github.com
+2. Click "+" (top right)
+3. Click "New repository"
+4. Type name: vos-tool
+5. Click "Create repository"
+
+STEP 7: Connect and Push
+─────────────────────────
+GitHub will show you 3 commands, copy and paste them:
+
+  git remote add origin https://github.com/YOUR_USERNAME/vos-tool.git
+  git branch -M main
+  git push -u origin main
+
+Press Enter after each command
+
+✅ DONE! Your code is on GitHub!
+
+═══════════════════════════════════════════════════════════════
+IMPORTANT NOTES:
+═══════════════════════════════════════════════════════════════
+
+✓ Make sure you have a GitHub account first!
+✓ Don't upload .env files (they have passwords!)
+✓ Your .gitignore should protect sensitive files
+✓ Choose a good repository name (like: vos-tool)
+
+═══════════════════════════════════════════════════════════════
+
+Need more details? Check UPLOAD_TO_GITHUB.md
+

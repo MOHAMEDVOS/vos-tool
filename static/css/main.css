@@ -1,0 +1,294 @@
+/* VOS Tool - Main Stylesheet */
+/* Extracted from inline CSS for performance - loads once, cached by browser */
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+.main {
+    background-color: #0f1419;
+    padding: 20px;
+}
+
+.block-container {
+    padding-top: 0 !important;
+}
+
+body {
+    background-color: #0f1419;
+    color: #e5e7eb;
+}
+
+/* ============================================
+   DATAFRAME/TABLE STYLING
+   ============================================ */
+
+.stDataFrame, .stTable {
+    background-color: #06080d !important;
+}
+
+.stDataFrame [data-testid="stDataFrame"] table tbody tr td,
+.stTable tbody tr td {
+    background-color: #06080d !important;
+    color: #f2f4f8 !important;
+    border-color: rgba(255,255,255,0.05) !important;
+}
+
+.stDataFrame [data-testid="stDataFrame"] table thead tr th,
+.stTable thead tr th {
+    background-color: #0b0f16 !important;
+    color: #f6f7fb !important;
+    border-color: rgba(255,255,255,0.07) !important;
+}
+
+.stDataFrame [data-testid="stDataFrame"] table tbody tr:hover td {
+    background-color: #0b0f16 !important;
+}
+
+/* ============================================
+   SIDEBAR THEME (Glass + Neon)
+   ============================================ */
+
+[data-testid="stSidebar"] {
+    background: radial-gradient(circle at top left, #020617 0%, #020617 100%) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px) saturate(120%);
+}
+
+[data-testid="stSidebar"] .sidebar-content {
+    padding: 20px;
+}
+
+.profile-card {
+    border-radius: 18px;
+    background: rgba(30,41,59,0.45);
+    border: 1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 4px 25px rgba(0,0,0,0.35);
+    backdrop-filter: blur(14px) saturate(140%);
+}
+
+.nav-header-modern {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    padding: 6px 4px;
+    margin-bottom: 10px;
+    letter-spacing: 0.1em;
+}
+
+/* ============================================
+   BUTTON STYLES
+   ============================================ */
+
+[data-testid="stSidebar"] .stButton button {
+    background: rgba(255,255,255,0.05) !important;
+    border: 1px solid rgba(255,255,255,0.08) !important;
+    border-radius: 14px !important;
+    color: #e2e8f0 !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    padding: 10px 14px !important;
+    width: 100% !important;
+    text-align: left !important;
+    transition: all 0.25s ease !important;
+    box-shadow: inset 0 0 0 rgba(0,0,0,0) !important;
+}
+
+[data-testid="stSidebar"] .stButton button:hover {
+    background: rgba(255,255,255,0.12) !important;
+    border-color: rgba(255,255,255,0.25) !important;
+    box-shadow: 0 0 10px rgba(255,255,255,0.08) !important;
+}
+
+/* ============================================
+   ACTIVE TAB STYLING (Neon Glows)
+   ============================================ */
+
+.nav-tab-dashboard-active .stButton button {
+    background: rgba(31,41,55,0.6) !important;
+    border-color: #9ca3af !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    box-shadow: 0 0 25px rgba(0,0,0,0.6) !important;
+}
+
+.nav-tab-actions-active .stButton button {
+    background: rgba(139,92,246,0.15) !important;
+    border-color: #a78bfa !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 25px rgba(167,139,250,0.45) !important;
+}
+
+.nav-tab-audit-active .stButton button {
+    background: rgba(34,197,94,0.15) !important;
+    border-color: #22c55e !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 25px rgba(34,197,94,0.45) !important;
+}
+
+.nav-tab-callreview-active .stButton button {
+    background: rgba(236,72,153,0.15) !important;
+    border-color: #ec4899 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 25px rgba(236,72,153,0.45) !important;
+}
+
+.nav-tab-phrases-active .stButton button {
+    background: rgba(99,102,241,0.15) !important;
+    border-color: #6366f1 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 25px rgba(99,102,241,0.45) !important;
+}
+
+.nav-tab-settings-active .stButton button {
+    background: rgba(249,115,22,0.15) !important;
+    border-color: #f97316 !important;
+    color: #ffffff !important;
+    box-shadow: 0 0 25px rgba(249,115,22,0.45) !important;
+}
+
+/* ============================================
+   USAGE METRICS SECTION
+   ============================================ */
+
+[data-testid="stSidebar"] .usage-section {
+    padding: 20px 16px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.02);
+    margin-top: 16px;
+}
+
+.usage-header {
+    color: #9ca3af;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+}
+
+.usage-metric {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.usage-metric:last-child {
+    border-bottom: none;
+}
+
+.usage-label {
+    color: #e5e7eb;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.usage-value {
+    color: #e5e7eb;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* ============================================
+   PROGRESS BARS
+   ============================================ */
+
+[data-testid="stSidebar"] .stProgress > div > div > div {
+    background: linear-gradient(90deg, #9ca3af, #6b7280) !important;
+    border-radius: 4px !important;
+    height: 6px !important;
+}
+
+[data-testid="stExpander"] .stProgress > div > div > div {
+    background: linear-gradient(90deg, #dc2626, #ef4444) !important;
+    border-radius: 4px !important;
+    height: 6px !important;
+}
+
+/* ============================================
+   TABLE ALIGNMENT
+   ============================================ */
+
+[data-testid="stExpander"] .stDataFrame [data-testid="stDataFrame"] table tbody tr td:nth-child(2),
+[data-testid="stExpander"] .stDataFrame table tbody tr td:nth-child(2) {
+    text-align: center !important;
+    justify-content: center !important;
+    display: flex !important;
+    align-items: center !important;
+}
+
+/* ============================================
+   LOGOUT BUTTON
+   ============================================ */
+
+[data-testid="stSidebar"] .logout-btn {
+    margin: 16px;
+    margin-top: 24px;
+}
+
+[data-testid="stSidebar"] .logout-btn button {
+    width: 100% !important;
+    background: rgba(239,68,68,0.1) !important;
+    border: 1px solid rgba(239,68,68,0.3) !important;
+    color: #ef4444 !important;
+    border-radius: 6px !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    transition: all 200ms ease !important;
+}
+
+[data-testid="stSidebar"] .logout-btn button:hover {
+    background: rgba(239,68,68,0.2) !important;
+    border-color: #ef4444 !important;
+    color: #ef4444 !important;
+}
+
+/* ============================================
+   DEFAULT BUTTON STYLING
+   ============================================ */
+
+.stButton > button {
+    background: rgba(255, 255, 255, 0.05);
+    color: #e2e8f0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 14px;
+    padding: 0.55rem 1.2rem;
+    transition: all 0.25s ease;
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.65);
+    text-transform: none;
+    letter-spacing: 0.02em;
+    width: auto;
+    min-width: 0;
+    cursor: pointer;
+    margin: 0.25rem 0.15rem;
+}
+
+.stButton > button:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(148, 163, 184, 0.6);
+    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.8);
+    transform: translateY(-1px);
+}
+
+.stButton > button:active {
+    transform: translateY(0px);
+    box-shadow: 0 3px 14px rgba(15, 23, 42, 0.75);
+}
+
+/* ============================================
+   HIDE STREAMLIT BRANDING
+   ============================================ */
+
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+
+
+
+
+

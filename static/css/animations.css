@@ -1,0 +1,140 @@
+/* VOS Tool - Animations Stylesheet */
+/* Separated for better performance - only loads once */
+
+/* ============================================
+   WAVE ANIMATIONS
+   ============================================ */
+
+.wave-overlay-1, .wave-overlay-2 {
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    animation: wave-slide 3s ease-in-out infinite;
+    pointer-events: none;
+    mix-blend-mode: screen;
+}
+
+.wave-overlay-1 {
+    background: linear-gradient(90deg, transparent, rgba(96, 165, 250, 0.1), transparent);
+    animation-delay: 0s;
+}
+
+.wave-overlay-2 {
+    background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.08), transparent);
+    animation-delay: 1s;
+}
+
+@keyframes wave-slide {
+    0% { left: -100%; }
+    100% { left: 100%; }
+}
+
+/* ============================================
+   TEXT ANIMATIONS
+   ============================================ */
+
+.vos-title {
+    font-size: 2.8rem;
+    font-weight: bold;
+    color: #60a5fa;
+    margin: 0;
+    letter-spacing: 0.2em;
+    animation: text-glow 2s ease-in-out infinite alternate;
+}
+
+.vos-subtitle {
+    font-size: 1.5rem;
+    color: #e2e8f0;
+    margin: 0.5rem 0 0 0;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    animation: text-wave 3s ease-in-out infinite;
+}
+
+.vos-tagline {
+    font-size: 1.1rem;
+    color: #94a3b8;
+    margin: 0.5rem 0 0 0;
+    font-style: italic;
+    animation: fade-in 2s ease-in-out infinite alternate;
+}
+
+.vos-divider {
+    width: 100px;
+    border: none;
+    height: 3px;
+    background: linear-gradient(90deg, #60a5fa, #a78bfa);
+    margin: 1.5rem auto 0;
+    animation: gradient-shift 4s ease-in-out infinite;
+}
+
+@keyframes text-glow {
+    0% { text-shadow: 0 0 5px rgba(96, 165, 250, 0.5); }
+    100% { text-shadow: 0 0 20px rgba(96, 165, 250, 0.8), 0 0 30px rgba(96, 165, 250, 0.4); }
+}
+
+@keyframes text-wave {
+    0%, 100% { transform: translateX(0px); }
+    25% { transform: translateX(-2px); }
+    75% { transform: translateX(2px); }
+}
+
+@keyframes fade-in {
+    0% { opacity: 0.7; }
+    100% { opacity: 1; }
+}
+
+@keyframes gradient-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+}
+
+/* ============================================
+   HEADER WAVE CONTAINER
+   ============================================ */
+
+.header-wave-container {
+    position: fixed;
+    top: 0;
+    left: 260px;
+    right: 0;
+    height: 64px;
+    overflow: hidden;
+    z-index: 1200;
+}
+
+.top-header-vos {
+    position: fixed;
+    top: 8px;
+    left: calc(50% + 130px);
+    transform: translateX(-50%);
+    padding: 0.25rem 0.9rem;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(96, 165, 250, 0.35);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 260px;
+    overflow: hidden;
+    z-index: 1000;
+}
+
+.top-header-vos .vos-title {
+    font-size: 1.05rem;
+    letter-spacing: 0.18em;
+}
+
+.top-header-vos .vos-subtitle {
+    font-size: 0.75rem;
+    letter-spacing: 0.14em;
+    margin-top: 0.15rem;
+}
+
+
+
+
+
