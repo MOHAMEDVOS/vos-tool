@@ -35,15 +35,9 @@ READYMODE_URL = READY_MODE_URLS["default"]
 # No hardcoded passwords in source code for security
 USER_CREDENTIALS = {
     # Default fallback users - passwords should be set via dashboard
-    'auditor1': {'daily_limit': 5000},
-    'auditor2': {'daily_limit': 5000},
-    'auditor3': {'daily_limit': 5000},
-    'auditor4': {'daily_limit': 3000},
-    'auditor5': {'daily_limit': 5000},
-    'auditor6': {'daily_limit': 5000},
-    'auditor7': {'daily_limit': 5000},
-    'wosmova': {'daily_limit': 2000},
     'Mohamed Abdo': {'daily_limit': 999999},
+    'Aya': {'daily_limit': 999999},
+    'Auditor1': {'daily_limit': 5000},
 }
 
 # ReadyMode credentials - OPTIONAL fallback for system-level operations

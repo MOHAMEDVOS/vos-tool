@@ -1,0 +1,23 @@
+{
+  "Ziad moafy": {
+    "max_active_users": 8,
+    "per_user_daily_quota": 5000,
+    "monthly_creation_limit": 4,
+    "cooldown_days": 1,
+    "enabled": true
+  },
+  "Aya samir": {
+    "max_active_users": 10,
+    "per_user_daily_quota": 5000,
+    "monthly_creation_limit": 20,
+    "cooldown_days": 1,
+    "enabled": true
+  },
+  "Ahmed Hanafy": {
+    "max_active_users": 10,
+    "per_user_daily_quota": 5000,
+    "monthly_creation_limit": 20,
+    "cooldown_days": 1,
+    "enabled": true
+  }
+}

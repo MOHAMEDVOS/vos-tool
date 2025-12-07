@@ -1,30 +1,15 @@
-"""
-ReadyMode Call Recording Downloader with Concurrent Downloads
+"""ReadyMode Call Recording Downloader with Concurrent Downloads.
 
-This script automates the download of call recordings from ReadyMode dialers.
-Key features:
-- Headless operation: Runs in background without visible browser window
-- Page-based concurrent downloading: Downloads ALL calls found on each page simultaneously
-  (e.g., if page has 31 calls, all 31 download at once; if next page has 5, all 5 download at once)
-- Maximum concurrency cap: Limited to 100 concurrent downloads per page to avoid system overload
-- Browser automation using Selenium (headless mode)
-- Support for filtering by date, agent, campaign, disposition, and duration
+This module automates the download of call recordings from ReadyMode dialers.
+It is designed to be safe for cloud deployments:
 
-Usage:
-    Set environment variables (optional, for legacy support):
-    - MAX_CONCURRENT_DOWNLOADS: Legacy variable (no longer used - downloads match page size)
-    - READYMODE_USER: Your ReadyMode username
-    - READYMODE_PASSWORD: Your ReadyMode password
-
-    Run the download_all_call_recordings() function with appropriate parameters.
-
-Note:
-    - The browser runs in headless mode, so no visible window will appear
-    - Downloads are handled via requests library after browser authentication
-    - Can run in background/headless environments without display
+* ReadyMode credentials are never hardcoded.
+* System-level credentials (READYMODE_USER / READYMODE_PASSWORD) are optional
+  fallbacks and must be supplied via environment variables.
+* Per-user credentials should usually be passed in from the dashboard layer.
 """
 
-# Get username from environment or use default
+# Environment configuration (no hardcoded credentials)
 import os
 import time
 import requests
@@ -59,9 +44,13 @@ except ImportError:
     WEBDRIVER_MANAGER_AVAILABLE = False
     print("WARNING: webdriver_manager not available - memory leaks possible")
 
-# Get username from environment or use default
-USERNAME = os.getenv("READYMODE_USER", "Auditor1")
-PASSWORD = os.getenv("READYMODE_PASSWORD", "Auditor1@3510")
+# System-level ReadyMode credentials (optional fallback).
+# For security, there are **no** hardcoded defaults:
+# - If per-user credentials are not provided from the dashboard, and
+# - These env vars are not set,
+# a clear ReadyModeLoginError will be raised.
+USERNAME = os.getenv("READYMODE_USER")
+PASSWORD = os.getenv("READYMODE_PASSWORD")
 
 
 class ReadyModeLoginError(Exception):
@@ -72,7 +61,13 @@ class ReadyModeNoCallsError(Exception):
     pass
 
 # Concurrent download configuration
-MAX_CONCURRENT_DOWNLOADS = int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "25"))  # Default 25 concurrent downloads
+_max_downloads_env = os.getenv("MAX_CONCURRENT_DOWNLOADS", "25")
+try:
+    MAX_CONCURRENT_DOWNLOADS = int(_max_downloads_env)
+except ValueError:
+    # Fallback to safe default if env var is invalid
+    MAX_CONCURRENT_DOWNLOADS = 25
+
 
 def _sanitize_path_component(value: str) -> str:
     """Sanitize strings for safe filesystem usage."""
@@ -275,9 +270,17 @@ def login_to_readymode(driver, wait, dialer_url, readymode_user=None, readymode_
     admin_checkbox = driver.find_element(By.ID, "login_as_admin")
     sign_in_btn = driver.find_element(By.CSS_SELECTOR, "input[type='submit']")
 
-    # Use provided credentials or fall back to defaults
+    # Use provided credentials or fall back to environment-based defaults
     login_username = readymode_user if readymode_user else USERNAME
     login_password = readymode_pass if readymode_pass else PASSWORD
+
+    # If we still don't have credentials, fail fast with a clear error
+    if not login_username or not login_password:
+        raise ReadyModeLoginError(
+            "ReadyMode credentials are not configured. "
+            "Please set per-user ReadyMode credentials in the dashboard or "
+            "set READYMODE_USER and READYMODE_PASSWORD in the environment."
+        )
 
     # Debug logging
     print(f"DEBUG LOGIN: Using username='{login_username}' (length={len(login_username) if login_username else 0})")

@@ -1,0 +1,14 @@
+{
+  "download_count": 24,
+  "date": "2025-11-05",
+  "last_updated": "2025-11-05T01:56:29.349978",
+  "quota_managed": true,
+  "quota_status": {
+    "managed": true,
+    "daily_quota": 10,
+    "current_usage": 0,
+    "remaining": 10,
+    "percentage_used": 0.0,
+    "admin": "Ziad moafy"
+  }
+}

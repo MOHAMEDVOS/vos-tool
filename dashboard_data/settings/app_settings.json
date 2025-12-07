@@ -1,0 +1,72 @@
+{
+  "audio": {
+    "vad_energy_threshold": 600,
+    "vad_min_speech_duration": 120,
+    "audio_quality": "medium",
+    "processing_timeout": 300
+  },
+  "detection": {
+    "rebuttal_sensitivity": 0.68,
+    "intro_detection_mode": "balanced",
+    "accent_correction_enabled": true,
+    "agent_only_detection": true,
+    "semantic_threshold": 0.68
+  },
+  "user_defaults": {
+    "daily_limit": 5000,
+    "readymode_access": true,
+    "auto_enable": true,
+    "default_account_type": "app_readymode"
+  },
+  "storage": {
+    "auto_cleanup_days": 30,
+    "max_storage_gb": 10,
+    "backup_enabled": true,
+    "temp_file_cleanup": true
+  },
+  "system": {
+    "session_timeout_hours": 24,
+    "max_concurrent_audits": 3,
+    "debug_mode": false,
+    "maintenance_mode": false
+  },
+  "announcements": {
+    "items": [
+      {
+        "id": 1,
+        "message": "hi test",
+        "created_by": "Mohamed Abdo",
+        "created_at": "2025-11-26T19:32:51.540061"
+      },
+      {
+        "id": 2,
+        "message": "hi test",
+        "created_by": "Mohamed Abdo",
+        "created_at": "2025-11-26T19:33:55.569900"
+      },
+      {
+        "id": 3,
+        "message": "123",
+        "created_by": "Mohamed Abdo",
+        "created_at": "2025-11-26T20:36:22.785084"
+      },
+      {
+        "id": 4,
+        "message": "alo alo",
+        "created_by": "Mohamed Abdo",
+        "created_at": "2025-11-26T20:49:20.154821"
+      },
+      {
+        "id": 5,
+        "message": "ii",
+        "created_by": "Mohamed Abdo",
+        "created_at": "2025-11-26T21:01:05.314568"
+      }
+    ],
+    "current_id": 5,
+    "user_last_read": {
+      "Mohamed Abdo": 5,
+      "Aya": 4
+    }
+  }
+}

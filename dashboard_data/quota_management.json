@@ -1,0 +1,17 @@
+{
+  "system_config": {
+    "quota_reset_time": "00:00",
+    "default_admin_user_limit": 5,
+    "default_admin_daily_quota": 2000
+  },
+  "admin_limits": {
+    "Aya": {
+      "max_users": 1,
+      "daily_quota": 5000,
+      "created_by": "Mohamed Abdo",
+      "created_date": "2025-11-20",
+      "last_modified": "2025-11-20 18:23:32.201966"
+    }
+  },
+  "user_assignments": {}
+}

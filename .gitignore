@@ -17,8 +17,8 @@ models/*.gguf
 models/.cache/
 
 # Dashboard data (contains user information)
-dashboard_data/
 *.json
+!dashboard_data/**/*.json
 
 # Audio recordings (privacy protection)
 Recordings/
@@ -44,7 +44,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/
 lib64/
 parts/
 sdist/

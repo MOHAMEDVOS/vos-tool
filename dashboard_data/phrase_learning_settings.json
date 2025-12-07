@@ -1,0 +1,6 @@
+{
+  "confidence_threshold": 0.8,
+  "frequency_threshold": 5,
+  "auto_approve_threshold": 0.85,
+  "last_updated": "2025-12-01T18:33:16.999838"
+}

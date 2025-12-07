@@ -1,0 +1,30 @@
+{
+  "Mohamed Abdo": {
+    "readymode_user": "Auditor1",
+    "daily_limit": 999999,
+    "app_pass_hash": "b6EznWz9PiuuGiK59HcGtULRNUQqOS5qynHJTmr9jc4=",
+    "app_pass_salt": "2-_A6l2CXajZK_Mye4FjNJ_vgwhyYc7LZwDF9Ku5Xus=",
+    "readymode_pass_encrypted": "Z0FBQUFBQnBFWE95NWgtRTFEMFk1OG5ieFNZSHk3UGlPM0tVN1NNRFYyckxsem1qX3FGbm16aGlYOUxKSVgzeEFzTjRkRUp3UWhLSjZIS2QwVXVZSGpqM0hKRzZXUUdhY2c9PQ==",
+    "role": "Owner"
+  },
+  "Aya": {
+    "role": "Admin",
+    "readymode_user": "Auditor1",
+    "daily_limit": 999999,
+    "created_by": "Mohamed Abdo",
+    "created_date": "2025-11-12 08:28:53.250042",
+    "app_pass_hash": "Y3eH6UOjURFgkagW-tDiWv2iwJkZyCKhFrGSdDDCdQc=",
+    "app_pass_salt": "EP58uejkFdjYpsop_TKELNpL9qD8sVcodonlVBht51U=",
+    "readymode_pass_encrypted": "Z0FBQUFBQnBGQ2tsOFRmQmlKY3FDMF8zTng2VzBZT2NYZE5ycjU3SDRCS2dUYVV2NzBwdmxNLW00Qk1kMmZoNlZzNm9FMUhWYUdkb2JpSF9tUHlZMmstc1FyOVB1WUJ2eXc9PQ=="
+  },
+  "Auditor1": {
+    "role": "Auditor",
+    "readymode_user": "Auditor1",
+    "daily_limit": 5000,
+    "created_by": "Mohamed Abdo",
+    "created_date": "2025-12-01 12:55:20.902159",
+    "app_pass_hash": "tlDcgdhPBJkeUvkRtP7vG3U7JWTx-GNc-C8bMAZSNt8=",
+    "app_pass_salt": "Dxtd27wvDUG0gCJlQp8kWpV5ZSBBrgzS7iKJuLK9ZsI=",
+    "readymode_pass_encrypted": "Z0FBQUFBQnBMZGFJUmx1a3U1VWVJQkFTZU9NTWUzT0pvMndlU2hrNHBmbkpHb0poZFNsMm9LSy1icFRxVnp4S2tjb0ZISEF0NzRVam5VVjE3R0dSWERVYk56bWxIRTc5a3c9PQ=="
+  }
+}

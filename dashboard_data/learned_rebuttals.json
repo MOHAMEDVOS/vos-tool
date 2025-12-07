@@ -1,0 +1,48 @@
+{
+  "learned_phrases": {
+    "USER_CONFIRMED": [
+      {
+        "phrase": "you don't have like any other and you don't have like in here and no other properties",
+        "learned_date": "2025-11-13T11:45:48.542170",
+        "source": "user_confirmed",
+        "confidence": 1.0,
+        "user_feedback": "confirmed_rebuttal"
+      },
+      {
+        "phrase": "but what about land do you own any undeveloped land",
+        "learned_date": "2025-11-13T11:45:48.543222",
+        "source": "user_confirmed",
+        "confidence": 1.0,
+        "user_feedback": "confirmed_rebuttal"
+      },
+      {
+        "phrase": "okay but maybe foreclosure properties do you deal with those",
+        "learned_date": "2025-11-13T11:45:48.544737",
+        "source": "user_confirmed",
+        "confidence": 1.0,
+        "user_feedback": "confirmed_rebuttal"
+      },
+      {
+        "phrase": "but what about commercial real estate do you have any office buildings",
+        "learned_date": "2025-11-13T11:47:21.593257",
+        "source": "user_confirmed",
+        "confidence": 1.0,
+        "user_feedback": "confirmed_rebuttal"
+      }
+    ],
+    "AUTO_LEARNED": [
+      {
+        "phrase": "not ready to sell your house right now but do you happen to own any rental properties or investment properties that you might consider sell",
+        "learned_date": "2025-11-13T11:47:21.533530",
+        "source": "auto_extraction",
+        "confidence": 0.7,
+        "user_feedback": null
+      }
+    ]
+  },
+  "metadata": {
+    "created": "2025-11-13T11:45:48.538026",
+    "total_learned": 5,
+    "last_updated": "2025-11-13T11:47:21.593669"
+  }
+}

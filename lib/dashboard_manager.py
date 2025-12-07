@@ -682,20 +682,46 @@ class UserManager:
             # Import default users from config
             try:
                 from config import USER_CREDENTIALS as default_users
-                # Add roles to existing users during initialization
-                updated_users = {}
+                import os
+
+                # Optional: single initial password for all default users on fresh deployments
+                # This value should be provided via environment variable (e.g. on RunPod)
+                # so no plaintext passwords are stored in code or JSON.
+                initial_password = os.getenv("DEFAULT_APP_PASSWORD")
+
+                if not initial_password:
+                    logger.warning(
+                        "DEFAULT_APP_PASSWORD is not set. Default users will be created without app passwords; "
+                        "you must set passwords via the dashboard before they can log in."
+                    )
+
+                # Create each default user using the secure add_user path so passwords are hashed
                 for username, user_data in default_users.items():
-                    updated_data = user_data.copy()
+                    new_user_data = {}
+
+                    # Preserve daily_limit or other numeric settings from config
+                    if isinstance(user_data, dict):
+                        if "daily_limit" in user_data:
+                            new_user_data["daily_limit"] = user_data["daily_limit"]
+
                     # Assign roles based on username
                     if username == self.PROTECTED_OWNER:
-                        updated_data['role'] = self.ROLE_OWNER
+                        new_user_data["role"] = self.ROLE_OWNER
+                    elif username == "Aya":
+                        new_user_data["role"] = self.ROLE_ADMIN
                     else:
-                        # Default role for existing users is Auditor
-                        updated_data['role'] = self.ROLE_AUDITOR
-                    updated_users[username] = updated_data
-                
-                self.save_all_users(updated_users)
-                logger.info("Initialized users file with default users from config.py and assigned roles")
+                        new_user_data["role"] = self.ROLE_AUDITOR
+
+                    # If an initial password is provided, use it so the account is usable on first run
+                    if initial_password:
+                        new_user_data["app_pass"] = initial_password
+
+                    # Use add_user so hashing/encryption logic in security_manager is applied
+                    created = self.add_user(username, new_user_data)
+                    if not created:
+                        logger.warning(f"Failed to create default user '{username}' during initialization")
+
+                logger.info("Initialized users file with default users from config.py using secure password handling")
             except ImportError:
                 logger.warning("Could not import default users from config.py")
                 self.save_all_users({})

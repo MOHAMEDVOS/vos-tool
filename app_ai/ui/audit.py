@@ -2,6 +2,7 @@ import streamlit as st
 import tempfile
 import time
 import threading
+import traceback
 from pathlib import Path
 from datetime import date, datetime
 
@@ -1000,30 +1001,33 @@ def show_audit_section(
                             st.info(
                                 "Please wait until another admin signs out before retrying the automation."
                             )
-                        # Suppress Chrome/WebDriver technical errors and show user-friendly message instead
-                        elif any(
-                            keyword in error_message
-                            for keyword in [
-                                "no such window",
-                                "web view not found",
-                                "chrome",
-                                "webdriver",
-                                "session info",
-                                "stacktrace",
-                                "gethandleverifier",
-                            ]
-                        ):
-                            st.warning(
-                                "Processing was interrupted. This may be due to browser connectivity issues."
-                            )
-                            st.info(
-                                "Please try again. If the problem persists, check your internet connection."
-                            )
                         else:
+                            # Always show the real backend error message in the UI
                             st.error(f"PROCESSING FAILED: {str(e)}")
-                            st.info(
-                                "Check your ReadyMode connection and try again."
-                            )
+                            if any(
+                                keyword in error_message
+                                for keyword in [
+                                    "no such window",
+                                    "web view not found",
+                                    "chrome",
+                                    "webdriver",
+                                    "session info",
+                                    "stacktrace",
+                                    "gethandleverifier",
+                                ]
+                            ):
+                                st.info(
+                                    "This looks like a browser / automation error. Please verify Chrome and WebDriver are installed and accessible on the server."
+                                )
+                            else:
+                                st.info(
+                                    "Check your ReadyMode connection, filters, and credentials, then try again."
+                                )
+
+                        # Always provide technical details so backend errors are visible for debugging
+                        with st.expander("Technical details (backend error)"):
+                            st.write(f"**Error type:** {type(e).__name__}")
+                            st.code("".join(traceback.format_exception(type(e), e, e.__traceback__)))
 
     def _run_campaign_audit_worker(
         ready_url,

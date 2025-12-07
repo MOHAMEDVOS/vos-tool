@@ -1,0 +1,236 @@
+{
+  "created_at": "2025-11-04T22:37:26.501609",
+  "logs": [
+    {
+      "timestamp": "2025-11-04T22:44:13.549110",
+      "admin_username": "Ziad moafy",
+      "action": "user_created",
+      "target_username": "fklwenf",
+      "details": {
+        "role": "Auditor",
+        "daily_limit": 5000,
+        "has_readymode": false
+      },
+      "ip_address": "unknown",
+      "session_id": "79ec3d08-0f4f-4db1-8fe4-73f2ef5d4689"
+    },
+    {
+      "timestamp": "2025-11-04T22:44:18.633102",
+      "admin_username": "Ziad moafy",
+      "action": "user_created",
+      "target_username": "fklwenfwef;lmw;lef",
+      "details": {
+        "role": "Auditor",
+        "daily_limit": 5000,
+        "has_readymode": false
+      },
+      "ip_address": "unknown",
+      "session_id": "79ec3d08-0f4f-4db1-8fe4-73f2ef5d4689"
+    },
+    {
+      "timestamp": "2025-11-04T22:44:23.641183",
+      "admin_username": "Ziad moafy",
+      "action": "user_created",
+      "target_username": "fklwenfwef;lmw;lefweflmw;lefm;wemf",
+      "details": {
+        "role": "Auditor",
+        "daily_limit": 5000,
+        "has_readymode": false
+      },
+      "ip_address": "unknown",
+      "session_id": "79ec3d08-0f4f-4db1-8fe4-73f2ef5d4689"
+    },
+    {
+      "timestamp": "2025-11-04T22:45:12.680607",
+      "admin_username": "Mohamed Abdo",
+      "action": "admin_limits_updated",
+      "target_username": "Ziad moafy",
+      "details": {
+        "max_active_users": 2,
+        "per_user_daily_quota": 5000,
+        "monthly_creation_limit": 1,
+        "cooldown_days": 1,
+        "enabled": true
+      },
+      "ip_address": "unknown",
+      "session_id": "c9921108-c59c-441d-9b25-c50c6a67a613"
+    },
+    {
+      "timestamp": "2025-11-04T23:03:38.356378",
+      "admin_username": "Mohamed Abdo",
+      "action": "user_deleted",
+      "target_username": "fklwenfwef;lmw;lef",
+      "details": {
+        "role": "Auditor",
+        "daily_limit": 5000,
+        "had_readymode": false
+      },
+      "ip_address": "unknown",
+      "session_id": "8a9fc0ed-e2f0-4794-aefc-f6bf66f64adf"
+    },
+    {
+      "timestamp": "2025-11-04T23:03:46.202148",
+      "admin_username": "Mohamed Abdo",
+      "action": "user_deleted",
+      "target_username": "fklwenfwef;lmw;lefweflmw;lefm;wemf",
+      "details": {
+        "role": "Auditor",
+        "daily_limit": 5000,
+        "had_readymode": false
+      },
+      "ip_address": "unknown",
+      "session_id": "8a9fc0ed-e2f0-4794-aefc-f6bf66f64adf"
+    },
+    {
+      "timestamp": "2025-11-04T23:03:52.279953",
+      "admin_username": "Mohamed Abdo",
+      "action": "user_deleted",
+      "target_username": "fklwenf",
+      "details": {
+        "role": "Auditor",
+        "daily_limit": 5000,
+        "had_readymode": false
+      },
+      "ip_address": "unknown",
+      "session_id": "8a9fc0ed-e2f0-4794-aefc-f6bf66f64adf"
+    },
+    {
+      "timestamp": "2025-11-04T23:10:24.886925",
+      "admin_username": "Mohamed Abdo",
+      "action": "admin_limits_updated",
+      "target_username": "Ziad moafy",
+      "details": {
+        "max_active_users": 2,
+        "per_user_daily_quota": 5000,
+        "monthly_creation_limit": 1,
+        "cooldown_days": 1,
+        "enabled": true
+      },
+      "ip_address": "unknown",
+      "session_id": "36ca25f6-dd28-487d-b548-cff3509e7bbb"
+    },
+    {
+      "timestamp": "2025-11-04T23:10:50.380705",
+      "admin_username": "Mohamed Abdo",
+      "action": "admin_limits_updated",
+      "target_username": "Ziad moafy",
+      "details": {
+        "max_active_users": 2,
+        "per_user_daily_quota": 5000,
+        "monthly_creation_limit": 4,
+        "cooldown_days": 1,
+        "enabled": true
+      },
+      "ip_address": "unknown",
+      "session_id": "36ca25f6-dd28-487d-b548-cff3509e7bbb"
+    },
+    {
+      "timestamp": "2025-11-04T23:11:29.501201",
+      "admin_username": "Mohamed Abdo",
+      "action": "admin_limits_updated",
+      "target_username": "Ziad moafy",
+      "details": {
+        "max_active_users": 7,
+        "per_user_daily_quota": 5000,
+        "monthly_creation_limit": 4,
+        "cooldown_days": 1,
+        "enabled": true
+      },
+      "ip_address": "unknown",
+      "session_id": "36ca25f6-dd28-487d-b548-cff3509e7bbb"
+    },
+    {
+      "timestamp": "2025-11-04T23:11:34.411076",
+      "admin_username": "Ziad moafy",
+      "action": "user_created",
+      "target_username": "wefwefwefwef",
+      "details": {
+        "role": "Auditor",
+        "daily_limit": 5000,
+        "has_readymode": false
+      },
+      "ip_address": "unknown",
+      "session_id": "e84534fa-eea7-44c1-bc0b-e6e929e902e6"
+    },
+    {
+      "timestamp": "2025-11-04T23:17:16.400444",
+      "admin_username": "Mohamed Abdo",
+      "action": "user_deleted",
+      "target_username": "wefwefwefwef",
+      "details": {
+        "role": "Auditor",
+        "daily_limit": 5000,
+        "had_readymode": false
+      },
+      "ip_address": "unknown",
+      "session_id": "17308552-6ad0-4058-b6a4-a71ff8e816d8"
+    },
+    {
+      "timestamp": "2025-11-04T23:17:53.800563",
+      "admin_username": "Mohamed Abdo",
+      "action": "admin_limits_updated",
+      "target_username": "Ziad moafy",
+      "details": {
+        "max_active_users": 8,
+        "per_user_daily_quota": 5000,
+        "monthly_creation_limit": 4,
+        "cooldown_days": 1,
+        "enabled": true
+      },
+      "ip_address": "unknown",
+      "session_id": "17308552-6ad0-4058-b6a4-a71ff8e816d8"
+    },
+    {
+      "timestamp": "2025-11-04T23:26:25.038216",
+      "admin_username": "Mohamed Abdo",
+      "action": "user_deleted",
+      "target_username": "Ziad moafy",
+      "details": {
+        "role": "Admin",
+        "daily_limit": 999999,
+        "had_readymode": true
+      },
+      "ip_address": "unknown",
+      "session_id": "63d87225-d2e2-4f43-ac60-4f870dd07ab5"
+    },
+    {
+      "timestamp": "2025-11-04T23:26:33.637188",
+      "admin_username": "Mohamed Abdo",
+      "action": "user_deleted",
+      "target_username": "Ahmed Hanafy",
+      "details": {
+        "role": "Admin",
+        "daily_limit": 999999,
+        "had_readymode": true
+      },
+      "ip_address": "unknown",
+      "session_id": "63d87225-d2e2-4f43-ac60-4f870dd07ab5"
+    },
+    {
+      "timestamp": "2025-11-04T23:26:40.762202",
+      "admin_username": "Mohamed Abdo",
+      "action": "user_deleted",
+      "target_username": "Aya samir",
+      "details": {
+        "role": "Admin",
+        "daily_limit": 999999,
+        "had_readymode": true
+      },
+      "ip_address": "unknown",
+      "session_id": "63d87225-d2e2-4f43-ac60-4f870dd07ab5"
+    },
+    {
+      "timestamp": "2025-11-04T23:26:54.384507",
+      "admin_username": "Mohamed Abdo",
+      "action": "user_deleted",
+      "target_username": "auditor2",
+      "details": {
+        "role": "Auditor",
+        "daily_limit": 5000,
+        "had_readymode": true
+      },
+      "ip_address": "unknown",
+      "session_id": "63d87225-d2e2-4f43-ac60-4f870dd07ab5"
+    }
+  ]
+}
