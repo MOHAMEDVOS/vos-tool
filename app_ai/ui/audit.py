@@ -797,6 +797,11 @@ def show_audit_section(
                         dialer_name = extract_dialer_name_from_url(ready_url)
                         recordings_base = Path("Recordings")
                         agent_name_lower = agent_name.lower()
+                        all_users_mode = agent_name_lower.strip() in [
+                            "all users",
+                            "all user",
+                            "all",
+                        ]
                         target_folder = None
                         files = []
 
@@ -809,15 +814,13 @@ def show_audit_section(
 
                             for d in all_dirs:
                                 folder_name_lower = d.name.lower()
-                                if (
-                                    agent_name_lower in folder_name_lower
-                                    and d.stat().st_mtime > recent_cutoff
-                                ):
-                                    mp3_files = list(d.glob("*.mp3"))
-                                    if mp3_files:
-                                        candidate_dirs.append(
-                                            (d, mp3_files, d.stat().st_mtime)
-                                        )
+                                if d.stat().st_mtime > recent_cutoff:
+                                    if all_users_mode or agent_name_lower in folder_name_lower:
+                                        mp3_files = list(d.glob("*.mp3"))
+                                        if mp3_files:
+                                            candidate_dirs.append(
+                                                (d, mp3_files, d.stat().st_mtime)
+                                            )
 
                             if candidate_dirs:
                                 candidate_dirs.sort(
@@ -832,11 +835,16 @@ def show_audit_section(
                                         for d in auditor_dir.iterdir()
                                         if d.is_dir()
                                     ]
-                                    matching_subdirs = [
-                                        d
-                                        for d in subdirs
-                                        if agent_name_lower in d.name.lower()
-                                    ]
+                                    if all_users_mode:
+                                        matching_subdirs = [
+                                            d for d in subdirs if list(d.glob("*.mp3"))
+                                        ]
+                                    else:
+                                        matching_subdirs = [
+                                            d
+                                            for d in subdirs
+                                            if agent_name_lower in d.name.lower()
+                                        ]
                                     if matching_subdirs:
                                         matching_subdirs.sort(
                                             key=lambda x: x.stat().st_mtime,
@@ -848,18 +856,26 @@ def show_audit_section(
                         if not files and recordings_base.exists():
                             all_mp3s = list(recordings_base.rglob("*.mp3"))
                             if all_mp3s:
-                                agent_files = [
-                                    f
-                                    for f in all_mp3s
-                                    if agent_name_lower in f.parent.name.lower()
-                                ]
-                                if agent_files:
-                                    agent_files.sort(
+                                if all_users_mode:
+                                    all_mp3s.sort(
                                         key=lambda f: f.stat().st_mtime,
                                         reverse=True,
                                     )
-                                    target_folder = agent_files[0].parent
+                                    target_folder = all_mp3s[0].parent
                                     files = list(target_folder.glob("*.mp3"))
+                                else:
+                                    agent_files = [
+                                        f
+                                        for f in all_mp3s
+                                        if agent_name_lower in f.parent.name.lower()
+                                    ]
+                                    if agent_files:
+                                        agent_files.sort(
+                                            key=lambda f: f.stat().st_mtime,
+                                            reverse=True,
+                                        )
+                                        target_folder = agent_files[0].parent
+                                        files = list(target_folder.glob("*.mp3"))
 
                         if not files:
                             st.error(
@@ -878,9 +894,11 @@ def show_audit_section(
                             st.write(
                                 "4. Refresh the page and retry once the folder is visible"
                             )
-                            raise Exception(
-                                f"No files found for agent '{agent_name}'"
-                            )
+                            # End the audit cleanly instead of crashing the app
+                            st.session_state.audit_in_progress = False
+                            if "audit_in_progress_state" in st.session_state:
+                                del st.session_state["audit_in_progress_state"]
+                            return
 
                         # Analyze files based on audit mode
                         metadata = {"dialer_name": dialer_name}

@@ -48,8 +48,6 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 # Install llama-cpp-python with CUDA support (for RTX 4090)
-RUN CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install --no-cache-dir llama-cpp-python || \
-    pip install --no-cache-dir llama-cpp-python
 
 # Install remaining dependencies
 RUN pip install --no-cache-dir -r requirements.txt
