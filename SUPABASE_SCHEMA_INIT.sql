@@ -10,10 +10,13 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     username VARCHAR(255) UNIQUE NOT NULL,
     app_pass_hash VARCHAR(255) NOT NULL,
+    app_pass_salt VARCHAR(255),
     readymode_user VARCHAR(255),
     readymode_pass_encrypted TEXT,
+    assemblyai_api_key_encrypted TEXT,
     daily_limit INTEGER DEFAULT 5000,
     role VARCHAR(50) DEFAULT 'Auditor',
+    created_by VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
