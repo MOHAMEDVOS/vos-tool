@@ -973,25 +973,25 @@ class PhraseLearningManager:
                             cursor.close()
                     else:
                         # SQLite - use direct execute
-                        cursor = conn.execute("""
-                            SELECT id, usage_count FROM repository_phrases 
-                            WHERE phrase = ? AND category = ?
-                        """, (clean_phrase, category))
-                        existing = cursor.fetchone()
-                        
-                        if existing:
-                            # Update usage count
-                            conn.execute("""
-                                UPDATE repository_phrases 
-                                SET usage_count = usage_count + 1
-                                WHERE id = ?
-                            """, (existing[0],))
-                        else:
-                            # Insert new phrase
-                            conn.execute("""
-                                INSERT INTO repository_phrases 
-                                (phrase, category, source, usage_count) VALUES (?, ?, ?, 1)
-                            """, (clean_phrase, category, source))
+                    cursor = conn.execute("""
+                        SELECT id, usage_count FROM repository_phrases 
+                        WHERE phrase = ? AND category = ?
+                    """, (clean_phrase, category))
+                    existing = cursor.fetchone()
+                    
+                    if existing:
+                        # Update usage count
+                        conn.execute("""
+                            UPDATE repository_phrases 
+                            SET usage_count = usage_count + 1
+                            WHERE id = ?
+                        """, (existing[0],))
+                    else:
+                        # Insert new phrase
+                        conn.execute("""
+                            INSERT INTO repository_phrases 
+                            (phrase, category, source, usage_count) VALUES (?, ?, ?, 1)
+                        """, (clean_phrase, category, source))
                 except Exception as e:
                     logger.warning(f"Failed to track phrase in repository_phrases table: {e}")
                 finally:
@@ -1093,13 +1093,13 @@ class PhraseLearningManager:
                     WHERE status = 'pending'
                     ORDER BY confidence DESC, detection_count DESC
                 """)
-            
-            all_phrases = cursor.fetchall()
-            if not all_phrases:
+                
+                all_phrases = cursor.fetchall()
+                if not all_phrases:
                 if self.use_postgresql:
                     cursor.close()
                     self._return_db_connection(conn)
-                return
+                    return
                 
                 # Group by normalized phrase text ONLY (not category)
                 phrase_groups = {}
@@ -1160,11 +1160,11 @@ class PhraseLearningManager:
                                 WHERE id = %s
                             """, (update_data['detection_count'], update_data['contexts'], update_data['id']))
                         else:
-                            conn.execute("""
-                                UPDATE pending_phrases 
-                                SET detection_count = ?, sample_contexts = ?
-                                WHERE id = ?
-                            """, (update_data['detection_count'], update_data['contexts'], update_data['id']))
+                        conn.execute("""
+                            UPDATE pending_phrases 
+                            SET detection_count = ?, sample_contexts = ?
+                            WHERE id = ?
+                        """, (update_data['detection_count'], update_data['contexts'], update_data['id']))
                     except Exception as e:
                         logger.warning(f"Error updating phrase ID {update_data['id']} during auto-cleanup: {e}")
                 
@@ -1177,11 +1177,11 @@ class PhraseLearningManager:
                             WHERE id IN ({placeholders})
                         """, duplicates_to_remove)
                     else:
-                        placeholders = ','.join(['?'] * len(duplicates_to_remove))
-                        conn.execute(f"""
-                            DELETE FROM pending_phrases 
-                            WHERE id IN ({placeholders})
-                        """, duplicates_to_remove)
+                    placeholders = ','.join(['?'] * len(duplicates_to_remove))
+                    conn.execute(f"""
+                        DELETE FROM pending_phrases 
+                        WHERE id IN ({placeholders})
+                    """, duplicates_to_remove)
                     logger.info(f"Auto-cleaned {len(duplicates_to_remove)} duplicate phrases")
                 
                 if self.use_postgresql:
@@ -1189,7 +1189,7 @@ class PhraseLearningManager:
                     cursor.close()
                     self._return_db_connection(conn)
                 else:
-                    conn.commit()
+                conn.commit()
                 
         except Exception as e:
             logger.warning(f"Auto-cleanup duplicates failed (non-critical): {e}", exc_info=True)
@@ -1230,41 +1230,41 @@ class PhraseLearningManager:
                     WHERE status = ?
                     ORDER BY quality_score DESC NULLS LAST, confidence DESC, detection_count DESC
                 """, (status,))
-            
-            phrases = []
-            for row in cursor.fetchall():
-                # Handle rows with or without new columns (backward compatibility)
-                row_len = len(row)
-                quality_score = row[9] if row_len > 9 and row[9] is not None else None
-                canonical_form = row[10] if row_len > 10 and row[10] else None
                 
-                phrase_data = {
-                    'id': row[0],
-                    'phrase': row[1],
-                    'category': row[2],
-                    'confidence': row[3],
-                    'detection_count': row[4],
-                    'first_detected': row[5],
-                    'last_detected': row[6],
-                    'sample_contexts': row[7] or "",
-                    'similar_to': row[8] or ""
-                }
+                phrases = []
+                for row in cursor.fetchall():
+                    # Handle rows with or without new columns (backward compatibility)
+                    row_len = len(row)
+                    quality_score = row[9] if row_len > 9 and row[9] is not None else None
+                    canonical_form = row[10] if row_len > 10 and row[10] else None
+                    
+                    phrase_data = {
+                        'id': row[0],
+                        'phrase': row[1],
+                        'category': row[2],
+                        'confidence': row[3],
+                        'detection_count': row[4],
+                        'first_detected': row[5],
+                        'last_detected': row[6],
+                        'sample_contexts': row[7] or "",
+                        'similar_to': row[8] or ""
+                    }
+                    
+                    # Calculate quality score if not present
+                    if quality_score is None:
+                        quality_score = self.calculate_quality_score(phrase_data)
+                    
+                    # Calculate canonical form if not present
+                    if canonical_form is None:
+                        canonical_form = self.normalize_to_canonical(row[1])
+                    
+                    phrase_data['quality_score'] = quality_score
+                    phrase_data['canonical_form'] = canonical_form
+                    phrase_data['quality_tier'] = self.get_quality_tier(quality_score)
+                    
+                    phrases.append(phrase_data)
                 
-                # Calculate quality score if not present
-                if quality_score is None:
-                    quality_score = self.calculate_quality_score(phrase_data)
-                
-                # Calculate canonical form if not present
-                if canonical_form is None:
-                    canonical_form = self.normalize_to_canonical(row[1])
-                
-                phrase_data['quality_score'] = quality_score
-                phrase_data['canonical_form'] = canonical_form
-                phrase_data['quality_tier'] = self.get_quality_tier(quality_score)
-                
-                phrases.append(phrase_data)
-            
-            return phrases
+                return phrases
                 
         except Exception as e:
             logger.error(f"Failed to get pending phrases: {e}", exc_info=True)
@@ -1322,12 +1322,12 @@ class PhraseLearningManager:
                     "UPDATE pending_phrases SET status = 'approved' WHERE id = ?",
                     (phrase_id,)
                 )
-            
-            # Add to repository
-            self._add_to_repository(phrase, category, source='admin_approved')
-            
-            logger.info(f"Approved phrase: '{phrase}' in {category}")
-            return True
+                
+                # Add to repository
+                self._add_to_repository(phrase, category, source='admin_approved')
+                
+                logger.info(f"Approved phrase: '{phrase}' in {category}")
+                return True
                 
         except Exception as e:
             logger.error(f"Failed to approve phrase: {e}", exc_info=True)
@@ -1844,11 +1844,11 @@ class PhraseLearningManager:
                 }
             else:
                 # Get stats from SQLite + JSON (original code)
-                with open(self.repository_path, 'r') as f:
-                    repository = json.load(f)
-                
-                total_phrases = sum(len(phrases) for phrases in repository["phrases"].values())
-                
+            with open(self.repository_path, 'r') as f:
+                repository = json.load(f)
+            
+            total_phrases = sum(len(phrases) for phrases in repository["phrases"].values())
+            
                 conn = self._get_db_connection()
                 cursor = conn.cursor() if hasattr(conn, 'cursor') else conn
                 
@@ -1857,17 +1857,17 @@ class PhraseLearningManager:
                 
                 cursor.execute("SELECT COUNT(*) FROM repository_phrases WHERE source = 'auto_learned'")
                 auto_learned_count = cursor.fetchone()[0]
-                
+            
                 categories = len(repository["phrases"])
                 last_updated = repository.get("last_updated", "Unknown")
                 
-                return {
-                    'total_phrases': total_phrases,
-                    'pending_count': pending_count,
-                    'auto_learned_count': auto_learned_count,
+            return {
+                'total_phrases': total_phrases,
+                'pending_count': pending_count,
+                'auto_learned_count': auto_learned_count,
                     'categories': categories,
                     'last_updated': last_updated
-                }
+            }
             
         except Exception as e:
             logger.error(f"Failed to get repository stats: {e}", exc_info=True)
@@ -1913,9 +1913,9 @@ class PhraseLearningManager:
                     cursor.close()
             else:
                 # Get phrases from JSON (original code)
-                with open(self.repository_path, 'r') as f:
-                    repository = json.load(f)
-                return repository.get("phrases", {})
+            with open(self.repository_path, 'r') as f:
+                repository = json.load(f)
+            return repository.get("phrases", {})
         except Exception as e:
             logger.error(f"Failed to get repository phrases: {e}", exc_info=True)
             return {}

@@ -229,7 +229,7 @@ class AudioProcessor:
                             logger.warning(f"Agent-only rebuttal detection timed out: {reb_error}. Treating as 'No' rebuttal.")
                             result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': 'timeout'}
                         else:
-                            logger.error(f"Agent-only rebuttal detection failed: {reb_error}")
+                        logger.error(f"Agent-only rebuttal detection failed: {reb_error}")
                             result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': str(reb_error)}
                     reb_time = time.time() - reb_start
                     logger.info(f"Agent-only rebuttal detection completed in {reb_time:.2f}s: {result['rebuttal_detection'].get('result', 'Error')}")
