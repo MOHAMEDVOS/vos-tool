@@ -17,8 +17,13 @@ models/*.gguf
 models/.cache/
 
 # Dashboard data (contains user information)
+# Ignore JSON files but allow dashboard_data structure
 *.json
 !dashboard_data/**/*.json
+# Keep dashboard_data folder structure (ignore contents but allow folder)
+dashboard_data/*
+!dashboard_data/.gitkeep
+!dashboard_data/**/
 
 # Audio recordings (privacy protection)
 # Ignore all files in Recordings folder, but keep the folder structure
@@ -32,7 +37,9 @@ recordings/*
 *.flac
 
 # Chrome profile sessions (may contain login data)
-chrome_profile_sessions/
+# Ignore all files in chrome_profile_sessions folder, but keep the folder structure
+chrome_profile_sessions/*
+!chrome_profile_sessions/.gitkeep
 chromedriver.exe
 
 # Backup directories
