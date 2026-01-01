@@ -30,8 +30,8 @@ ENV/
 # Environment files
 .env
 .env.*
-# .env.example is for reference only, not needed in containers
-.env.example
+# Note: .env.example is intentionally NOT ignored - Railway automatically copies it during builds
+# It's safe to include as it only contains template values, no real secrets
 
 # Documentation
 *.md
