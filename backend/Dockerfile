@@ -64,6 +64,15 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HOME=/tmp/.cache/huggingface \
     TRANSFORMERS_CACHE=/tmp/.cache/transformers
 
+# Debug: Check what's available in build context (temporary - remove after fix)
+RUN echo "=== Build Context Debug ===" && \
+    echo "Current directory:" && pwd && \
+    echo "Listing root:" && ls -la / 2>&1 | head -20 || true && \
+    echo "Checking for backend directory:" && \
+    (test -d backend && echo "backend/ exists" || echo "backend/ NOT found") && \
+    (test -d backend/models && echo "backend/models/ exists" || echo "backend/models/ NOT found") && \
+    (test -f backend/models/schemas.py && echo "backend/models/schemas.py exists" || echo "backend/models/schemas.py NOT found") || true
+
 # Copy only required backend code (excludes archive/, test files, etc. via .dockerignore)
 # Backend doesn't need: app.py, frontend/, ui/, static/ (frontend-only)
 # Copy backend directory (includes backend/models/, backend/api/, backend/core/, etc.)
