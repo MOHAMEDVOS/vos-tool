@@ -1,9 +1,4 @@
 {
-  "last_reset_date": "2025-12-06",
-  "admin_usage": {
-    "Aya": {
-      "total_used": 0,
-      "users_usage": {}
-    }
-  }
+  "last_reset_date": "2025-12-31",
+  "admin_usage": {}
 }

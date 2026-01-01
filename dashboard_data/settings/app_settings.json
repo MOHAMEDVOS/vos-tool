@@ -29,44 +29,5 @@
     "max_concurrent_audits": 3,
     "debug_mode": false,
     "maintenance_mode": false
-  },
-  "announcements": {
-    "items": [
-      {
-        "id": 1,
-        "message": "hi test",
-        "created_by": "Mohamed Abdo",
-        "created_at": "2025-11-26T19:32:51.540061"
-      },
-      {
-        "id": 2,
-        "message": "hi test",
-        "created_by": "Mohamed Abdo",
-        "created_at": "2025-11-26T19:33:55.569900"
-      },
-      {
-        "id": 3,
-        "message": "123",
-        "created_by": "Mohamed Abdo",
-        "created_at": "2025-11-26T20:36:22.785084"
-      },
-      {
-        "id": 4,
-        "message": "alo alo",
-        "created_by": "Mohamed Abdo",
-        "created_at": "2025-11-26T20:49:20.154821"
-      },
-      {
-        "id": 5,
-        "message": "ii",
-        "created_by": "Mohamed Abdo",
-        "created_at": "2025-11-26T21:01:05.314568"
-      }
-    ],
-    "current_id": 5,
-    "user_last_read": {
-      "Mohamed Abdo": 5,
-      "Aya": 4
-    }
   }
 }

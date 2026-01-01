@@ -1,30 +1,46 @@
 {
-  "Mohamed Abdo": {
-    "readymode_user": "Auditor1",
-    "daily_limit": 999999,
-    "app_pass_hash": "b6EznWz9PiuuGiK59HcGtULRNUQqOS5qynHJTmr9jc4=",
-    "app_pass_salt": "2-_A6l2CXajZK_Mye4FjNJ_vgwhyYc7LZwDF9Ku5Xus=",
-    "readymode_pass_encrypted": "Z0FBQUFBQnBFWE95NWgtRTFEMFk1OG5ieFNZSHk3UGlPM0tVN1NNRFYyckxsem1qX3FGbm16aGlYOUxKSVgzeEFzTjRkRUp3UWhLSjZIS2QwVXVZSGpqM0hKRzZXUUdhY2c9PQ==",
-    "role": "Owner"
-  },
   "Aya": {
-    "role": "Admin",
-    "readymode_user": "Auditor1",
-    "daily_limit": 999999,
-    "created_by": "Mohamed Abdo",
-    "created_date": "2025-11-12 08:28:53.250042",
+    "username": "Aya",
     "app_pass_hash": "Y3eH6UOjURFgkagW-tDiWv2iwJkZyCKhFrGSdDDCdQc=",
     "app_pass_salt": "EP58uejkFdjYpsop_TKELNpL9qD8sVcodonlVBht51U=",
-    "readymode_pass_encrypted": "Z0FBQUFBQnBGQ2tsOFRmQmlKY3FDMF8zTng2VzBZT2NYZE5ycjU3SDRCS2dUYVV2NzBwdmxNLW00Qk1kMmZoNlZzNm9FMUhWYUdkb2JpSF9tUHlZMmstc1FyOVB1WUJ2eXc9PQ=="
-  },
-  "Auditor1": {
-    "role": "Auditor",
     "readymode_user": "Auditor1",
-    "daily_limit": 5000,
+    "readymode_pass_encrypted": "Z0FBQUFBQnBGQ2tsOFRmQmlKY3FDMF8zTng2VzBZT2NYZE5ycjU3SDRCS2dUYVV2NzBwdmxNLW00Qk1kMmZoNlZzNm9FMUhWYUdkb2JpSF9tUHlZMmstc1FyOVB1WUJ2eXc9PQ==",
+    "daily_limit": 999999,
+    "role": "Admin",
     "created_by": "Mohamed Abdo",
-    "created_date": "2025-12-01 12:55:20.902159",
-    "app_pass_hash": "tlDcgdhPBJkeUvkRtP7vG3U7JWTx-GNc-C8bMAZSNt8=",
-    "app_pass_salt": "Dxtd27wvDUG0gCJlQp8kWpV5ZSBBrgzS7iKJuLK9ZsI=",
-    "readymode_pass_encrypted": "Z0FBQUFBQnBMZGFJUmx1a3U1VWVJQkFTZU9NTWUzT0pvMndlU2hrNHBmbkpHb0poZFNsMm9LSy1icFRxVnp4S2tjb0ZISEF0NzRVam5VVjE3R0dSWERVYk56bWxIRTc5a3c9PQ=="
+    "created_date": "2025-11-12T08:28:53.250042-05:00",
+    "updated_at": "2025-12-11T19:55:30.826620-05:00"
+  },
+  "Mohamed Abdo": {
+    "username": "Mohamed Abdo",
+    "app_pass_hash": "b6EznWz9PiuuGiK59HcGtULRNUQqOS5qynHJTmr9jc4=",
+    "app_pass_salt": "2-_A6l2CXajZK_Mye4FjNJ_vgwhyYc7LZwDF9Ku5Xus=",
+    "readymode_user": "Auditor1",
+    "readymode_pass_encrypted": "Z0FBQUFBQnBFWE95NWgtRTFEMFk1OG5ieFNZSHk3UGlPM0tVN1NNRFYyckxsem1qX3FGbm16aGlYOUxKSVgzeEFzTjRkRUp3UWhLSjZIS2QwVXVZSGpqM0hKRzZXUUdhY2c9PQ==",
+    "daily_limit": 999999,
+    "role": "Owner",
+    "created_by": null,
+    "created_date": "2025-12-11T19:54:46.688958-05:00",
+    "updated_at": "2025-12-11T19:55:30.809139-05:00"
+  },
+  "Yehia": {
+    "role": "Admin",
+    "app_pass": "res-2025",
+    "readymode_user": "Auditor1",
+    "readymode_pass": "Auditor1@3510",
+    "daily_limit": 999999,
+    "app_pass_hash": "2TznvsCk_VgeTmuOzaDCF6Jd5WCxEV4vj2oTCwpYCDE=",
+    "app_pass_salt": "7iAIQjPcMqS8DD_-rYAOVE4XDpuFO-hswyzptNo0br0=",
+    "readymode_pass_encrypted": "Z0FBQUFBQnBWV1M0T2VuclFVQkk1aW1PWFNhOVVlVUxIQVRLUW1kU1lfX3FSN2lPWjRJZnVJTEhlMk13d19ZZXpjbEdhenVoWUVRWE5zME9PdzRPYjlRTUdNWnJ4ZjZPUlE9PQ=="
+  },
+  "Zizi": {
+    "role": "Admin",
+    "app_pass": "1",
+    "readymode_user": "Auditor5",
+    "readymode_pass": "Auditor5@1695",
+    "daily_limit": 999999,
+    "app_pass_hash": "XDbN5QURgpTkqIlGwED0ZZedTyHUZjVeIUxIS6c5tio=",
+    "app_pass_salt": "04lJ3-qgj4vGxQUPjd9qRGLPLy94vwX2GHYnnKHdiYM=",
+    "readymode_pass_encrypted": "Z0FBQUFBQnBWV1NGd0hXNmI2LXNXZVBSY3JSWHlOZVRIZ1VSMV9CRllJdXJ6WTdTZzRVZXlqc3NseTdZTmZBOFpyVS0wbW1sVG1ScnA4MkRfU05mdElKOFZad205V1QwQ2c9PQ=="
   }
 }

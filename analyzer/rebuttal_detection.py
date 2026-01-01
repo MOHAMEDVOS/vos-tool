@@ -17,7 +17,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from models import (
     get_semantic_model as _model_get_semantic_model,
     reload_semantic_embeddings as _model_reload_semantic_embeddings,
-    get_whisper_model as _model_get_whisper_model,
+    # get_whisper_model removed - using AssemblyAI only
 )
 
 
@@ -29,8 +29,7 @@ def reload_semantic_embeddings():
     return _model_reload_semantic_embeddings()
 
 
-def _get_whisper_model():
-    return _model_get_whisper_model()
+# _get_whisper_model removed - using AssemblyAI only
 
 try:
     from lib.app_settings_manager import app_settings as persistent_app_settings
@@ -230,74 +229,63 @@ class PreprocessingPipeline:
 
 
 class TranscriptionEngine:
-    """Whisper-based speech-to-text transcription using singleton model."""
+    """
+    AssemblyAI-based transcription engine.
+    Uses AssemblyAI API exclusively for cloud-based speech-to-text transcription.
+    """
 
-    def __init__(self):
-        # Don't load model here - use global singleton
-        logger.debug("TranscriptionEngine initialized (using singleton model)")
-
-    def _load_model(self):
-        """Get the global singleton Whisper model."""
-        model = _get_whisper_model()
-        return model is not None
+    def __init__(self, api_key: Optional[str] = None):
+        """
+        Initialize transcription engine with AssemblyAI API.
+        
+        Args:
+            api_key: AssemblyAI API key. If not provided, reads from environment.
+        
+        Raises:
+            ValueError: If API key is not available.
+        """
+        try:
+            from lib.assemblyai_transcription import AssemblyAITranscriptionEngine
+            self.assemblyai_engine = AssemblyAITranscriptionEngine(api_key)
+            logger.info("TranscriptionEngine initialized with AssemblyAI API")
+        except ValueError as e:
+            logger.error(f"AssemblyAI API key required: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to initialize AssemblyAI transcription engine: {e}")
+            raise
 
     def transcribe_audio(self, audio_segment: AudioSegment) -> str:
-        """Transcribe audio using Whisper with enhanced error handling and hallucination detection."""
-        logger.debug(f"Starting transcription of {len(audio_segment)}ms audio")
-
-        # Get singleton model
-        model = _get_whisper_model()
-        if model is None:
-            logger.warning("No Whisper model available for transcription")
-            return ""
-
+        """
+        Transcribe audio using AssemblyAI API.
+        
+        Args:
+            audio_segment: pydub AudioSegment to transcribe
+            
+        Returns:
+            Transcript text
+        """
+        logger.debug(f"Starting transcription of {len(audio_segment)}ms audio with AssemblyAI")
+        
         try:
             import tempfile
             import os
             
-            # Export full AudioSegment to temp WAV file
+            # Export audio segment to temp file
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                audio_segment.export(tmp.name, format="wav", parameters=["-ac", "1", "-ar", "16000"])
+                audio_segment.export(tmp.name, format="wav")
                 tmp_path = tmp.name
             
-            logger.debug("Running Whisper transcription")
-            trans_start = time.time()
-            
-            # Determine if this is short audio for optimized parameters
-            is_short_audio = len(audio_segment) < 20000  # Less than 20 seconds
-            
-            try:
-                # OPTIMIZED WHISPER PARAMETERS FOR SHORT CALLS
-                if is_short_audio:
-                    # Use more robust settings for short audio
-                    result = model(
-                        tmp_path,
-                        language='en',
-                        task='transcribe',
-                        beam_size=5,  # Increased from default for better accuracy
-                        patience=2.0,  # More patience for short clips
-                        temperature=[0.0, 0.2, 0.4],  # Multiple temperatures for robustness
-                        compression_ratio_threshold=2.4,  # More lenient compression check
-                        logprob_threshold=-1.0,  # More lenient probability threshold
-                        no_speech_threshold=0.6,  # Adjust speech detection
-                        condition_on_previous_text=True,
-                        initial_prompt="This is a phone call conversation:"  # Provide context
-                    )
-                    logger.info("🎯 Used optimized Whisper parameters for short audio")
-                else:
-                    # Standard parameters for longer audio
-                    result = model(tmp_path, return_timestamps=True)
-            except Exception as whisper_error:
-                logger.error(f"Whisper transcription error: {whisper_error}")
-                # Try without timestamps as fallback
-                try:
-                    result = model(tmp_path)
-                except Exception as fallback_error:
-                    logger.error(f"Fallback transcription also failed: {fallback_error}")
-                    return ""
-            
-            trans_time = time.time() - trans_start
-            logger.debug(f"Whisper transcription completed in {trans_time:.2f}s")
+            logger.debug("Transcribing with AssemblyAI API")
+            # Disable language detection to avoid failures on low/zero-speech clips
+            result = self.assemblyai_engine.transcribe_file(
+                tmp_path,
+                enable_speaker_diarization=False,  # Disable for single-segment transcription
+                options={
+                    "language_detection": False,
+                    "language_code": "en"
+                }
+            )
             
             # Clean up temp file
             try:
@@ -305,35 +293,24 @@ class TranscriptionEngine:
             except:
                 pass
             
-            transcript = result.get("text", "").strip()
-            
-            # Validate transcript
-            if not transcript or len(transcript.strip()) < 2:
-                logger.warning("Transcription resulted in empty or very short text")
+            transcript = result.get("transcript", "").strip()
+            if transcript:
+                logger.debug(f"AssemblyAI transcription successful: {len(transcript)} characters")
+                return transcript
+            else:
+                logger.warning("AssemblyAI returned empty transcript")
                 return ""
                 
-            logger.debug(f"Transcription result: '{transcript[:100]}...'")
-            return transcript.lower()
-
         except Exception as e:
-            logger.error(f"Transcription failed: {e}", exc_info=True)
-            # Clean up temp file if it exists
-            try:
-                if 'tmp_path' in locals():
-                    os.unlink(tmp_path)
-            except:
-                pass
-            return ""
+            logger.error(f"AssemblyAI transcription failed: {e}")
+            raise
 
     def transcribe_dual_channels(self, agent_audio: AudioSegment, owner_audio: AudioSegment) -> Tuple[List[Dict], List[Dict]]:
-        """Transcribe both agent and owner channels with timestamps and robust error handling."""
-        logger.debug("Starting dual channel transcription")
-
-        # Get singleton model
-        model = _get_whisper_model()
-        if model is None:
-            logger.warning("No Whisper model available for dual transcription")
-            return [], []
+        """
+        Transcribe both agent and owner channels using AssemblyAI API.
+        Uses speaker diarization to separate speakers.
+        """
+        logger.debug("Starting dual channel transcription with AssemblyAI")
 
         agent_segments = []
         owner_segments = []
@@ -342,70 +319,62 @@ class TranscriptionEngine:
             import tempfile
             import os
 
-            # Transcribe agent channel with validation
-            if len(agent_audio) > 1000:  # At least 1 second of audio
+            # Combine both channels into a single file for transcription with speaker diarization
+            # AssemblyAI will identify speakers automatically
+            combined_audio = AudioSegment.from_mono_audiosegments(agent_audio, owner_audio)
+            
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                combined_audio.export(tmp.name, format="wav")
+                combined_path = tmp.name
+            
+            try:
+                # Transcribe with speaker diarization
+                result = self.assemblyai_engine.transcribe_file(
+                    combined_path,
+                    enable_speaker_diarization=True
+                )
+                
+                # Process utterances to separate by speaker
+                utterances = result.get("utterances", [])
+                words = result.get("words", [])
+                
+                # For now, assign first speaker as agent, second as owner
+                # This can be enhanced with speaker identification logic
+                speakers = result.get("speakers", [])
+                
+                for utterance in utterances:
+                    speaker = utterance.get("speaker", "")
+                    text = utterance.get("text", "").strip()
+                    start = utterance.get("start", 0)
+                    end = utterance.get("end", 0)
+                    
+                    if text and len(text) > 1:
+                        segment = {
+                            'start': start / 1000.0 if start else 0,  # Convert ms to seconds
+                            'end': end / 1000.0 if end else 0,
+                            'text': text.lower()
+                        }
+                        
+                        # Assign to agent or owner based on speaker label
+                        # Default: first speaker (A) = agent, second speaker (B) = owner
+                        if speaker == "A" or (speakers and speaker == speakers[0]):
+                            agent_segments.append(segment)
+                        else:
+                            owner_segments.append(segment)
+                
+                logger.debug(f"Dual transcription completed: {len(agent_segments)} agent segments, {len(owner_segments)} owner segments")
+                
+            finally:
+                # Clean up temp file
                 try:
-                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                        agent_audio.export(tmp.name, format="wav", parameters=["-ac", "1", "-ar", "16000"])
-                        agent_path = tmp.name
-                    
-                    logger.debug("Transcribing agent channel")
-                    agent_result = model(agent_path, return_timestamps="word")
-                    
-                    # Process agent segments
-                    if 'chunks' in agent_result:
-                        for chunk in agent_result['chunks']:
-                            text = chunk.get('text', '').strip()
-                            if text and len(text) > 1:  # Only include meaningful segments
-                                agent_segments.append({
-                                    'start': chunk.get('timestamp', [0, 0])[0],
-                                    'end': chunk.get('timestamp', [0, 0])[1],
-                                    'text': text.lower()
-                                })
-                    
-                    os.unlink(agent_path)
-                except Exception as agent_error:
-                    logger.warning(f"Agent channel transcription failed: {agent_error}")
-                    # Continue with owner channel even if agent fails
-
-            # Transcribe owner channel with validation
-            if len(owner_audio) > 1000:  # At least 1 second of audio
-                try:
-                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                        owner_audio.export(tmp.name, format="wav", parameters=["-ac", "1", "-ar", "16000"])
-                        owner_path = tmp.name
-                    
-                    logger.debug("Transcribing owner channel")
-                    owner_result = model(owner_path, return_timestamps="word")
-                    
-                    # Process owner segments
-                    if 'chunks' in owner_result:
-                        for chunk in owner_result['chunks']:
-                            text = chunk.get('text', '').strip()
-                            if text and len(text) > 1:  # Only include meaningful segments
-                                owner_segments.append({
-                                    'start': chunk.get('timestamp', [0, 0])[0],
-                                    'end': chunk.get('timestamp', [0, 0])[1],
-                                    'text': text.lower()
-                                })
-                    
-                    os.unlink(owner_path)
-                except Exception as owner_error:
-                    logger.warning(f"Owner channel transcription failed: {owner_error}")
-                    # Continue with what we have
-
-            logger.debug(f"Dual transcription completed: {len(agent_segments)} agent segments, {len(owner_segments)} owner segments")
+                    os.unlink(combined_path)
+                except:
+                    pass
+            
             return agent_segments, owner_segments
 
         except Exception as e:
             logger.error(f"Dual transcription failed: {e}", exc_info=True)
-            # Clean up any remaining temp files
-            for path_var in ['agent_path', 'owner_path']:
-                if path_var in locals():
-                    try:
-                        os.unlink(locals()[path_var])
-                    except:
-                        pass
             return [], []
 
 
@@ -1557,6 +1526,14 @@ class KeywordRepository:
             "any chance you might sell in the future",
             "any chance you might sell later",
             "any chance you might sell next year",
+            "i'm checking if there is a chance for selling in the near future",
+            "checking if there is a chance for selling in the near future",
+            "is there a chance for selling in the near future",
+            "chance for selling in the near future",
+            "i'm checking if there is a chance for sellling in the near future",  # Handle typo
+            "checking if there is a chance for sellling in the near future",  # Handle typo
+            "i'm checking if there is a chance for selling",
+            "checking if there is a chance for selling",
             "what about in the future",
             "even in the near future?",
             "even in the near future",
@@ -1684,6 +1661,11 @@ class KeywordRepository:
             "do you have another one you think about sellling it sometime soon?",
             "do you have another one",
             "do you have another one?",
+            "do you guys have another one",
+            "do you guys have another one that might be up for sales",
+            "do you have another one that might be up for sales",
+            "another one that might be up for sales",
+            "do you have another one that might be up for sale",
             "do you have different properties",
             "do you have other real estate holdings",
             "do you have alternative properties",
@@ -1747,8 +1729,38 @@ class KeywordRepository:
     }
 
     def _load_learned_phrases(self) -> Dict[str, List[str]]:
-        """Load learned phrases from the phrase learning system's repository file."""
+        """Load learned phrases from PostgreSQL database or JSON file."""
         try:
+            # Try to load from database first
+            try:
+                from lib.database import get_db_manager
+                db = get_db_manager()
+                
+                if db:
+                    query = "SELECT category, phrase FROM rebuttal_phrases ORDER BY category, phrase"
+                    results = db.execute_query(query, fetch=True)
+                    
+                    if results:
+                        learned_phrases = {}
+                        for row in results:
+                            category = row['category']
+                            phrase = row['phrase']
+                            if category not in learned_phrases:
+                                learned_phrases[category] = []
+                            learned_phrases[category].append(phrase)
+                        
+                        # Cache the result
+                        self._learned_phrases_cache = learned_phrases
+                        self._learned_phrases_timestamp = None  # Database doesn't have mtime
+                        
+                        logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
+                        return learned_phrases
+            except Exception as e:
+                logger.debug(f"Could not load from database: {e}, falling back to JSON")
+                # Fallback to JSON
+                pass
+            
+            # Fallback to JSON file
             from pathlib import Path
             import json
             import os
@@ -1953,12 +1965,17 @@ class SemanticDetectionEngine:
     def _detect_semantic_matches(self, transcript: str) -> List[Dict[str, Any]]:
         """Detect semantic matches using Sentence Transformers with batch encoding."""
         if self.phrase_embeddings is None:
+            logger.warning("⚠️ Semantic embeddings not available, skipping semantic matching")
+            return []
+        
+        if self.semantic_model is None:
+            logger.warning("⚠️ Semantic model not available, skipping semantic matching")
             return []
         
         matches = []
         
         try:
-            # Split transcript into sentences for better semantic matching
+            # Strategy 1: Split transcript into sentences for better semantic matching
             sentences = self._split_into_sentences(transcript)
             # Filter short sentences and polite closing sentences without rebuttal content
             valid_sentences = [
@@ -1966,30 +1983,76 @@ class SemanticDetectionEngine:
                 if len(s.strip()) >= 3 and not self._is_polite_closing(s)
             ]
             
-            if not valid_sentences:
+            # Strategy 2: Also try matching longer context windows (2-3 sentences together)
+            # This helps catch rebuttals that span multiple sentences
+            context_windows = []
+            if len(valid_sentences) >= 2:
+                for i in range(len(valid_sentences) - 1):
+                    # Create 2-sentence windows
+                    window = valid_sentences[i] + " " + valid_sentences[i + 1]
+                    if len(window.strip()) >= 10:  # Only meaningful windows
+                        context_windows.append(window)
+                # Also try 3-sentence windows for longer rebuttals
+                if len(valid_sentences) >= 3:
+                    for i in range(len(valid_sentences) - 2):
+                        window = valid_sentences[i] + " " + valid_sentences[i + 1] + " " + valid_sentences[i + 2]
+                        if len(window.strip()) >= 15:
+                            context_windows.append(window)
+            
+            # Strategy 3: Also try the full transcript (for very short transcripts)
+            all_texts_to_match = list(valid_sentences)
+            if context_windows:
+                all_texts_to_match.extend(context_windows)
+            # Add full transcript if it's reasonably short (under 500 chars)
+            if len(transcript.strip()) < 500 and len(transcript.strip()) > 10:
+                all_texts_to_match.append(transcript.strip())
+            
+            if not all_texts_to_match:
+                logger.debug("No valid text segments for semantic matching")
                 return []
             
-            # Batch encode all sentences at once for speed
-            sentence_embeddings = self.semantic_model.encode(valid_sentences, batch_size=8)
+            logger.debug(f"Semantic matching on {len(all_texts_to_match)} text segments (sentences + context windows)")
             
-            # Calculate similarities for all sentences at once
-            similarities = cosine_similarity(sentence_embeddings, self.phrase_embeddings['embeddings'])
+            # Batch encode all texts at once for speed
+            text_embeddings = self.semantic_model.encode(all_texts_to_match, batch_size=8, show_progress_bar=False)
+            
+            # Calculate similarities for all texts at once
+            similarities = cosine_similarity(text_embeddings, self.phrase_embeddings['embeddings'])
             
             # Find matches above threshold
-            for sent_idx, sentence in enumerate(valid_sentences):
-                for emb_idx, similarity in enumerate(similarities[sent_idx]):
+            best_similarities = {}  # Track best match per phrase to avoid duplicates
+            for text_idx, text_segment in enumerate(all_texts_to_match):
+                for emb_idx, similarity in enumerate(similarities[text_idx]):
                     if similarity >= self.semantic_threshold:
                         phrase_info = self.phrase_embeddings['metadata'][emb_idx]
-                        matches.append({
-                            'phrase': phrase_info['phrase'],
-                            'category': phrase_info['category'],
-                            'confidence': float(similarity),
-                            'match_type': 'semantic',
-                            'matched_sentence': sentence.strip()
-                        })
+                        phrase_key = (phrase_info['phrase'], phrase_info['category'])
+                        
+                        # Keep the best similarity score for each phrase
+                        if phrase_key not in best_similarities or similarity > best_similarities[phrase_key]['confidence']:
+                            best_similarities[phrase_key] = {
+                                'phrase': phrase_info['phrase'],
+                                'category': phrase_info['category'],
+                                'confidence': float(similarity),
+                                'match_type': 'semantic',
+                                'matched_sentence': text_segment.strip()
+                            }
+            
+            # Convert to list and log matches
+            matches = list(best_similarities.values())
+            if matches:
+                logger.info(f"✅ Semantic matching found {len(matches)} matches (threshold: {self.semantic_threshold:.2f})")
+                for match in matches[:3]:  # Log top 3 matches
+                    logger.debug(f"  - '{match['phrase']}' (confidence: {match['confidence']:.3f})")
+            else:
+                logger.debug(f"ℹ️ No semantic matches above threshold {self.semantic_threshold:.2f}")
+                # Log the highest similarity found for debugging
+                if similarities.size > 0:
+                    max_sim = similarities.max()
+                    if max_sim > 0.5:  # Log if there was a reasonable match below threshold
+                        logger.debug(f"Highest similarity found: {max_sim:.3f} (below threshold {self.semantic_threshold:.2f})")
             
         except Exception as e:
-            logger.error(f"Error in semantic matching: {e}")
+            logger.error(f"Error in semantic matching: {e}", exc_info=True)
         
         return matches
 

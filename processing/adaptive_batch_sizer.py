@@ -157,18 +157,30 @@ class AdaptiveBatchSizer:
         self.avg_processing_time = None
 
 
-# Global batch sizer instance
-_batch_sizer = None
+# Per-user batch sizer instances
+_batch_sizers: Dict[str, AdaptiveBatchSizer] = {}
 _batch_sizer_lock = threading.Lock()
 
-def get_adaptive_batch_sizer() -> AdaptiveBatchSizer:
-    """Get or create the global adaptive batch sizer instance."""
-    global _batch_sizer
+def get_adaptive_batch_sizer(username: Optional[str] = None) -> AdaptiveBatchSizer:
+    """
+    Get or create an adaptive batch sizer instance for a user.
     
-    if _batch_sizer is None:
+    Args:
+        username: Username for per-user isolation. If None, uses default instance.
+        
+    Returns:
+        AdaptiveBatchSizer instance for the user
+    """
+    global _batch_sizers
+    
+    # Use default key if no username
+    user_key = username or "__default__"
+    
+    if user_key not in _batch_sizers:
         with _batch_sizer_lock:
-            if _batch_sizer is None:
-                _batch_sizer = AdaptiveBatchSizer()
+            if user_key not in _batch_sizers:
+                _batch_sizers[user_key] = AdaptiveBatchSizer()
+                logger.info(f"Created AdaptiveBatchSizer instance for {user_key}")
     
-    return _batch_sizer
+    return _batch_sizers[user_key]
 

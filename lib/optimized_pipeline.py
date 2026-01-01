@@ -65,16 +65,16 @@ class OptimizedPipeline:
         preload_start = time.time()
         
         try:
-            # 1. Load Whisper model
-            from models import get_whisper_model
-            self.whisper_model = get_whisper_model()
+            # 1. Skip Whisper model (using AssemblyAI for transcription instead)
+            # The app uses AssemblyAI API for cloud-based transcription, so local Whisper is not needed
+            self.whisper_model = None
             
             # 2. Load Semantic engine
             from analyzer.rebuttal_detection import SemanticDetectionEngine, KeywordRepository
             keyword_repo = KeywordRepository()
             self.semantic_engine = SemanticDetectionEngine(keyword_repo)
             
-            # 3. Create optimized detector
+            # 3. Create optimized detector (uses AssemblyAI for transcription)
             from lib.agent_only_detector import AgentOnlyRebuttalDetector
             self.detector = AgentOnlyRebuttalDetector()
             

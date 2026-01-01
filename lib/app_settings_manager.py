@@ -10,6 +10,15 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
 
+# Import database manager
+try:
+    from lib.database import get_db_manager
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
+    get_db_manager = None
+    logging.warning("Database manager not available - will fall back to JSON files")
+
 logger = logging.getLogger(__name__)
 
 class AppSettingsManager:
@@ -19,6 +28,13 @@ class AppSettingsManager:
         self.settings_dir = Path("dashboard_data/settings")
         self.settings_file = self.settings_dir / "app_settings.json"
         self.settings_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize database manager
+        try:
+            self._db_manager = get_db_manager() if DB_AVAILABLE and get_db_manager else None
+        except Exception as e:
+            logger.warning(f"Could not initialize database manager: {e}. Using JSON fallback.")
+            self._db_manager = None
         
         # Default settings
         self.default_settings = {
@@ -59,8 +75,40 @@ class AppSettingsManager:
         self._load_settings()
     
     def _load_settings(self):
-        """Load settings from file or create defaults."""
+        """Load settings from database or JSON file."""
         try:
+            # Try to load from database first
+            if self._db_manager:
+                try:
+                    query = "SELECT setting_key, setting_value FROM app_settings"
+                    results = self._db_manager.execute_query(query, fetch=True)
+                    
+                    if results:
+                        loaded_settings = {}
+                        for row in results:
+                            key = row['setting_key']
+                            value = row['setting_value']
+                            
+                            # Parse key format: "category.key" or just "category"
+                            if '.' in key:
+                                category, setting_key = key.split('.', 1)
+                                if category not in loaded_settings:
+                                    loaded_settings[category] = {}
+                                loaded_settings[category][setting_key] = value
+                            else:
+                                # Handle root-level settings
+                                loaded_settings[key] = value
+                        
+                        # Merge with defaults
+                        self.settings = self._merge_settings(self.default_settings, loaded_settings)
+                        logger.info("Loaded app settings from database")
+                        return
+                except Exception as e:
+                    logger.error(f"Error loading settings from database: {e}")
+                    # Fallback to JSON
+                    pass
+            
+            # Fallback to JSON file
             if self.settings_file.exists():
                 with open(self.settings_file, 'r', encoding='utf-8') as f:
                     loaded_settings = json.load(f)
@@ -104,8 +152,35 @@ class AppSettingsManager:
         return result
     
     def _save_settings(self):
-        """Save current settings to file."""
+        """Save current settings to database or file."""
         try:
+            # Try to save to database first
+            if self._db_manager:
+                try:
+                    # Save all settings to database
+                    for category, category_settings in self.settings.items():
+                        if isinstance(category_settings, dict):
+                            for key, value in category_settings.items():
+                                setting_key = f"{category}.{key}"
+                                query = """
+                                    INSERT INTO app_settings (setting_key, setting_value, updated_at)
+                                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                                    ON CONFLICT (setting_key) 
+                                    DO UPDATE SET setting_value = EXCLUDED.setting_value, 
+                                                  updated_at = CURRENT_TIMESTAMP
+                                """
+                                # Convert value to JSONB-compatible format (always JSON string)
+                                value_json = json.dumps(value)
+                                self._db_manager.execute_query(query, (setting_key, value_json), fetch=False)
+                    
+                    logger.info("Saved app settings to database")
+                    return
+                except Exception as e:
+                    logger.error(f"Error saving settings to database: {e}")
+                    # Fallback to JSON
+                    pass
+            
+            # Fallback to JSON file
             with open(self.settings_file, 'w', encoding='utf-8') as f:
                 json.dump(self.settings, f, indent=2)
             logger.info("Saved app settings to file")
@@ -139,6 +214,28 @@ class AppSettingsManager:
                 self.settings[category] = {}
             
             self.settings[category][key] = value
+            
+            # Save to database immediately if available
+            if self._db_manager:
+                try:
+                    setting_key = f"{category}.{key}"
+                    value_json = json.dumps(value) if not isinstance(value, str) or not value.startswith('{') else value
+                    query = """
+                        INSERT INTO app_settings (setting_key, setting_value, updated_at)
+                        VALUES (%s, %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (setting_key) 
+                        DO UPDATE SET setting_value = EXCLUDED.setting_value, 
+                                      updated_at = CURRENT_TIMESTAMP
+                    """
+                    self._db_manager.execute_query(query, (setting_key, value_json), fetch=False)
+                    logger.info(f"Updated setting in database: {category}.{key} = {value}")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error saving setting to database: {e}")
+                    # Continue to save to JSON as fallback
+                    pass
+            
+            # Fallback: save all settings to JSON
             self._save_settings()
             logger.info(f"Updated setting: {category}.{key} = {value}")
             return True
@@ -157,6 +254,29 @@ class AppSettingsManager:
                 self.settings[category] = {}
             
             self.settings[category].update(updates)
+            
+            # Save to database immediately if available
+            if self._db_manager:
+                try:
+                    for key, value in updates.items():
+                        setting_key = f"{category}.{key}"
+                        value_json = json.dumps(value) if not isinstance(value, str) or not value.startswith('{') else value
+                        query = """
+                            INSERT INTO app_settings (setting_key, setting_value, updated_at)
+                            VALUES (%s, %s, CURRENT_TIMESTAMP)
+                            ON CONFLICT (setting_key) 
+                            DO UPDATE SET setting_value = EXCLUDED.setting_value, 
+                                          updated_at = CURRENT_TIMESTAMP
+                        """
+                        self._db_manager.execute_query(query, (setting_key, value_json), fetch=False)
+                    logger.info(f"Updated {category} settings in database: {list(updates.keys())}")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error saving category to database: {e}")
+                    # Continue to save to JSON as fallback
+                    pass
+            
+            # Fallback: save all settings to JSON
             self._save_settings()
             logger.info(f"Updated {category} settings: {list(updates.keys())}")
             return True

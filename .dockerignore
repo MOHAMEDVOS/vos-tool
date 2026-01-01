@@ -1,0 +1,117 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Documentation
+*.md
+!README.md
+docs/
+DOCKER_SETUP.md
+
+# Test files
+tests/
+test_*.py
+*_test.py
+*.test.py
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Database files (will use volumes)
+*.db
+*.sqlite
+*.sqlite3
+dashboard_data/*.db
+dashboard_data/*.json
+
+# Recordings (will use volumes)
+Recordings/
+*.mp3
+*.wav
+*.m4a
+
+# Chrome sessions (will use volumes)
+chrome_profile_sessions/
+
+# Backups
+*_backup*/
+backup/
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+*.tmp
+
+# Docker
+docker-compose*.yml
+!docker-compose.yml
+Dockerfile*
+!backend/Dockerfile
+!frontend/Dockerfile
+.dockerignore
+
+# Cloud migration (keep init.sql, ignore rest)
+cloud-migration/
+!cloud-migration/init.sql
+
+# Scripts (not needed in containers)
+scripts/
+*.sh
+*.bat
+
+# Kubernetes
+kubernetes/
+*.yaml
+*.yml
+!docker-compose.yml
+
+# Terraform
+terraform/
+*.tf
+*.tfvars
+
+# Monitoring
+monitoring/
+
+# Migration logs
+migration.log
+
+# Node modules (if any)
+node_modules/
+
+# Archive
+archive/
+

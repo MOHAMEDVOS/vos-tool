@@ -1,41 +1,4 @@
 {
-  "login_timestamp": "2025-12-06T16:48:25.599416",
-  "audit_results": [
-    {
-      "Agent Name": "5626411_hq",
-      "Phone Number": "",
-      "Timestamp": "",
-      "Disposition": "",
-      "Releasing Detection": "No",
-      "Late Hello Detection": "No",
-      "Rebuttal Detection": "Error",
-      "Transcription": "",
-      "Dialer Name": "upload",
-      "Agent Intro": "No",
-      "Owner Name": "No",
-      "Reason for calling": "No",
-      "Intro Score": "33%",
-      "Status": "Needs Training",
-      "audit_timestamp": "2025-12-06 05:21:15 PM",
-      "username": "Mohamed Abdo"
-    },
-    {
-      "Agent Name": "5626411_hq",
-      "Phone Number": "",
-      "Timestamp": "",
-      "Disposition": "",
-      "Releasing Detection": "No",
-      "Late Hello Detection": "No",
-      "Rebuttal Detection": "Yes",
-      "Transcription": "hello? hello? yes, hi, this is kate williams, can i speak to fred nord? my name is kate williams, i was calling about your property in 206th street, you're still the owner, right? hello? i got it from the public city records, i'm calling to see here considering sellling this property now or maybe anytime next year? no, sharida, because we have much interestt in buying this property, it fits our criteria. so if you don't mind what's holding you back from sellling it?",
-      "Dialer Name": "upload",
-      "Agent Intro": "Yes",
-      "Owner Name": "Yes",
-      "Reason for calling": "Yes",
-      "Intro Score": "100%",
-      "Status": "Excellent",
-      "audit_timestamp": "2025-12-06 05:50:18 PM",
-      "username": "Mohamed Abdo"
-    }
-  ]
+  "login_timestamp": "2025-12-31T16:01:53.474891",
+  "audit_results": []
 }

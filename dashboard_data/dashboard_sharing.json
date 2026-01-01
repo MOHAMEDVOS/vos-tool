@@ -1,17 +1,19 @@
 {
   "sharing_groups": {
-    "Tafeda": {
+    "tafeda": {
       "members": [
         "Aya",
-        "Mohamed Abdo"
+        "Mohamed Abdo",
+        "Zizi"
       ],
       "created_by": "Mohamed Abdo",
-      "created_date": "2025-11-11",
-      "last_modified": "2025-11-11 10:46:03.143992"
+      "created_date": "2025-12-30",
+      "last_modified": "2025-12-31 12:59:54.929616"
     }
   },
   "user_dashboard_mode": {
-    "Aya": "Tafeda",
-    "Mohamed Abdo": "Tafeda"
+    "Aya": "tafeda",
+    "Mohamed Abdo": "tafeda",
+    "Zizi": "tafeda"
   }
 }

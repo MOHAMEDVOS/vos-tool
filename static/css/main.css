@@ -14,6 +14,20 @@
     padding-top: 0 !important;
 }
 
+/* Remove gap above VOS header card - target Streamlit's main container */
+[data-testid="stMainBlockContainer"],
+.stMainBlockContainer,
+.block-container[data-testid="stMainBlockContainer"],
+div[class*="st-emotion-cache"][data-testid="stMainBlockContainer"] {
+    padding-top: 0 !important;
+    padding: 0 1rem 10rem !important;
+}
+
+/* More specific targeting for the login page container */
+.main .block-container {
+    padding-top: 0 !important;
+}
+
 body {
     background-color: #0f1419;
     color: #e5e7eb;
@@ -31,18 +45,22 @@ body {
 .stTable tbody tr td {
     background-color: #06080d !important;
     color: #f2f4f8 !important;
-    border-color: rgba(255,255,255,0.05) !important;
+    border-color: rgba(20, 20, 20, 0.8) !important;
+    border: 1px solid rgba(20, 20, 20, 0.8) !important;
 }
 
 .stDataFrame [data-testid="stDataFrame"] table thead tr th,
 .stTable thead tr th {
     background-color: #0b0f16 !important;
     color: #f6f7fb !important;
-    border-color: rgba(255,255,255,0.07) !important;
+    border-color: rgba(20, 20, 20, 0.9) !important;
+    border: 1px solid rgba(20, 20, 20, 0.9) !important;
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.05) !important;
 }
 
 .stDataFrame [data-testid="stDataFrame"] table tbody tr:hover td {
-    background-color: #0b0f16 !important;
+    background-color: rgba(2, 4, 18, 0.8) !important;
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.08) !important;
 }
 
 /* ============================================
@@ -50,13 +68,33 @@ body {
    ============================================ */
 
 [data-testid="stSidebar"] {
-    background: radial-gradient(circle at top left, #020617 0%, #020617 100%) !important;
-    border-right: 1px solid rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(12px) saturate(120%);
+    background: linear-gradient(135deg, rgba(2, 4, 18, 0.95) 0%, rgba(2, 4, 18, 1) 100%) !important;
+    border-right: 1px solid rgba(20, 20, 20, 0.8);
+    backdrop-filter: blur(16px) saturate(120%);
 }
 
 [data-testid="stSidebar"] .sidebar-content {
     padding: 20px;
+}
+
+/* Reduce spacing in sidebar vertical blocks - universal selector for all variations */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"],
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+    gap: 0.5rem !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Remove/reset styling from sidebar user content */
+[data-testid="stSidebarUserContent"],
+div[class*="st-emotion-cache"][data-testid="stSidebarUserContent"],
+div.st-emotion-cache-1r1cntt[data-testid="stSidebarUserContent"] {
+    padding: 0 !important;
+    margin: 0 !important;
+    gap: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
 }
 
 .profile-card {
@@ -82,8 +120,8 @@ body {
    ============================================ */
 
 [data-testid="stSidebar"] .stButton button {
-    background: rgba(255,255,255,0.05) !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
+    background: linear-gradient(135deg, rgba(2, 4, 18, 0.6) 0%, rgba(2, 4, 18, 0.75) 100%) !important;
+    border: 2px solid rgba(20, 20, 20, 0.8) !important;
     border-radius: 14px !important;
     color: #e2e8f0 !important;
     font-size: 14px !important;
@@ -91,14 +129,15 @@ body {
     padding: 10px 14px !important;
     width: 100% !important;
     text-align: left !important;
-    transition: all 0.25s ease !important;
-    box-shadow: inset 0 0 0 rgba(0,0,0,0) !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.05), 0 0 30px rgba(37, 99, 235, 0.05) !important;
+    backdrop-filter: blur(16px) !important;
 }
 
 [data-testid="stSidebar"] .stButton button:hover {
-    background: rgba(255,255,255,0.12) !important;
-    border-color: rgba(255,255,255,0.25) !important;
-    box-shadow: 0 0 10px rgba(255,255,255,0.08) !important;
+    background: linear-gradient(135deg, rgba(2, 4, 18, 0.7) 0%, rgba(2, 4, 18, 0.8) 100%) !important;
+    border-color: rgba(20, 20, 20, 0.9) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.08), 0 0 50px rgba(37, 99, 235, 0.08) !important;
 }
 
 /* ============================================
@@ -106,46 +145,46 @@ body {
    ============================================ */
 
 .nav-tab-dashboard-active .stButton button {
-    background: rgba(31,41,55,0.6) !important;
-    border-color: #9ca3af !important;
+    background: linear-gradient(135deg, rgba(2, 4, 18, 0.8) 0%, rgba(2, 4, 18, 0.9) 100%) !important;
+    border-color: rgba(20, 20, 20, 0.95) !important;
     color: #ffffff !important;
     font-weight: 600 !important;
-    box-shadow: 0 0 25px rgba(0,0,0,0.6) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.12), 0 0 60px rgba(37, 99, 235, 0.12) !important;
 }
 
 .nav-tab-actions-active .stButton button {
-    background: rgba(139,92,246,0.15) !important;
-    border-color: #a78bfa !important;
+    background: linear-gradient(135deg, rgba(2, 4, 18, 0.8) 0%, rgba(2, 4, 18, 0.9) 100%) !important;
+    border-color: rgba(20, 20, 20, 0.95) !important;
     color: #ffffff !important;
-    box-shadow: 0 0 25px rgba(167,139,250,0.45) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.12), 0 0 60px rgba(37, 99, 235, 0.12) !important;
 }
 
 .nav-tab-audit-active .stButton button {
-    background: rgba(34,197,94,0.15) !important;
-    border-color: #22c55e !important;
+    background: linear-gradient(135deg, rgba(2, 4, 18, 0.8) 0%, rgba(2, 4, 18, 0.9) 100%) !important;
+    border-color: rgba(20, 20, 20, 0.95) !important;
     color: #ffffff !important;
-    box-shadow: 0 0 25px rgba(34,197,94,0.45) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.12), 0 0 60px rgba(37, 99, 235, 0.12) !important;
 }
 
 .nav-tab-callreview-active .stButton button {
-    background: rgba(236,72,153,0.15) !important;
-    border-color: #ec4899 !important;
+    background: linear-gradient(135deg, rgba(2, 4, 18, 0.8) 0%, rgba(2, 4, 18, 0.9) 100%) !important;
+    border-color: rgba(20, 20, 20, 0.95) !important;
     color: #ffffff !important;
-    box-shadow: 0 0 25px rgba(236,72,153,0.45) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.12), 0 0 60px rgba(37, 99, 235, 0.12) !important;
 }
 
 .nav-tab-phrases-active .stButton button {
-    background: rgba(99,102,241,0.15) !important;
-    border-color: #6366f1 !important;
+    background: linear-gradient(135deg, rgba(2, 4, 18, 0.8) 0%, rgba(2, 4, 18, 0.9) 100%) !important;
+    border-color: rgba(20, 20, 20, 0.95) !important;
     color: #ffffff !important;
-    box-shadow: 0 0 25px rgba(99,102,241,0.45) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.12), 0 0 60px rgba(37, 99, 235, 0.12) !important;
 }
 
 .nav-tab-settings-active .stButton button {
-    background: rgba(249,115,22,0.15) !important;
-    border-color: #f97316 !important;
+    background: linear-gradient(135deg, rgba(2, 4, 18, 0.8) 0%, rgba(2, 4, 18, 0.9) 100%) !important;
+    border-color: rgba(20, 20, 20, 0.95) !important;
     color: #ffffff !important;
-    box-shadow: 0 0 25px rgba(249,115,22,0.45) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.12), 0 0 60px rgba(37, 99, 235, 0.12) !important;
 }
 
 /* ============================================

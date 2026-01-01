@@ -1,0 +1,162 @@
+version: '3.8'
+
+services:
+  # FastAPI Backend Service
+  backend:
+    # IMPORTANT: Replace 'your-dockerhub-username' with your actual Docker Hub username
+    # Current: mohamedabdovos/vos-backend:latest
+    image: mohamedabdovos/vos-backend:latest
+    container_name: vos-backend
+    environment:
+      # Timezone (EST/Eastern Time)
+      - TZ=America/New_York
+      # Server settings
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      - DEBUG=${DEBUG:-false}
+      
+      # Frontend URL for CORS
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8501}
+      
+      # Security
+      - SECRET_KEY=${SECRET_KEY}
+      - JWT_SECRET=${JWT_SECRET}
+      
+      # Database (Connecting to existing PostgreSQL)
+      # ⚠️ IMPORTANT: Configure these in your .env file!
+      # Default values shown below - update .env with your actual database credentials
+      - DB_TYPE=postgresql
+      - POSTGRES_HOST=${POSTGRES_HOST:-host.docker.internal}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-vos_tool}
+      - POSTGRES_USER=${POSTGRES_USER:-vos_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      
+      # Database Connection Pool Settings (Optional)
+      - DB_POOL_MAX_SIZE=${DB_POOL_MAX_SIZE:-50}
+      - DB_CONNECT_TIMEOUT=${DB_CONNECT_TIMEOUT:-10}
+      - DB_QUERY_TIMEOUT=${DB_QUERY_TIMEOUT:-30000}
+      
+      # Concurrency Settings
+      - MAX_CONCURRENT_USERS=${MAX_CONCURRENT_USERS:-4}
+      
+      # File storage
+      - UPLOAD_DIR=/app/Recordings
+      - MAX_UPLOAD_SIZE=52428800
+      
+      # AssemblyAI
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY:-}
+      - ASSEMBLYAI_POLLING_INTERVAL=${ASSEMBLYAI_POLLING_INTERVAL:-5}
+      - ASSEMBLYAI_RETRY_ATTEMPTS=${ASSEMBLYAI_RETRY_ATTEMPTS:-3}
+      - ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION=${ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION:-true}
+      
+      # ReadyMode (optional)
+      - FORCE_READYMODE=${FORCE_READYMODE:-false}
+      - READYMODE_USER=${READYMODE_USER:-}
+      - READYMODE_PASSWORD=${READYMODE_PASSWORD:-}
+    volumes:
+      - recordings_data:/app/Recordings
+      - dashboard_data:/app/dashboard_data
+      - chrome_sessions:/app/chrome_profile_sessions
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    restart: unless-stopped
+    networks:
+      - vos-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
+  # Streamlit Frontend Service
+  frontend:
+    # IMPORTANT: Replace 'your-dockerhub-username' with your actual Docker Hub username
+    # Current: mohamedabdovos/vos-frontend:latest
+    image: mohamedabdovos/vos-frontend:latest
+    container_name: vos-frontend
+    environment:
+      # Timezone (EST/Eastern Time)
+      - TZ=America/New_York
+      # Backend API URL
+      - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
+      
+      # Streamlit settings
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
+      
+      # Deployment mode
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-enterprise}
+      - FORCE_READYMODE=${FORCE_READYMODE:-false}
+      
+      # ReadyMode credentials (optional)
+      - READYMODE_USER=${READYMODE_USER:-}
+      - READYMODE_PASSWORD=${READYMODE_PASSWORD:-}
+      
+      # Database (for direct access if needed)
+      - DB_TYPE=postgresql
+      - POSTGRES_HOST=${POSTGRES_HOST:-host.docker.internal}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-vos_tool}
+      - POSTGRES_USER=${POSTGRES_USER:-vos_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      
+      # AssemblyAI (for frontend if needed)
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY:-}
+    volumes:
+      - recordings_data:/app/Recordings
+      - dashboard_data:/app/dashboard_data
+      - chrome_sessions:/app/chrome_profile_sessions
+    ports:
+      - "${FRONTEND_PORT:-8501}:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - vos-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8501/_stcore/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+  # Optional: Redis for caching (if needed in future)
+  redis:
+    image: redis:7-alpine
+    container_name: vos-redis
+    command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}}
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - vos-network
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  recordings_data:
+    driver: local
+  dashboard_data:
+    driver: local
+  chrome_sessions:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  vos-network:
+    driver: bridge
+

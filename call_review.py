@@ -7,7 +7,8 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 import os
-from dashboard_manager import dashboard_manager
+from lib.dashboard_manager import dashboard_manager
+from streamlit.runtime.media_file_storage import MediaFileStorageError
 
 def show_call_review_page():
     """Display Call Review page with flagged calls and audio player."""
@@ -168,25 +169,60 @@ def show_audio_player(call_data, idx):
     
     # Initialize audio_path variable
     audio_path = None
+    method_used = None  # Track which method found the file for debugging
     
-    # Try to get filename from multiple possible columns
-    filename = (
-        call_data.get('File Name') or 
-        call_data.get('filename') or 
-        call_data.get('Filename') or
-        call_data.get('file_name') or
-        call_data.get('Audio File') or
+    # PRIORITY 1: Check for "File Path" column first (full path to file)
+    # This is the most reliable method since it contains the exact path
+    file_path_str = (
+        call_data.get('File Path') or 
+        call_data.get('file_path') or 
+        call_data.get('file_path_str') or
         None
     )
     
-    # If no filename, try to find by phone number (audio files contain phone numbers in name)
-    # Format: "Agent Name _ Date _ (Phone) _ Disposition.mp3"
-    if not filename or filename == 'Unknown':
+    if file_path_str:
+        try:
+            audio_path = Path(file_path_str)
+            if audio_path.exists() and audio_path.is_file():
+                method_used = "File Path column"
+            else:
+                # Path doesn't exist, continue to fallback
+                audio_path = None
+        except Exception as e:
+            # Invalid path format, continue to fallback
+            audio_path = None
+    
+    # PRIORITY 2: If no File Path, try to get filename and search recursively
+    if audio_path is None:
+        filename = (
+            call_data.get('File Name') or 
+            call_data.get('filename') or 
+            call_data.get('Filename') or
+            call_data.get('file_name') or
+            call_data.get('Audio File') or
+            None
+        )
+        
+        # If we have a filename, search recursively in Recordings folder
+        if filename and filename != 'Unknown':
+            recordings_dir = Path("Recordings")
+            if recordings_dir.exists() and recordings_dir.is_dir():
+                try:
+                    # Search recursively for the file
+                    for file in recordings_dir.rglob(filename):
+                        if file.is_file() and file.name == filename:
+                            audio_path = file
+                            method_used = "File Name (recursive search)"
+                            break
+                except Exception as e:
+                    pass  # Silently continue if search fails
+    
+    # PRIORITY 3: If still no file, try to find by phone number
+    if audio_path is None:
         phone = call_data.get('Phone Number', '')
         if phone:
             # Try to find file by phone number in Recordings folder and ALL subfolders
             recordings_dir = Path("Recordings")
-            audio_path = None  # Store full path when found
             
             if recordings_dir.exists() and recordings_dir.is_dir():
                 try:
@@ -197,7 +233,7 @@ def show_audio_player(call_data, idx):
                             # Check if phone number appears in filename (with formatting)
                             if phone in file.name:
                                 audio_path = file  # Store the full path
-                                filename = file.name
+                                method_used = "Phone number search (formatted)"
                                 break
                     
                     # If not found with formatting, try digits only
@@ -208,43 +244,59 @@ def show_audio_player(call_data, idx):
                                 file_digits = ''.join(filter(str.isdigit, file.name))
                                 if clean_phone in file_digits:
                                     audio_path = file  # Store the full path
-                                    filename = file.name
+                                    method_used = "Phone number search (digits only)"
                                     break
                 except Exception as e:
                     pass  # Silently continue if search fails
     
-    # Check if we found the file through recursive search (audio_path already set)
-    # or if we need to construct the path from filename
+    # Final check - if we still don't have a valid path, show error with details
     if audio_path is None:
-        if not filename or filename == 'Unknown':
-            st.error("Audio file not found for this call")
-            st.caption(f"Phone number: {call_data.get('Phone Number', 'N/A')}")
-            return
-        
-        # We have a filename but no path, try to find it
-        recordings_dir = Path("Recordings")
-        audio_path = recordings_dir / filename
+        st.error("Audio file not found for this call")
+        st.caption(f"Phone number: {call_data.get('Phone Number', 'N/A')}")
+        st.caption(f"File Path: {file_path_str or 'Not available'}")
+        st.caption(f"File Name: {call_data.get('File Name', 'Not available')}")
+        return
     
     # Verify the path exists and is a file
     if not audio_path.exists():
-        st.error("Audio file not found")
+        st.error(f"Audio file not found at: {audio_path}")
+        if method_used:
+            st.caption(f"Found via: {method_used}")
         return
     
     if not audio_path.is_file():
-        st.error("Invalid audio file")
+        st.error(f"Invalid audio file path: {audio_path}")
+        if method_used:
+            st.caption(f"Found via: {method_used}")
         return
     
     try:
-        # Ensure it's a file, not a directory
-        if not audio_path.is_file():
-            st.error("Invalid audio file")
-            return
-            
+        # Load and play audio
         with open(str(audio_path), 'rb') as audio_file:
             audio_bytes = audio_file.read()
-            st.audio(audio_bytes, format='audio/mp3')
+            try:
+                st.audio(audio_bytes, format='audio/mp3')
+            except MediaFileStorageError:
+                # Streamlit lost the file reference - retry by re-reading the file
+                # This happens when Streamlit's media storage clears between app reruns
+                with open(str(audio_path), 'rb') as retry_audio_file:
+                    retry_audio_bytes = retry_audio_file.read()
+                    st.audio(retry_audio_bytes, format='audio/mp3')
+        
+        # Show debug info in development (optional - can be removed in production)
+        if method_used:
+            st.caption(f"✓ Loaded via: {method_used}")
+    except MediaFileStorageError as e:
+        # If retry also fails, show error but don't crash
+        st.warning(f"Audio playback temporarily unavailable. Please refresh the page.")
+        st.caption(f"Path: {audio_path}")
+        if method_used:
+            st.caption(f"Found via: {method_used}")
     except Exception as e:
-        st.error("Unable to play audio file")
+        st.error(f"Unable to play audio file: {str(e)}")
+        st.caption(f"Path: {audio_path}")
+        if method_used:
+            st.caption(f"Found via: {method_used}")
         return
     
     # Display call details and rebuttal markers
@@ -275,3 +327,4 @@ def show_audio_player(call_data, idx):
             st.write(f"**Disposition:** {call_data['Disposition']}")
         if 'Timestamp' in call_data and pd.notna(call_data['Timestamp']):
             st.write(f"**Date:** {call_data['Timestamp']}")
+

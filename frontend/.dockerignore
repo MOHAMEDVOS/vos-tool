@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Environment files
+.env
+.env.*
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Documentation
+*.md
+docs/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+

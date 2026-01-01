@@ -38,7 +38,7 @@ def show_batch_processing_section(reload_modules_fn):
     col1, col2, col3 = st.columns(3)
     col1.metric("CPU Cores", f"{cpu_cores} cores")
     col2.metric("System RAM", f"{memory_gb:.1f} GB")
-    col3.metric("Optimized Model", "Whisper Medium")
+    col3.metric("Transcription Service", "AssemblyAI")
 
     st.markdown("---")
 
@@ -346,7 +346,7 @@ def _render_batch_benefits():
         **⚡ Speed Improvements:**
         - Up to 8x faster than sequential processing
         - Parallel processing with CPU optimization
-        - Whisper Medium model for balanced speed and accuracy
+        - AssemblyAI cloud transcription for accurate speech-to-text
         - Real-time performance (1.1x audio duration)
         """)
     with col2:
@@ -528,7 +528,7 @@ def _render_batch_benefits():
         **⚡ Speed Improvements:**
         - Up to 8x faster than sequential processing
         - Parallel processing with CPU optimization
-        - Whisper Medium model for balanced speed and accuracy
+        - AssemblyAI cloud transcription for accurate speech-to-text
         - Real-time performance (1.1x audio duration)
         """)
     with col2:

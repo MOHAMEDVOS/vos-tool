@@ -40,19 +40,10 @@ class ModelPreloader:
             
             success = True
             
-            # 1. Pre-load Whisper model
-            try:
-                logger.info("Pre-loading Whisper model...")
-                from models import get_whisper_model
-                self.whisper_model = get_whisper_model()
-                if self.whisper_model is None:
-                    logger.warning("Whisper model pre-load failed")
-                    success = False
-                else:
-                    logger.info("✓ Whisper model pre-loaded")
-            except Exception as e:
-                logger.error(f"Failed to pre-load Whisper model: {e}")
-                success = False
+            # 1. Skip Whisper model preloading (using AssemblyAI for transcription instead)
+            # The app uses AssemblyAI API for cloud-based transcription, so local Whisper is not needed
+            logger.info("Skipping Whisper model pre-load (using AssemblyAI for transcription)")
+            self.whisper_model = None
             
             # 2. Pre-load semantic model
             try:
@@ -68,7 +59,7 @@ class ModelPreloader:
                 logger.error(f"Failed to pre-load semantic model: {e}")
                 success = False
             
-            # 3. Pre-load agent detector (which uses Whisper)
+            # 3. Pre-load agent detector (uses AssemblyAI for transcription)
             try:
                 logger.info("Pre-loading agent detector...")
                 from lib.agent_only_detector import AgentOnlyRebuttalDetector

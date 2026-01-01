@@ -1,7 +1,10 @@
 import sys
 import os
+import subprocess
+import time
 os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
-from app_ai.css.custom_styles import apply_custom_styles, apply_login_styles, render_header_bar
+# Import from frontend.app_ai (backend/frontend separation architecture)
+from frontend.app_ai.css.custom_styles import apply_custom_styles, apply_login_styles, render_header_bar
 from pathlib import Path
 import importlib
 
@@ -118,21 +121,22 @@ from ui.batch import (
 )
 from config import READYMODE_URL, USERNAME, get_user_readymode_credentials, get_user_daily_limit, app_settings as runtime_app_settings
 from lib.dashboard_manager import dashboard_manager, session_manager, user_manager
-from app_ai.ui.components import (
+# Import from frontend.app_ai (backend/frontend separation architecture)
+from frontend.app_ai.ui.components import (
     show_campaign_audit_dashboard,
     show_lite_audit_dashboard,
     show_actions_section,
 )
-from app_ai.ui.phrases import (
+from frontend.app_ai.ui.phrases import (
     show_phrase_management_section,
 )
-from app_ai.ui.audit import (
+from frontend.app_ai.ui.audit import (
     show_audit_section,
 )
-from app_ai.ui.flagged import (
+from frontend.app_ai.ui.flagged import (
     show_flagged_calls_section,
 )
-from app_ai.auth.authentication import (
+from frontend.app_ai.auth.authentication import (
     check_authentication,
     is_user_authenticated,
     get_current_username,
@@ -141,6 +145,23 @@ from app_ai.auth.authentication import (
     logout_user_by_name,
 )
 import os
+
+# Import API client for backend communication
+try:
+    import sys
+    from pathlib import Path
+    # Add frontend directory to path
+    frontend_path = Path(__file__).parent / "frontend"
+    if frontend_path.exists():
+        sys.path.insert(0, str(Path(__file__).parent))
+        from frontend.api_client import get_api_client
+        API_CLIENT_AVAILABLE = True
+    else:
+        API_CLIENT_AVAILABLE = False
+        logger.warning("Frontend directory not found - using direct function calls")
+except ImportError as e:
+    API_CLIENT_AVAILABLE = False
+    logger.warning(f"API client not available - using direct function calls: {e}")
 
 # Audio player removed for simplified interface
 
@@ -174,7 +195,22 @@ except (ImportError, Exception) as e:
     READYMODE_AVAILABLE = False
     st.warning(f"ReadyMode automation not available: {str(e)}")
 
-st.set_page_config(layout="wide", page_title="VOS")
+# Set page configuration with favicon
+# Use the new Gemini-generated logo as favicon
+favicon_path = "favicon.png"
+if os.path.exists(favicon_path):
+    st.set_page_config(
+        page_title="VOS",
+        page_icon=favicon_path,
+        layout="wide"
+    )
+else:
+    # Fallback to emoji if logo not found
+    st.set_page_config(
+        page_title="VOS",
+        page_icon="🎤",
+        layout="wide"
+    )
 
 # Helper function to extract dialer name from ReadyMode URL
 def check_system_resources():
@@ -219,12 +255,12 @@ def show_login_page():
     
     # Login Header - Same as inside the app with wave animations
     st.markdown("""
-    <div style="text-align: center; padding: 1.25rem 1rem; margin-bottom: 1.25rem; background: rgba(10, 15, 26, 0.95); border-radius: 20px; border: 2px solid rgba(96, 165, 250, 0.3); position: relative; overflow: hidden;">
+    <div class="login-header-animated" style="text-align: center; padding: 1.25rem 1rem; margin-bottom: 1.25rem; background: rgba(2, 4, 18, 0.85); border-radius: 20px; border: 2px solid rgba(20, 20, 20, 0.8); position: relative; overflow: hidden; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 40px rgba(37, 99, 235, 0.05);">
         <div class="wave-overlay-1"></div>
         <div class="wave-overlay-2"></div>
-        <h1 class="vos-title">VOS</h1>
-        <h2 class="vos-subtitle">Voice Observation System</h2>
-        <p class="vos-tagline">AI That Listens, Learns, and Elevates Quality</p>
+        <h1 class="vos-title login-title-animated">VOS</h1>
+        <h2 class="vos-subtitle login-subtitle-animated">Voice Observation System</h2>
+        <p class="vos-tagline login-tagline-animated">AI That Listens, Learns, and Elevates Quality</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -237,18 +273,37 @@ def show_login_page():
         left: -100%;
         width: 100%;
         height: 100%;
-        animation: wave-slide 7s ease-in-out infinite;
+        animation: wave-slide 4s ease-in-out infinite;
         pointer-events: none;
         mix-blend-mode: screen;
+        z-index: 1;
     }
 
     .wave-overlay-1 {
-        background: linear-gradient(90deg, transparent, rgba(96, 165, 250, 0.22), transparent);
+        background: linear-gradient(90deg, 
+            transparent 0%, 
+            rgba(37, 99, 235, 0.15) 20%, 
+            rgba(37, 99, 235, 0.35) 50%, 
+            rgba(37, 99, 235, 0.15) 80%, 
+            transparent 100%);
     }
 
     .wave-overlay-2 {
-        background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.18), transparent);
+        background: linear-gradient(90deg, 
+            transparent 0%, 
+            rgba(96, 165, 250, 0.12) 25%, 
+            rgba(96, 165, 250, 0.28) 50%, 
+            rgba(96, 165, 250, 0.12) 75%, 
+            transparent 100%);
         animation-delay: 1s;
+    }
+    
+    /* Ensure text stays above waves */
+    .login-header-animated h1,
+    .login-header-animated h2,
+    .login-header-animated p {
+        position: relative;
+        z-index: 2;
     }
 
     /* Wave layer spanning the main app header (behind text and user pill) */
@@ -332,8 +387,8 @@ def show_login_page():
     }
 
     @keyframes text-glow {
-        0% { text-shadow: 0 0 5px rgba(96, 165, 250, 0.5); }
-        100% { text-shadow: 0 0 20px rgba(96, 165, 250, 0.8), 0 0 30px rgba(96, 165, 250, 0.4); }
+        0% { text-shadow: 0 0 5px rgba(37, 99, 235, 0.1); }
+        100% { text-shadow: 0 0 20px rgba(37, 99, 235, 0.15), 0 0 30px rgba(37, 99, 235, 0.08); }
     }
 
     @keyframes text-wave {
@@ -351,6 +406,81 @@ def show_login_page():
         0%, 100% { background-position: 0% 50%; }
         50% { background-position: 100% 50%; }
     }
+    
+    /* Enhanced login button - Glassy Bold Style (High Specificity) */
+    .stForm button[data-testid*="stBaseButton"],
+    .stForm button[kind="secondaryFormSubmit"],
+    .stForm button[data-testid="stBaseButton-secondaryFormSubmit"],
+    .stForm .stButton > button {
+        background: linear-gradient(135deg, rgba(2, 4, 18, 0.6) 0%, rgba(2, 4, 18, 0.75) 100%) !important;
+        color: #ffffff !important;
+        border: 2px solid rgba(20, 20, 20, 0.9) !important;
+        border-radius: 18px !important;
+        padding: 1rem 2.5rem !important;
+        font-size: 1.1rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.05em !important;
+        width: 100% !important;
+        cursor: pointer !important;
+        text-transform: uppercase !important;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.08), 0 0 60px rgba(37, 99, 235, 0.05) !important;
+        backdrop-filter: blur(16px) !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+    
+    .stForm button[data-testid*="stBaseButton"] p,
+    .stForm button[kind="secondaryFormSubmit"] p,
+    .stForm button[data-testid="stBaseButton-secondaryFormSubmit"] p,
+    .stForm .stButton > button p {
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        font-size: 1.1rem !important;
+        letter-spacing: 0.05em !important;
+        text-transform: uppercase !important;
+        text-shadow: 0 0 10px rgba(37, 99, 235, 0.08) !important;
+        margin: 0 !important;
+    }
+    
+    .stForm button[data-testid*="stBaseButton"]:hover,
+    .stForm button[kind="secondaryFormSubmit"]:hover,
+    .stForm button[data-testid="stBaseButton-secondaryFormSubmit"]:hover,
+    .stForm .stButton > button:hover {
+        background: linear-gradient(135deg, rgba(2, 4, 18, 0.7) 0%, rgba(2, 4, 18, 0.8) 100%) !important;
+        border-color: rgba(20, 20, 20, 0.95) !important;
+        transform: translateY(-2px) scale(1.02) !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(37, 99, 235, 0.12), 0 0 80px rgba(37, 99, 235, 0.08) !important;
+    }
+    
+    .stForm button[data-testid*="stBaseButton"]:hover p,
+    .stForm button[kind="secondaryFormSubmit"]:hover p,
+    .stForm button[data-testid="stBaseButton-secondaryFormSubmit"]:hover p,
+    .stForm .stButton > button:hover p {
+        text-shadow: 0 0 15px rgba(37, 99, 235, 0.12) !important;
+    }
+    
+    .stForm button[data-testid*="stBaseButton"]:active,
+    .stForm button[kind="secondaryFormSubmit"]:active,
+    .stForm button[data-testid="stBaseButton-secondaryFormSubmit"]:active,
+    .stForm .stButton > button:active {
+        transform: translateY(0) scale(0.98) !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.08), 0 0 50px rgba(37, 99, 235, 0.05) !important;
+        transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    
+    /* Remove gap above VOS header card - target Streamlit's main container */
+    [data-testid="stMainBlockContainer"],
+    div[class*="st-emotion-cache"][data-testid="stMainBlockContainer"],
+    .block-container[data-testid="stMainBlockContainer"] {
+        padding-top: 0 !important;
+        padding: 0 1rem 10rem !important;
+    }
+    
+    /* More specific targeting for login page */
+    .main .block-container {
+        padding-top: 0 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
     
@@ -363,62 +493,90 @@ def show_login_page():
             st.markdown('<div class="login-card-title">Authentication Required</div>', unsafe_allow_html=True)
             st.markdown('<div class="login-card-description">Please enter your credentials to access the Auditing platform</div>', unsafe_allow_html=True)
             
-            username = st.text_input("Username", placeholder="Enter your username")
-            password = st.text_input("Password", type="password", placeholder="Enter your password")
+            st.markdown('<div class="login-input-group login-input-1">', unsafe_allow_html=True)
+            username = st.text_input("Username", placeholder="Enter your username", key="login_username")
+            st.markdown('</div>', unsafe_allow_html=True)
             
-            login_button = st.form_submit_button("Authenticate", width='stretch')
+            st.markdown('<div class="login-input-group login-input-2">', unsafe_allow_html=True)
+            password = st.text_input("Password", type="password", placeholder="Enter your password", key="login_password")
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            st.markdown('<div class="login-button-wrapper">', unsafe_allow_html=True)
+            login_button = st.form_submit_button("LOGIN", width='stretch')
+            st.markdown('</div>', unsafe_allow_html=True)
             
             if login_button:
-                # Secure password verification
-                if user_manager.verify_user_password(username, password):
-                    # Check for existing active session
-                    existing_session_id = session_manager.check_existing_session(username)
-
-                    if existing_session_id and not st.session_state.get('force_login_attempted', False):
-                        # First attempt with existing session - block and offer force login option
-                        st.error("This account is already logged in elsewhere. Continuing will log out the other session.")
-                        st.session_state.force_login_attempted = True
-                        return
-
-                    # Either no existing session, or user clicked authenticate again (force login)
-                    import uuid
-                    new_session_id = str(uuid.uuid4())
-
-                    # Create new session (this will invalidate any existing session)
-                    if session_manager.create_session(username, new_session_id):
-                        # Clear ALL previous session state to ensure clean login
-                        for key in list(st.session_state.keys()):
-                            del st.session_state[key]
+                # Try to use API client first, fallback to direct calls
+                if API_CLIENT_AVAILABLE:
+                    try:
+                        api_client = get_api_client()
+                        # Login via API
+                        result = api_client.login(username, password)
                         
-                        # Set fresh authentication state
-                        st.session_state.authenticated = True
-                        st.session_state.username = username
-                        st.session_state.session_id = new_session_id
-
-                        # Show success message and force immediate redirect
+                        # API login successful - session state already set by api_client.login()
                         st.success(f"Welcome, {username}! Loading platform...")
-                        
-                        # Brief delay to show success message before redirect
-                        import time
                         time.sleep(0.5)
-                        
-                        # Force complete page refresh to clear login page shadow
                         st.rerun()
-                    else:
-                        st.error("Session creation failed. Please try again.")
-                        # Clear force login flag on session creation failure
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "401" in error_msg or "Invalid" in error_msg or "Unauthorized" in error_msg:
+                            st.error("Invalid credentials. Please verify your username and password.")
+                        else:
+                            st.error(f"Login failed: {error_msg}")
+                            logger.error(f"API login error: {e}", exc_info=True)
+                        # Clear force login flag on failed authentication
                         if 'force_login_attempted' in st.session_state:
                             del st.session_state.force_login_attempted
                 else:
-                    st.error("Invalid credentials. Please verify your username and password.")
-                    # Clear force login flag on failed authentication
-                    if 'force_login_attempted' in st.session_state:
-                        del st.session_state.force_login_attempted
+                    # Fallback to direct function calls (legacy mode)
+                    if user_manager.verify_user_password(username, password):
+                        # Check for existing active session
+                        existing_session_id = session_manager.check_existing_session(username)
+
+                        if existing_session_id and not st.session_state.get('force_login_attempted', False):
+                            # First attempt with existing session - block and offer force login option
+                            st.error("This account is already logged in elsewhere. Continuing will log out the other session.")
+                            st.session_state.force_login_attempted = True
+                            return
+
+                        # Either no existing session, or user clicked authenticate again (force login)
+                        import uuid
+                        new_session_id = str(uuid.uuid4())
+
+                        # Create new session (this will invalidate any existing session)
+                        if session_manager.create_session(username, new_session_id):
+                            # Clear ALL previous session state to ensure clean login
+                            for key in list(st.session_state.keys()):
+                                del st.session_state[key]
+                            
+                            # Set fresh authentication state
+                            st.session_state.authenticated = True
+                            st.session_state.username = username
+                            st.session_state.session_id = new_session_id
+
+                            # Show success message and force immediate redirect
+                            st.success(f"Welcome, {username}! Loading platform...")
+                            
+                            # Brief delay to show success message before redirect
+                            time.sleep(0.5)
+                            
+                            # Force complete page refresh to clear login page shadow
+                            st.rerun()
+                        else:
+                            st.error("Session creation failed. Please try again.")
+                            # Clear force login flag on session creation failure
+                            if 'force_login_attempted' in st.session_state:
+                                del st.session_state.force_login_attempted
+                    else:
+                        st.error("Invalid credentials. Please verify your username and password.")
+                        # Clear force login flag on failed authentication
+                        if 'force_login_attempted' in st.session_state:
+                            del st.session_state.force_login_attempted
     
     # Login Footer
     st.markdown("""
-    <div class="login-footer">
-        VOS Tool Enterprise Platform • Developed by <a href="https://t.me/Mohmed_abdo" target="_blank" style="color: #1f77b4; text-decoration: none; font-weight: bold;">Mohamed Abdo</a>
+    <div class="login-footer login-footer-animated">
+        VOS Enterprise Platform • Developed by <a href="https://t.me/Mohmed_abdo" target="_blank" style="color: #1f77b4; text-decoration: none; font-weight: bold;">Mohamed Abdo</a>
     </div>
     """, unsafe_allow_html=True)
 
@@ -447,6 +605,132 @@ def show_logout_button():
             st.success("Modules reloaded! Changes should be visible now.")
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
+
+
+def show_migration_section():
+    """Owner-only migration runner with status display."""
+    import os
+    import sys
+    import subprocess
+    import threading
+    
+    try:
+        from lib.migration_lock import (
+            is_application_read_only,
+            get_migration_status,
+        )
+    except Exception as e:
+        st.error(f"Migration tools not available: {e}")
+        return
+
+    st.markdown("""
+    <div class="settings-card">
+        <h4>Data Migration</h4>
+        <p>Move existing JSON data to PostgreSQL. The app enters read-only mode during migration.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    status = get_migration_status() or {}
+    is_running = is_application_read_only()
+    progress = status.get("progress", {}) if isinstance(status, dict) else {}
+    stage = progress.get("stage", "idle")
+    pct = progress.get("progress", 0)
+    started_at = status.get("started_at") if isinstance(status, dict) else None
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.write(f"**Status:** {'Running' if is_running else status.get('status', 'idle').title() if isinstance(status, dict) else 'idle'}")
+        st.write(f"**Stage:** {stage}")
+        st.write(f"**Progress:** {pct}%")
+        if started_at:
+            st.write(f"**Started:** {started_at}")
+    with col_b:
+        if is_running and pct:
+            st.progress(min(max(int(pct), 0), 100) / 100, text=f"{pct}% - {stage}")
+        elif is_running:
+            st.info("Migration in progress...")
+
+    if is_running:
+        st.warning("App is in read-only mode while migration runs.")
+        if st.button("Refresh Status", key="refresh_migration_status"):
+            st.rerun()
+        return
+
+    st.info("Run this once to move existing JSON data into PostgreSQL. New data already goes to PostgreSQL automatically.")
+
+    # Check if migration is already running in background
+    if 'migration_running' in st.session_state and st.session_state.get('migration_running'):
+        st.info("Migration is running in the background. Please wait...")
+        if st.button("Refresh Status", key="refresh_migration_background"):
+            st.rerun()
+        return
+    
+    # Check if migration just finished
+    if 'migration_finished' in st.session_state and st.session_state.get('migration_finished'):
+        if 'migration_output' in st.session_state and st.session_state.get('migration_output'):
+            output = st.session_state['migration_output']
+            success = st.session_state.get('migration_success', False)
+            
+            if success:
+                st.success("Migration completed successfully!")
+            else:
+                st.error("Migration failed. See details below.")
+            
+            with st.expander("Migration Output", expanded=not success):
+                st.code(output.strip() or "No output")
+            
+            if st.button("Clear Output", key="clear_migration_output"):
+                del st.session_state['migration_output']
+                del st.session_state['migration_success']
+                del st.session_state['migration_finished']
+                st.rerun()
+        else:
+            # Migration finished but no output yet, clear the finished flag
+            del st.session_state['migration_finished']
+            st.rerun()
+
+    if st.button("Run Migration Now", type="primary", key="run_migration_now"):
+        st.session_state['migration_running'] = True
+        st.session_state['migration_output'] = ""
+        st.session_state['migration_success'] = False
+        st.session_state['migration_finished'] = False
+        
+        def run_migration():
+            """Run migration in background thread."""
+            try:
+                # Set environment variables
+                env = os.environ.copy()
+                env['POSTGRES_HOST'] = os.getenv('POSTGRES_HOST', 'localhost')
+                env['POSTGRES_PORT'] = os.getenv('POSTGRES_PORT', '5432')
+                env['POSTGRES_DB'] = os.getenv('POSTGRES_DB', 'vos_tool')
+                env['POSTGRES_USER'] = os.getenv('POSTGRES_USER', 'vos_user')
+                env['POSTGRES_PASSWORD'] = os.getenv('POSTGRES_PASSWORD', '')
+                
+                result = subprocess.run(
+                    [sys.executable, "scripts/migrate_all_data_to_postgres_complete.py"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    env=env,
+                    cwd=os.getcwd(),
+                )
+                output = (result.stdout or "") + "\n" + (result.stderr or "")
+                # Store results in session state (this is safe from background thread)
+                st.session_state['migration_output'] = output
+                st.session_state['migration_success'] = (result.returncode == 0)
+            except Exception as e:
+                st.session_state['migration_output'] = f"Error: {e}"
+                st.session_state['migration_success'] = False
+            finally:
+                st.session_state['migration_running'] = False
+                st.session_state['migration_finished'] = True
+        
+        # Start migration in background thread
+        thread = threading.Thread(target=run_migration, daemon=True)
+        thread.start()
+        
+        st.info("Migration started in the background. The app will enter read-only mode. Please refresh to see progress.")
+        st.rerun()
 
 def show_settings_section():
     """System Settings – Real-time user sessions and resource monitoring."""
@@ -690,7 +974,10 @@ def show_settings_section():
                                 new_username, user_data, current_username, daily_quota=None
                             )
                             if success:
-                                st.success(f"User '{new_username}' created successfully with role {selected_role}!")
+                                # Show the message returned from the function
+                                st.success(message)
+                                # Add small delay to ensure message is visible before refresh
+                                time.sleep(1)
                                 st.rerun()
                             else:
                                 st.error(f"Failed to create user '{new_username}': {message}")
@@ -1192,7 +1479,10 @@ def show_settings_section():
                             )
                             
                             if success:
-                                st.success(f"User '{new_username}' created with {user_daily_quota} daily quota!")
+                                # Show the message returned from the function (includes quota assignment status)
+                                st.success(message)
+                                # Add small delay to ensure message is visible before refresh
+                                time.sleep(1)
                                 st.rerun()
                             else:
                                 st.error(message)
@@ -1682,24 +1972,83 @@ def show_settings_section():
                     }
                     if persistent_app_settings.update_category("detection", updates):
                         st.success("Detection settings saved!")
+
+                # --- AssemblyAI API key management (per-user) ---
+                st.markdown("""<div class="settings-card"><h4>AssemblyAI API Key</h4>
+                <p>Store a personal AssemblyAI API key for this account. This key is encrypted and
+                used for transcription when available.</p></div>""", unsafe_allow_html=True)
+
+                if API_CLIENT_AVAILABLE:
+                    try:
+                        api_client = get_api_client()
+                        status = api_client.get_assemblyai_key_status()
+                        has_key = bool(status.get("has_key"))
+                    except Exception as e:
+                        logger.error(f"Error checking AssemblyAI key status from UI: {e}")
+                        has_key = False
+
+                    current_status = "Set" if has_key else "Not set"
+                    st.write(f"Current status: **{current_status}**")
+
+                    api_key_input = st.text_input(
+                        "New AssemblyAI API key",
+                        type="password",
+                        placeholder="Enter new key or leave blank to clear",
+                        key="assemblyai_api_key_input",
+                    )
+
+                    col_save, col_clear = st.columns(2)
+                    with col_save:
+                        if st.button("Save API key", key="save_assemblyai_api_key", type="primary"):
+                            should_rerun = False
+                            try:
+                                api_client.update_assemblyai_key(api_key_input or "")
+                                st.success("AssemblyAI API key updated.")
+                                should_rerun = True
+                            except Exception as e:
+                                logger.error(f"Error updating AssemblyAI key from UI: {e}")
+                                st.error("Failed to update API key. Please try again.")
+                            if should_rerun:
+                                st.rerun()
+
+                    with col_clear:
+                        if has_key and st.button("Clear API key", key="clear_assemblyai_api_key", type="secondary"):
+                            should_rerun = False
+                            try:
+                                api_client.update_assemblyai_key("")
+                                st.success("AssemblyAI API key cleared.")
+                                should_rerun = True
+                            except Exception as e:
+                                logger.error(f"Error clearing AssemblyAI key from UI: {e}")
+                                st.error("Failed to clear API key. Please try again.")
+                            if should_rerun:
+                                st.rerun()
+                else:
+                    st.info("API client is not available; AssemblyAI key management is disabled in this environment.")
         
         st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Data Migration (Owner only)
+        if current_user_role == user_manager.ROLE_OWNER:
+            st.markdown("<br>", unsafe_allow_html=True)
+            show_migration_section()
         
         # Add custom CSS for better styling
         st.markdown("""
         <style>
         .app-config-wrapper .settings-card {
             background: linear-gradient(135deg, 
-                rgba(30, 41, 59, 0.8) 0%, 
-                rgba(51, 65, 85, 0.8) 100%);
-            border: 1px solid rgba(96, 165, 250, 0.2);
+                rgba(2, 4, 18, 0.75) 0%, 
+                rgba(2, 4, 18, 0.85) 100%);
+            border: 1px solid rgba(20, 20, 20, 0.8);
             border-radius: 12px;
             padding: 20px;
             margin-bottom: 20px;
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(16px);
             box-shadow: 
-                0 4px 20px rgba(0, 0, 0, 0.1),
-                0 0 0 1px rgba(96, 165, 250, 0.05);
+                0 4px 20px rgba(0, 0, 0, 0.4),
+                0 0 0 1px rgba(37, 99, 235, 0.05),
+                0 0 80px rgba(37, 99, 235, 0.05);
             position: relative;
             overflow: hidden;
             transition: all 0.3s ease;
@@ -1708,8 +2057,9 @@ def show_settings_section():
         .settings-card:hover {
             transform: translateY(-2px);
             box-shadow: 
-                0 8px 30px rgba(0, 0, 0, 0.15),
-                0 0 0 1px rgba(96, 165, 250, 0.1);
+                0 8px 30px rgba(0, 0, 0, 0.5),
+                0 0 0 1px rgba(37, 99, 235, 0.08),
+                0 0 100px rgba(37, 99, 235, 0.08);
         }
 
         .settings-card::before {
@@ -1721,7 +2071,7 @@ def show_settings_section():
             height: 100%;
             background: linear-gradient(90deg, 
                 transparent, 
-                rgba(96, 165, 250, 0.03), 
+                rgba(37, 99, 235, 0.03), 
                 transparent);
             animation: subtleShimmer 4s ease-in-out infinite;
         }
@@ -1747,72 +2097,80 @@ def show_settings_section():
         
         /* Better button styling */
         .app-config-wrapper .stButton > button[kind="primary"] {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            border-radius: 8px;
-            color: white;
-            font-weight: 600;
-            padding: 0.75rem 1.5rem;
-            transition: all 0.3s ease;
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.6) 0%, rgba(2, 4, 18, 0.75) 100%) !important;
+            border: 2px solid rgba(20, 20, 20, 0.9) !important;
+            border-radius: 18px !important;
+            color: white !important;
+            font-weight: 600 !important;
+            padding: 0.75rem 1.5rem !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.05), 0 0 40px rgba(37, 99, 235, 0.05) !important;
+            backdrop-filter: blur(16px) !important;
         }
         
         .app-config-wrapper .stButton > button[kind="primary"]:hover {
-            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.7) 0%, rgba(2, 4, 18, 0.8) 100%) !important;
+            transform: translateY(-2px) scale(1.02) !important;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.08), 0 0 60px rgba(37, 99, 235, 0.08) !important;
         }
         
         .app-config-wrapper .stButton > button[kind="secondary"] {
-            background: rgba(239, 68, 68, 0.1);
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            border-radius: 8px;
-            color: #ef4444;
-            font-weight: 600;
-            padding: 0.5rem 1rem;
-            transition: all 0.3s ease;
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.5) 0%, rgba(2, 4, 18, 0.65) 100%) !important;
+            border: 2px solid rgba(20, 20, 20, 0.8) !important;
+            border-radius: 18px !important;
+            color: #b4bcc8 !important;
+            font-weight: 600 !important;
+            padding: 0.5rem 1rem !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.05), 0 0 30px rgba(37, 99, 235, 0.05) !important;
         }
         
         .app-config-wrapper .stButton > button[kind="secondary"]:hover {
-            background: rgba(239, 68, 68, 0.2);
-            border-color: rgba(239, 68, 68, 0.5);
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.6) 0%, rgba(2, 4, 18, 0.75) 100%) !important;
+            border-color: rgba(20, 20, 20, 0.9) !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.08), 0 0 50px rgba(37, 99, 235, 0.08) !important;
         }
         
         /* Enhanced form styling */
         .app-config-wrapper .stForm {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.6) 0%, rgba(2, 4, 18, 0.75) 100%);
+            border: 1px solid rgba(20, 20, 20, 0.8);
             border-radius: 12px;
             padding: 1.5rem;
             margin: 1rem 0;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.05), 0 0 40px rgba(37, 99, 235, 0.05);
         }
         
         /* Expander styling */
         .app-config-wrapper .streamlit-expanderHeader {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.6) 0%, rgba(2, 4, 18, 0.75) 100%);
+            border: 1px solid rgba(20, 20, 20, 0.8);
             border-radius: 8px;
             padding: 1rem;
             font-weight: 600;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.05);
         }
         
         .app-config-wrapper .streamlit-expanderHeader:hover {
-            background: rgba(255, 255, 255, 0.08);
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.7) 0%, rgba(2, 4, 18, 0.8) 100%);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.08);
         }
         
         /* Metric improvements */
         .app-config-wrapper .metric-container {
-            background: rgba(255, 255, 255, 0.05);
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.6) 0%, rgba(2, 4, 18, 0.75) 100%);
             border-radius: 12px;
             padding: 16px;
             margin: 8px 0;
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(20, 20, 20, 0.8);
             transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.05);
         }
         
         .app-config-wrapper .metric-container:hover {
-            background: rgba(255, 255, 255, 0.08);
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.7) 0%, rgba(2, 4, 18, 0.8) 100%);
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.08), 0 0 50px rgba(37, 99, 235, 0.08);
         }
         
         /* Status indicators */
@@ -1837,9 +2195,10 @@ def show_settings_section():
         
         /* Better selectbox styling */
         .app-config-wrapper .stSelectbox > div > div {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.6) 0%, rgba(2, 4, 18, 0.75) 100%);
+            border: 2px solid rgba(20, 20, 20, 0.8);
+            border-radius: 16px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.05), 0 0 40px rgba(37, 99, 235, 0.05);
         }
         
         /* Enhanced info/success/warning messages */
@@ -1985,6 +2344,57 @@ def show_dashboard_section():
     </style>
     """, unsafe_allow_html=True)
     
+    # Personal AssemblyAI API key management (available for all roles)
+    if API_CLIENT_AVAILABLE:
+        st.markdown("""<div class=\"settings-card\"><h4>My AssemblyAI API Key</h4>
+        <p>Store a personal AssemblyAI API key for your account. This key is encrypted and
+        used for transcription when available.</p></div>""", unsafe_allow_html=True)
+
+        try:
+            api_client = get_api_client()
+            status = api_client.get_assemblyai_key_status()
+            has_key = bool(status.get("has_key"))
+        except Exception as e:
+            logger.error(f"Error checking AssemblyAI key status from dashboard UI: {e}")
+            has_key = False
+
+        current_status = "Set" if has_key else "Not set"
+        st.write(f"Your AssemblyAI API key status: **{current_status}**")
+
+        api_key_input = st.text_input(
+            "Update your AssemblyAI API key",
+            type="password",
+            placeholder="Enter new key or leave blank to clear",
+            key="dashboard_assemblyai_api_key_input",
+        )
+
+        col_save, col_clear = st.columns(2)
+        with col_save:
+            if st.button("Save My API key", key="dashboard_save_assemblyai_api_key", type="primary"):
+                should_rerun = False
+                try:
+                    api_client.update_assemblyai_key(api_key_input or "")
+                    st.success("Your AssemblyAI API key has been updated.")
+                    should_rerun = True
+                except Exception as e:
+                    logger.error(f"Error updating AssemblyAI key from dashboard UI: {e}")
+                    st.error("Failed to update API key. Please try again.")
+                if should_rerun:
+                    st.rerun()
+
+        with col_clear:
+            if has_key and st.button("Clear My API key", key="dashboard_clear_assemblyai_api_key", type="secondary"):
+                should_rerun = False
+                try:
+                    api_client.update_assemblyai_key("")
+                    st.success("Your AssemblyAI API key has been cleared.")
+                    should_rerun = True
+                except Exception as e:
+                    logger.error(f"Error clearing AssemblyAI key from dashboard UI: {e}")
+                    st.error("Failed to clear API key. Please try again.")
+                if should_rerun:
+                    st.rerun()
+    
     # Main dashboard tabs
     tab_agent, tab_lite, tab_campaign = st.tabs(["Agent Audit Dashboard", "Lite Audit Dashboard", "Campaign Audit Dashboard"])
     
@@ -2074,8 +2484,92 @@ def show_agent_audit_dashboard():
     # Display the data table with conditional styling
     st.markdown("#### Detailed Results")
     
-    # Apply conditional styling to the dataframe
-    styled_df = df.copy()
+    # Remove unwanted columns from display (keep in data for CSV export)
+    # Note: 'username' is kept and will be displayed as "Auditor"
+    columns_to_hide = ['File Name', 'File Path', 'Call Duration', 'Confidence Score', 'audit_timestamp']
+    display_df = df.copy()
+    for col in columns_to_hide:
+        if col in display_df.columns:
+            display_df = display_df.drop(columns=[col])
+    
+    # Rename 'username' to 'Auditor' for display if it exists
+    if 'username' in display_df.columns:
+        display_df = display_df.rename(columns={'username': 'Auditor'})
+    
+    # Rename 'audit_type' to 'Audit Type' if it exists
+    if 'audit_type' in display_df.columns:
+        display_df = display_df.rename(columns={'audit_type': 'Audit Type'})
+    
+    # Standard column order (matching the image)
+    standard_column_order = [
+        'Agent Name',
+        'Phone Number',
+        'Timestamp',
+        'Disposition',
+        'Releasing Detection',
+        'Late Hello Detection',
+        'Rebuttal Detection',
+        'Transcription',
+        'Owner Name',
+        'Agent Intro',
+        'Reason for calling',
+        'Intro Score',
+        'Status',
+        'Dialer Name',
+        'Audit Type',
+        'Auditor'
+    ]
+    
+    # Handle column name variations - check all possible variations
+    column_name_mapping = {}
+    
+    # Check for "Reason for calling" variations
+    if 'Reason for Calling' in display_df.columns:
+        column_name_mapping['Reason for Calling'] = 'Reason for calling'
+    elif 'Reason for calling' not in display_df.columns:
+        # Check for other possible variations
+        for col in display_df.columns:
+            if 'reason' in col.lower() and 'calling' in col.lower():
+                column_name_mapping[col] = 'Reason for calling'
+                break
+    
+    # Check for "Dialer Name" variations
+    if 'dialer_name' in display_df.columns:
+        column_name_mapping['dialer_name'] = 'Dialer Name'
+    elif 'Dialer Name' not in display_df.columns:
+        # Check for other possible variations
+        for col in display_df.columns:
+            if 'dialer' in col.lower():
+                column_name_mapping[col] = 'Dialer Name'
+                break
+    
+    # Apply column name mappings
+    if column_name_mapping:
+        display_df = display_df.rename(columns=column_name_mapping)
+    
+    # Add missing columns with default values - ensure ALL standard columns exist
+    for col in standard_column_order:
+        if col not in display_df.columns:
+            if col in ['Rebuttal Detection', 'Transcription', 'Agent Intro', 'Owner Name', 'Intro Score', 'Status', 'Audit Type']:
+                display_df[col] = 'N/A'
+            else:
+                display_df[col] = ''
+    
+    # Reorder columns to match standard order - ALL standard columns should be present now
+    # Force include all standard columns in the correct order
+    ordered_cols = []
+    for col in standard_column_order:
+        if col in display_df.columns:
+            ordered_cols.append(col)
+    
+    # Add any remaining columns that aren't in the standard order
+    remaining_cols = [col for col in display_df.columns if col not in standard_column_order]
+    
+    # Final column order: standard columns first (in correct order), then any remaining columns
+    display_df = display_df[ordered_cols + remaining_cols]
+    
+    # Apply conditional styling to the filtered dataframe
+    styled_df = display_df.copy()
     
     def highlight_problematic_agents(row):
         agent_name = row.get('Agent Name', '')
@@ -2086,11 +2580,11 @@ def show_agent_audit_dashboard():
             return [f'{base_style}; border: 1px solid #8b1a1a'] * len(row)
         return [f'{base_style}; border: 1px solid rgba(255,255,255,0.08)'] * len(row)
     
-    if not df.empty:
-        styled_df = df.style.apply(highlight_problematic_agents, axis=1)
+    if not display_df.empty:
+        styled_df = display_df.style.apply(highlight_problematic_agents, axis=1)
         st.dataframe(styled_df, width='stretch')
     else:
-        st.dataframe(df, width='stretch')
+        st.dataframe(display_df, width='stretch')
     
     # Download options - CSV only (Excel removed per user request)
     csv_data, filename = generate_csv_data(df, "agent_audit_dashboard")
@@ -2127,12 +2621,8 @@ def main():
     import warnings
     warnings.filterwarnings("ignore", message="missing ScriptRunContext")
     
-    # Set page configuration with favicon
-    st.set_page_config(
-        page_title="VOS Tool",
-        page_icon="image.png",
-        layout="wide"
-    )
+    # Note: Page configuration (including favicon) is set at module level (line ~196)
+    # to ensure it runs before any other Streamlit commands
 
 # Removed background jobs cleanup (no longer needed)
     
@@ -2211,7 +2701,7 @@ def main():
         except Exception:
             pass
 
-        st.experimental_rerun() if hasattr(st, 'experimental_rerun') else st.rerun()
+        st.rerun()
 
     # Check authentication first
     if not check_authentication():
@@ -2254,14 +2744,14 @@ def main():
         <style>
         /* VOS BRANDING */
         .sidebar-brand-vos .vos-title {
-            background: linear-gradient(135deg, #60a5fa, #3b82f6, #8b5cf6);
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.8), rgba(37, 99, 235, 0.6));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
             font-size: 2rem;
             font-weight: 700;
             letter-spacing: 0.2em;
-            filter: drop-shadow(0 0 15px rgba(96, 165, 250, 0.6));
+            filter: drop-shadow(0 0 15px rgba(37, 99, 235, 0.15));
             animation: pulse-glow 2s ease-in-out infinite;
         }
         
@@ -2273,27 +2763,28 @@ def main():
         }
         
         @keyframes pulse-glow {
-            0%, 100% { filter: drop-shadow(0 0 10px rgba(96, 165, 250, 0.4)); }
-            50% { filter: drop-shadow(0 0 20px rgba(96, 165, 250, 0.8)); }
+            0%, 100% { filter: drop-shadow(0 0 10px rgba(37, 99, 235, 0.1)); }
+            50% { filter: drop-shadow(0 0 20px rgba(37, 99, 235, 0.15)); }
         }
         
-        /* SIDEBAR BUTTONS - Dark blue background */
+        /* SIDEBAR BUTTONS - Dark theme with subtle blue */
         [data-testid="stSidebar"] button,
         section[data-testid="stSidebar"] button {
-            background: #0f172a !important;
-            border: 1px solid rgba(255, 255, 255, 0.2) !important;
-            color: #60a5fa !important;
-            transition: all 0.3s ease !important;
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.6) 0%, rgba(2, 4, 18, 0.75) 100%) !important;
+            border: 2px solid rgba(20, 20, 20, 0.8) !important;
+            color: #e2e8f0 !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
             cursor: pointer !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.05), 0 0 30px rgba(37, 99, 235, 0.05) !important;
         }
         
         [data-testid="stSidebar"] button:hover,
         section[data-testid="stSidebar"] button:hover {
-            background: #1e293b !important;
-            border-color: rgba(96, 165, 250, 0.5) !important;
-            color: #93c5fd !important;
+            background: linear-gradient(135deg, rgba(2, 4, 18, 0.7) 0%, rgba(2, 4, 18, 0.8) 100%) !important;
+            border-color: rgba(20, 20, 20, 0.9) !important;
+            color: #ffffff !important;
             transform: translateX(5px) !important;
-            box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3) !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(37, 99, 235, 0.08), 0 0 50px rgba(37, 99, 235, 0.08) !important;
         }
         </style>
         """, unsafe_allow_html=True)

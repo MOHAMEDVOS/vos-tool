@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 from pydub import AudioSegment
@@ -52,10 +53,11 @@ logger = logging.getLogger(__name__)
 _agent_detector = None
 
 
-def get_agent_detector():
+def get_agent_detector(user_api_key: Optional[str] = None):
     global _agent_detector
-    if _agent_detector is None:
-        _agent_detector = AgentOnlyRebuttalDetector()
+    # Create a new instance with user API key if different
+    if _agent_detector is None or user_api_key is not None:
+        _agent_detector = AgentOnlyRebuttalDetector(user_api_key=user_api_key)
     return _agent_detector
 
 
@@ -86,13 +88,22 @@ class AudioProcessor:
             if not file_path.exists() or not file_path.is_file():
                 return False
             file_size = file_path.stat().st_size
-            if file_size < 1024:
+            if file_size < 1024:  # Skip files smaller than 1KB (likely empty/corrupt)
                 return False
             if file_path.suffix.lower() not in self.supported_formats:
                 return False
             return True
         except Exception:
             return False
+    
+    def _check_audio_duration(self, audio: AudioSegment) -> bool:
+        """Check if audio meets minimum duration requirement (skip very short/silent files)."""
+        duration_ms = len(audio)
+        # Skip files shorter than 3 seconds (likely silent or corrupted)
+        if duration_ms < 3000:
+            logger.warning(f"Audio too short ({duration_ms}ms), skipping")
+            return False
+        return True
 
     def load_audio_file(self, file_path: Path) -> Optional[AudioSegment]:
         try:
@@ -110,7 +121,7 @@ class AudioProcessor:
             return audio.split_to_mono()[0]
         return audio
 
-    def classify_call(self, agent_audio: AudioSegment, full_audio: AudioSegment, file_name: str = "") -> Dict[str, Any]:
+    def classify_call(self, agent_audio: AudioSegment, full_audio: AudioSegment, file_name: str = "", user_api_key: Optional[str] = None) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
 
         logger.info(f"Starting classification for file: {file_name}")
@@ -125,56 +136,116 @@ class AudioProcessor:
         }
 
         try:
-            logger.debug(f"Starting releasing detection for {file_name}")
-            rel_start = time.time()
+            # Fast-path: Skip very short audio files before processing
+            if not self._check_audio_duration(agent_audio):
+                result['error'] = 'Audio too short (<3 seconds)'
+                result['rebuttal_detection'] = {'result': 'Skipped', 'transcript': '', 'reason': 'too_short'}
+                return result
+            
+            # OPTIMIZATION: Prepare temp file for AssemblyAI early (before other detections)
+            import tempfile
+            temp_file = None
             try:
-                result['releasing_detection'] = releasing_detection(agent_audio)
-            except Exception as rel_error:
-                logger.error(f"Releasing detection failed: {rel_error}")
-                result['releasing_detection'] = 'Error'
-            rel_time = time.time() - rel_start
-            logger.info(f"Releasing detection completed in {rel_time:.2f}s: {result['releasing_detection']}")
-
-            logger.debug(f"Starting late hello detection for {file_name}")
-            late_start = time.time()
-            try:
-                result['late_hello_detection'] = late_hello_detection(agent_audio, file_name)
-            except Exception as late_error:
-                logger.error(f"Late hello detection failed: {late_error}")
-                result['late_hello_detection'] = 'Error'
-            late_time = time.time() - late_start
-            logger.info(f"Late hello detection completed in {late_time:.2f}s: {result['late_hello_detection']}")
-
-            if result['releasing_detection'] == 'Yes':
-                logger.info(f"Skipping rebuttal detection for releasing call: {file_name}")
-            else:
-                logger.debug(f"Starting agent-only rebuttal detection for {file_name}")
-                reb_start = time.time()
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                    agent_audio.export(tmp.name, format="wav", parameters=["-ac", "1", "-ar", "16000"])
+                    temp_file = tmp.name
+            except Exception as temp_error:
+                logger.error(f"Failed to create temp file for transcription: {temp_error}")
+                temp_file = None
+            
+            # OPTIMIZATION: Run all three detections in parallel for maximum speed
+            # - Releasing detection (local, fast ~0.5-1s)
+            # - Late hello detection (local, fast ~0.5-1s)
+            # - Rebuttal detection (AssemblyAI API, slow ~30-60s) - starts immediately
+            logger.debug(f"Starting parallel detections for {file_name}")
+            overall_start = time.time()
+            
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                # Submit releasing and late hello tasks (fast local detections)
+                future_releasing = executor.submit(releasing_detection, agent_audio)
+                future_late_hello = executor.submit(late_hello_detection, agent_audio, file_name)
+                
+                # Start rebuttal detection (AssemblyAI) early if temp file was created
+                # This runs in parallel with releasing/late hello detections
+                # Note: Using sync version here for ThreadPoolExecutor compatibility
+                # Async version will be used in async batch processing
+                future_rebuttal = None
+                if temp_file:
+                    agent_detector = get_agent_detector(user_api_key)
+                    future_rebuttal = executor.submit(agent_detector.detect_rebuttals_in_audio, temp_file)
+                
+                # Collect results as they complete
+                # Releasing detection (fast, completes first ~0.5-1s)
+                rel_start = time.time()
                 try:
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                        agent_audio.export(tmp.name, format="wav", parameters=["-ac", "1", "-ar", "16000"])
-                        temp_file = tmp.name
-
-                    try:
-                        agent_detector = get_agent_detector()
-                        detection_result = agent_detector.detect_rebuttals_in_audio(temp_file)
-                        result['rebuttal_detection'] = {
-                            'result': detection_result['result'],
-                            'confidence_score': detection_result['confidence_score'],
-                            'transcript': detection_result['transcript']
-                        }
-                    finally:
+                    result['releasing_detection'] = future_releasing.result()
+                except Exception as rel_error:
+                    logger.error(f"Releasing detection failed: {rel_error}")
+                    result['releasing_detection'] = 'Error'
+                rel_time = time.time() - rel_start
+                logger.info(f"Releasing detection completed in {rel_time:.2f}s: {result['releasing_detection']}")
+                
+                # Late hello detection (fast, completes second ~0.5-1s)
+                late_start = time.time()
+                try:
+                    result['late_hello_detection'] = future_late_hello.result()
+                except Exception as late_error:
+                    logger.error(f"Late hello detection failed: {late_error}")
+                    result['late_hello_detection'] = 'Error'
+                late_time = time.time() - late_start
+                logger.info(f"Late hello detection completed in {late_time:.2f}s: {result['late_hello_detection']}")
+                
+                # Rebuttal detection (slow, completes last ~30-60s, but started in parallel)
+                # Check if we need rebuttal detection (skip if releasing call)
+                if result['releasing_detection'] == 'Yes':
+                    logger.info(f"Skipping rebuttal detection for releasing call: {file_name}")
+                    # Note: future_rebuttal may still be running, but we'll ignore the result
+                    # This is acceptable - the API call will complete but we won't use it
+                    if future_rebuttal:
+                        # Try to cancel if not started yet (won't work if already running, but harmless)
+                        future_rebuttal.cancel()
+                        # If cancellation failed (already running), just ignore the result
                         try:
-                            os.unlink(temp_file)
+                            # Quick timeout check - if it's running, don't wait
+                            if not future_rebuttal.done():
+                                logger.debug("Rebuttal detection already started, will complete but result will be ignored")
                         except Exception:
                             pass
-
-                except Exception as reb_error:
-                    logger.error(f"Agent-only rebuttal detection failed: {reb_error}")
-                    result['rebuttal_detection'] = {'result': 'Error', 'transcript': ''}
-                reb_time = time.time() - reb_start
-                logger.info(f"Agent-only rebuttal detection completed in {reb_time:.2f}s: {result['rebuttal_detection'].get('result', 'Error')}")
+                elif future_rebuttal:
+                    reb_start = time.time()
+                    try:
+                        detection_result = future_rebuttal.result()
+                        result['rebuttal_detection'] = {
+                            'result': detection_result['result'],
+                            'confidence_score': detection_result.get('confidence_score'),
+                            'transcript': detection_result.get('transcript', '')
+                        }
+                    except Exception as reb_error:
+                        # Check if it's a timeout error
+                        error_str = str(reb_error)
+                        is_timeout = 'ReadTimeout' in error_str or 'timeout' in error_str.lower() or 'timed out' in error_str.lower()
+                        
+                        if is_timeout:
+                            logger.warning(f"Agent-only rebuttal detection timed out: {reb_error}. Treating as 'No' rebuttal.")
+                            result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': 'timeout'}
+                        else:
+                            logger.error(f"Agent-only rebuttal detection failed: {reb_error}")
+                            result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': str(reb_error)}
+                    reb_time = time.time() - reb_start
+                    logger.info(f"Agent-only rebuttal detection completed in {reb_time:.2f}s: {result['rebuttal_detection'].get('result', 'Error')}")
+                else:
+                    logger.warning(f"Could not start rebuttal detection (temp file creation failed) for {file_name}")
+                    result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': 'temp_file_failed'}
+            
+            # Clean up temp file
+            if temp_file:
+                try:
+                    os.unlink(temp_file)
+                except Exception:
+                    pass
+            
+            overall_time = time.time() - overall_start
+            logger.info(f"All parallel detections completed for {file_name} in {overall_time:.2f}s")
 
             result['classification_success'] = True
             total_time = time.time() - start_time
@@ -186,7 +257,7 @@ class AudioProcessor:
 
         return result
 
-    def process_single_file(self, file_path: Path, additional_metadata: Optional[dict] = None, include_debug: bool = False) -> Dict:
+    def process_single_file(self, file_path: Path, additional_metadata: Optional[dict] = None, include_debug: bool = False, username: Optional[str] = None, user_api_key: Optional[str] = None) -> Dict:
         logger = logging.getLogger(__name__)
         start_time = time.time()
 
@@ -271,7 +342,7 @@ class AudioProcessor:
             }
 
         try:
-            classification = self.classify_call(agent_audio, audio, file_name=file_path.name)
+            classification = self.classify_call(agent_audio, audio, file_name=file_path.name, user_api_key=user_api_key)
         except Exception as e:
             logger.error(f"Classification failed for {file_path}: {e}", exc_info=True)
             classification = {
@@ -282,6 +353,15 @@ class AudioProcessor:
                 'rebuttal_detection': 'Error'
             }
 
+        # Extract transcription from rebuttal detection result
+        # Ensure transcription is always included, matching Agent Audit and Campaign Audit behavior
+        transcription = ''
+        if isinstance(classification['rebuttal_detection'], dict):
+            transcription = classification['rebuttal_detection'].get('transcript', '')
+        elif isinstance(classification.get('rebuttal_detection'), str):
+            # Fallback: if rebuttal_detection is a string (e.g., 'Error'), try to get transcript from classification
+            transcription = classification.get('transcript', '')
+        
         result = {
             'agent_name': agent_name,
             'phone_number': phone_number,
@@ -293,7 +373,7 @@ class AudioProcessor:
             'releasing_detection': classification['releasing_detection'],
             'late_hello_detection': classification['late_hello_detection'],
             'rebuttal_detection': classification['rebuttal_detection'],
-            'transcription': classification['rebuttal_detection'].get('transcript', '') if isinstance(classification['rebuttal_detection'], dict) else ''
+            'transcription': transcription
         }
 
         if additional_metadata:

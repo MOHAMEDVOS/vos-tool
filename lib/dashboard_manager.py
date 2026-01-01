@@ -9,7 +9,13 @@ from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any, Tuple, Callable
 import json
 import logging
-import streamlit as st
+# Streamlit import - optional, only used for getting request info
+try:
+    import streamlit as st
+    STREAMLIT_AVAILABLE = True
+except ImportError:
+    STREAMLIT_AVAILABLE = False
+    st = None
 import os
 import tempfile
 import time
@@ -41,6 +47,15 @@ except ImportError as e:
     SECURITY_AVAILABLE = False
     logging.warning(f"Security utilities not available - passwords will be stored in plain text. Error: {e}")
 
+# Import database manager
+try:
+    from lib.database import get_db_manager
+    DB_AVAILABLE = True  # Module is available, but actual connection will be tested on use
+except ImportError as e:
+    DB_AVAILABLE = False
+    get_db_manager = None
+    logging.warning(f"Database manager not available - will fall back to JSON files. Error: {e}")
+
 # Import quota management system
 try:
     from lib.quota_manager import quota_manager
@@ -55,6 +70,108 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 
+def convert_detection_to_boolean(value: Any, default: bool = False) -> bool:
+    """
+    Convert detection value to boolean for database insertion.
+    
+    Handles various input formats:
+    - String values: "Yes" -> True, "No" -> False, "Error" -> False
+    - Boolean values: True/False -> unchanged
+    - None -> default (False)
+    - Other values: converted to boolean
+    
+    Args:
+        value: Detection value (can be "Yes", "No", "Error", True, False, None, etc.)
+        default: Default value to return if value is None or invalid (default: False)
+        
+    Returns:
+        Boolean value suitable for database insertion
+    """
+    if value is None:
+        return default
+    
+    if isinstance(value, bool):
+        return value
+    
+    if isinstance(value, (int, float)):
+        return bool(value)
+    
+    # Handle string values
+    if isinstance(value, str):
+        value_lower = value.strip().lower()
+        if value_lower in ['yes', 'true', '1', 'y']:
+            return True
+        elif value_lower in ['no', 'false', '0', 'n', '', 'error', 'n/a']:
+            return False
+        else:
+            # Unknown string value - log warning and default to False
+            logger.warning(f"Unknown detection value format: '{value}', defaulting to False")
+            return False
+    
+    # For any other type, convert to boolean
+    return bool(value) if value else default
+
+
+def convert_detection_to_string(value: Any, default: str = "No") -> str:
+    """
+    Convert detection value to string for database insertion.
+    
+    Database columns are VARCHAR and expect 'Yes', 'No', or 'N/A' values.
+    
+    Handles various input formats:
+    - String values: "Yes" -> "Yes", "No" -> "No", "Error" -> "No", "N/A" -> "N/A"
+    - Boolean values: True -> "Yes", False -> "No"
+    - None -> default ("No")
+    - Other values: converted appropriately
+    
+    Args:
+        value: Detection value (can be "Yes", "No", "Error", "N/A", True, False, None, etc.)
+        default: Default value to return if value is None or invalid (default: "No")
+        
+    Returns:
+        String value suitable for database insertion ('Yes', 'No', or 'N/A')
+    """
+    if value is None:
+        return default
+    
+    # Handle boolean values
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    
+    # Handle string values
+    if isinstance(value, str):
+        value_clean = value.strip()
+        value_lower = value_clean.lower()
+        
+        if value_lower in ['yes', 'true', '1', 'y']:
+            return "Yes"
+        elif value_lower in ['no', 'false', '0', 'n', '']:
+            return "No"
+        elif value_lower in ['n/a', 'na', 'none', 'null']:
+            return "N/A"
+        elif value_lower in ['error', 'err']:
+            # Convert "Error" to "No" for consistency
+            logger.debug(f"Converting 'Error' detection value to 'No': {value}")
+            return "No"
+        else:
+            # Unknown string value - log warning and default to "No"
+            logger.warning(f"Unknown detection value format: '{value}', defaulting to 'No'")
+            return "No"
+    
+    # Handle numeric values
+    if isinstance(value, (int, float)):
+        return "Yes" if value else "No"
+    
+    # For any other type, convert to string and check
+    value_str = str(value).strip().lower()
+    if value_str in ['yes', 'true', '1']:
+        return "Yes"
+    elif value_str in ['no', 'false', '0', '']:
+        return "No"
+    else:
+        return default
+
+
 def safe_json_write(file_path: Path, data: Any, max_retries: int = 3, retry_delay: float = 0.1) -> bool:
     """
     Safely write JSON data to file with file locking and atomic writes.
@@ -64,11 +181,13 @@ def safe_json_write(file_path: Path, data: Any, max_retries: int = 3, retry_dela
     1. File locking to ensure only one process writes at a time
     2. Atomic writes (write to temp file, then rename) to prevent corruption
     3. Retry logic for transient lock failures
+    4. Migration read-only mode check
     
     Why this is important:
     - Without locking, two users saving data at the same time can corrupt the file
     - Atomic writes ensure the file is never in a partially-written state
     - Prevents data loss and audit record corruption
+    - Prevents writes during migration to avoid conflicts
     
     Args:
         file_path: Path to the JSON file to write
@@ -79,6 +198,15 @@ def safe_json_write(file_path: Path, data: Any, max_retries: int = 3, retry_dela
     Returns:
         True if write succeeded, False otherwise
     """
+    # Check if migration is in progress (read-only mode)
+    try:
+        from lib.migration_lock import is_application_read_only
+        if is_application_read_only():
+            logger.warning(f"Write blocked: Migration in progress - cannot write to {file_path}")
+            return False
+    except ImportError:
+        # Migration lock system not available, continue normally
+        pass
     temp_file = None
     file_handle = None
     
@@ -354,6 +482,11 @@ class SessionManager:
         self.sessions_file = self.sessions_dir / "active_sessions.json"
         self.session_timeout_hours = 24  # Sessions expire after 24 hours of inactivity
         self._ensure_directories()
+        try:
+            self._db_manager = get_db_manager() if DB_AVAILABLE and get_db_manager else None
+        except Exception as e:
+            logger.warning(f"Could not initialize database manager: {e}. Using JSON fallback.")
+            self._db_manager = None
         self._cleanup_expired_sessions()
 
     def _ensure_directories(self):
@@ -363,6 +496,17 @@ class SessionManager:
     def _cleanup_expired_sessions(self):
         """Remove expired sessions from storage."""
         try:
+            if self._db_manager:
+                # Mark expired sessions as inactive in database
+                query = """
+                    UPDATE user_sessions 
+                    SET is_active = FALSE 
+                    WHERE expires_at < CURRENT_TIMESTAMP AND is_active = TRUE
+                """
+                self._db_manager.execute_query(query, fetch=False)
+                return
+
+            # Fallback to JSON
             if not self.sessions_file.exists():
                 return
 
@@ -388,6 +532,14 @@ class SessionManager:
             logger.warning(f"Error cleaning up expired sessions: {e}")
 
     def create_session(self, username: str, session_id: str) -> bool:
+        # Check if migration is in progress (read-only mode)
+        try:
+            from lib.migration_lock import is_application_read_only
+            if is_application_read_only():
+                logger.warning("Write blocked: Migration in progress - cannot create session")
+                return False
+        except ImportError:
+            pass
         """
         Create a new session for user, invalidating any existing session.
 
@@ -399,7 +551,44 @@ class SessionManager:
             True if session created successfully
         """
         try:
-            # Load existing sessions with file locking
+            # Get IP address and user agent
+            # For INET type, use None instead of 'unknown' (NULL is valid for INET)
+            if STREAMLIT_AVAILABLE and st:
+                raw_ip = getattr(st, 'request', {}).get('remote_ip', None)
+                ip_address = raw_ip if raw_ip and raw_ip != 'unknown' else None
+                user_agent = getattr(st, 'request', {}).get('headers', {}).get('user-agent', 'unknown')
+            else:
+                # Backend context - no Streamlit request object available
+                ip_address = None
+                user_agent = 'backend-api'
+            
+            if self._db_manager:
+                try:
+                    # Invalidate any existing active sessions for this user
+                    invalidate_query = """
+                        UPDATE user_sessions 
+                        SET is_active = FALSE 
+                        WHERE username = %s AND is_active = TRUE
+                    """
+                    self._db_manager.execute_query(invalidate_query, (username,), fetch=False)
+                    
+                    # Create new session
+                    expires_at = datetime.now() + timedelta(hours=self.session_timeout_hours)
+                    insert_query = """
+                        INSERT INTO user_sessions (username, session_id, created_at, last_activity, 
+                                                  expires_at, ip_address, user_agent, is_active)
+                        VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, %s, %s, TRUE)
+                    """
+                    params = (username, session_id, expires_at, ip_address, user_agent)
+                    self._db_manager.execute_query(insert_query, params, fetch=False)
+                    logger.info(f"Created new session for user {username}: {session_id}")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error creating session in database: {e}")
+                    # Fallback to JSON
+                    pass
+
+            # Fallback to JSON
             sessions = safe_json_read(self.sessions_file, default={})
 
             # Create new session data
@@ -408,8 +597,8 @@ class SessionManager:
                 'username': username,
                 'created_at': datetime.now().isoformat(),
                 'last_activity': datetime.now().isoformat(),
-                'ip_address': getattr(st, 'request', {}).get('remote_ip', 'unknown'),
-                'user_agent': getattr(st, 'request', {}).get('headers', {}).get('user-agent', 'unknown')
+                'ip_address': ip_address,
+                'user_agent': user_agent
             }
 
             # Replace any existing session for this user
@@ -441,6 +630,33 @@ class SessionManager:
             True if session is valid and active
         """
         try:
+            if self._db_manager:
+                try:
+                    # Check if session exists and is active
+                    query = """
+                        SELECT * FROM user_sessions 
+                        WHERE username = %s AND session_id = %s AND is_active = TRUE
+                        AND expires_at > CURRENT_TIMESTAMP
+                    """
+                    session = self._db_manager.execute_query(query, (username, session_id), fetchone=True)
+                    if session:
+                        # Update last activity
+                        # Use INTERVAL with multiplication for PostgreSQL
+                        update_query = """
+                            UPDATE user_sessions 
+                            SET last_activity = CURRENT_TIMESTAMP,
+                                expires_at = CURRENT_TIMESTAMP + (INTERVAL '1 hour' * %s)
+                            WHERE username = %s AND session_id = %s
+                        """
+                        self._db_manager.execute_query(update_query, (self.session_timeout_hours, username, session_id), fetch=False)
+                        return True
+                    return False
+                except Exception as e:
+                    logger.error(f"Error validating session in database: {e}")
+                    # Fallback to JSON
+                    pass
+
+            # Fallback to JSON
             if not self.sessions_file.exists():
                 return False
 
@@ -488,6 +704,32 @@ class SessionManager:
             True if session was invalidated
         """
         try:
+            if self._db_manager:
+                try:
+                    if session_id:
+                        # Invalidate specific session
+                        query = """
+                            UPDATE user_sessions 
+                            SET is_active = FALSE 
+                            WHERE username = %s AND session_id = %s AND is_active = TRUE
+                        """
+                        self._db_manager.execute_query(query, (username, session_id), fetch=False)
+                    else:
+                        # Invalidate all sessions for user
+                        query = """
+                            UPDATE user_sessions 
+                            SET is_active = FALSE 
+                            WHERE username = %s AND is_active = TRUE
+                        """
+                        self._db_manager.execute_query(query, (username,), fetch=False)
+                    logger.info(f"Invalidated session for user {username}")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error invalidating session in database: {e}")
+                    # Fallback to JSON
+                    pass
+
+            # Fallback to JSON
             if not self.sessions_file.exists():
                 return False
 
@@ -527,6 +769,25 @@ class SessionManager:
             Session ID if active session exists, None otherwise
         """
         try:
+            if self._db_manager:
+                try:
+                    query = """
+                        SELECT session_id FROM user_sessions 
+                        WHERE username = %s AND is_active = TRUE 
+                        AND expires_at > CURRENT_TIMESTAMP
+                        ORDER BY last_activity DESC
+                        LIMIT 1
+                    """
+                    result = self._db_manager.execute_query(query, (username,), fetchone=True)
+                    if result:
+                        return result['session_id']
+                    return None
+                except Exception as e:
+                    logger.error(f"Error checking existing session in database: {e}")
+                    # Fallback to JSON
+                    pass
+
+            # Fallback to JSON
             if not self.sessions_file.exists():
                 return None
 
@@ -564,6 +825,32 @@ class SessionManager:
             Session information dict or None if no active session
         """
         try:
+            if self._db_manager:
+                try:
+                    query = """
+                        SELECT * FROM user_sessions 
+                        WHERE username = %s AND is_active = TRUE 
+                        AND expires_at > CURRENT_TIMESTAMP
+                        ORDER BY last_activity DESC
+                        LIMIT 1
+                    """
+                    session = self._db_manager.execute_query(query, (username,), fetchone=True)
+                    if session:
+                        return {
+                            'session_id': session['session_id'],
+                            'username': session['username'],
+                            'created_at': session['created_at'].isoformat() if session.get('created_at') else None,
+                            'last_activity': session['last_activity'].isoformat() if session.get('last_activity') else None,
+                            'ip_address': str(session.get('ip_address', 'unknown')),
+                            'user_agent': session.get('user_agent', 'unknown')
+                        }
+                    return None
+                except Exception as e:
+                    logger.error(f"Error getting session info from database: {e}")
+                    # Fallback to JSON
+                    pass
+
+            # Fallback to JSON
             if not self.sessions_file.exists():
                 return None
 
@@ -595,6 +882,32 @@ class SessionManager:
             Dict of username -> session_info for all active sessions
         """
         try:
+            if self._db_manager:
+                try:
+                    query = """
+                        SELECT * FROM user_sessions 
+                        WHERE is_active = TRUE AND expires_at > CURRENT_TIMESTAMP
+                        ORDER BY last_activity DESC
+                    """
+                    sessions_list = self._db_manager.execute_query(query, fetch=True)
+                    active_sessions = {}
+                    for session in sessions_list:
+                        username = session['username']
+                        active_sessions[username] = {
+                            'session_id': session['session_id'],
+                            'username': username,
+                            'created_at': session['created_at'].isoformat() if session.get('created_at') else None,
+                            'last_activity': session['last_activity'].isoformat() if session.get('last_activity') else None,
+                            'ip_address': str(session.get('ip_address', 'unknown')),
+                            'user_agent': session.get('user_agent', 'unknown')
+                        }
+                    return active_sessions
+                except Exception as e:
+                    logger.error(f"Error getting active sessions from database: {e}")
+                    # Fallback to JSON
+                    pass
+
+            # Fallback to JSON
             if not self.sessions_file.exists():
                 return {}
 
@@ -639,6 +952,11 @@ class UserManager:
         self.users_dir = self.base_dir / "users"
         self.users_file = self.users_dir / "users.json"
         self._ensure_directories()
+        try:
+            self._db_manager = get_db_manager() if DB_AVAILABLE and get_db_manager else None
+        except Exception as e:
+            logger.warning(f"Could not initialize database manager: {e}. Using JSON fallback.")
+            self._db_manager = None
         self._initialize_users()
     
     def _is_protected_owner_variant(self, username: str) -> bool:
@@ -678,6 +996,22 @@ class UserManager:
 
     def _initialize_users(self):
         """Initialize users file with default users if it doesn't exist."""
+        # If using database, check if we have any users first
+        if self._db_manager:
+            try:
+                query = "SELECT COUNT(*) as count FROM users"
+                result = self._db_manager.execute_query(query, fetchone=True)
+                user_count = result.get('count', 0) if result else 0
+                
+                # If database has users, don't initialize from config
+                if user_count > 0:
+                    logger.debug(f"Database has {user_count} users, skipping initialization from config")
+                    return
+            except Exception as e:
+                logger.warning(f"Error checking database for users: {e}")
+                # Continue with file-based check
+        
+        # Only initialize if JSON file doesn't exist AND database is empty
         if not self.users_file.exists():
             # Import default users from config
             try:
@@ -697,6 +1031,11 @@ class UserManager:
 
                 # Create each default user using the secure add_user path so passwords are hashed
                 for username, user_data in default_users.items():
+                    # Skip if user already exists (in database or JSON)
+                    if self.user_exists(username):
+                        logger.debug(f"User '{username}' already exists, skipping initialization")
+                        continue
+                    
                     new_user_data = {}
 
                     # Preserve daily_limit or other numeric settings from config
@@ -730,80 +1069,219 @@ class UserManager:
             self._migrate_users_to_roles()
 
     def get_all_users(self) -> Dict[str, Dict[str, Any]]:
-        """Get all users from persistent storage with file locking."""
+        """Get all users from persistent storage (database or JSON fallback)."""
+        if self._db_manager:
+            try:
+                query = "SELECT * FROM users ORDER BY username"
+                users_list = self._db_manager.execute_query(query, fetch=True)
+                users_dict = {}
+                for user in users_list:
+                    username = user['username']
+                    users_dict[username] = {
+                        'username': username,
+                        'app_pass_hash': user.get('app_pass_hash'),
+                        'app_pass_salt': user.get('app_pass_salt'),
+                        'readymode_user': user.get('readymode_user'),
+                        'readymode_pass_encrypted': user.get('readymode_pass_encrypted'),
+                        'daily_limit': user.get('daily_limit', 5000),
+                        'role': user.get('role', self.ROLE_AUDITOR),
+                        'created_by': user.get('created_by'),
+                        'created_date': user.get('created_at').isoformat() if user.get('created_at') else None,
+                        'updated_at': user.get('updated_at').isoformat() if user.get('updated_at') else None
+                    }
+                return users_dict
+            except Exception as e:
+                logger.error(f"Error loading users from database: {e}")
+                # Fallback to JSON
+                return safe_json_read(self.users_file, default={})
         return safe_json_read(self.users_file, default={})
 
     def save_all_users(self, users: Dict[str, Dict[str, Any]]) -> bool:
-        """Save all users to persistent storage with file locking to prevent race conditions."""
-        success = safe_json_write(self.users_file, users)
-        if success:
-            logger.info(f"Saved {len(users)} users to persistent storage")
-        else:
-            logger.error(f"Failed to save users to persistent storage")
-        return success
+        # Check if migration is in progress (read-only mode)
+        try:
+            from lib.migration_lock import is_application_read_only
+            if is_application_read_only():
+                logger.warning("Write blocked: Migration in progress - cannot save users")
+                if STREAMLIT_AVAILABLE and st:
+                    st.warning("⚠️ Application is in read-only mode due to data migration. Please try again later.")
+                return False
+        except ImportError:
+            pass
+        """Save all users to persistent storage (database or JSON fallback)."""
+        if self._db_manager:
+            try:
+                # This method is mainly for backward compatibility
+                # Individual user operations should use add_user/update_user
+                logger.info(f"save_all_users called with {len(users)} users - using individual updates")
+                success = True
+                for username, user_data in users.items():
+                    if not self.user_exists(username):
+                        if not self.add_user(username, user_data):
+                            success = False
+                    else:
+                        if not self.update_user(username, user_data):
+                            success = False
+                return success
+            except Exception as e:
+                logger.error(f"Error saving users to database: {e}")
+                # Fallback to JSON
+                return safe_json_write(self.users_file, users)
+        return safe_json_write(self.users_file, users)
 
     def add_user(self, username: str, user_data: Dict[str, Any], created_by: str = None) -> bool:
         """Add a new user with secure password handling and role assignment."""
+        # Check if migration is in progress (read-only mode)
         try:
-            users = self.get_all_users()
-            if username in users:
+            from lib.migration_lock import is_application_read_only
+            if is_application_read_only():
+                logger.warning("Write blocked: Migration in progress - cannot add user")
+                if STREAMLIT_AVAILABLE and st:
+                    st.warning("⚠️ Application is in read-only mode due to data migration. Please try again later.")
+                return False
+        except ImportError:
+            pass
+        
+        try:
+            if self.user_exists(username):
+                logger.warning(f"User '{username}' already exists - cannot create duplicate user")
                 return False  # User already exists
             
             # Ensure new users have a role (default to Auditor)
-            if 'role' not in user_data:
-                user_data['role'] = self.ROLE_AUDITOR
+            role = user_data.get('role', self.ROLE_AUDITOR)
             
             # Store creator information for permission tracking
             if created_by:
-                user_data['created_by'] = created_by
-                user_data['created_date'] = str(datetime.now())
-                
                 creator_role = self.get_user_role(created_by)
-                requested_role = user_data.get('role', self.ROLE_AUDITOR)
                 
                 # Only Owner can create Admin users
-                if requested_role == self.ROLE_ADMIN and creator_role != self.ROLE_OWNER:
+                if role == self.ROLE_ADMIN and creator_role != self.ROLE_OWNER:
                     logger.warning(f"User {created_by} (role: {creator_role}) attempted to create Admin user {username}")
-                    user_data['role'] = self.ROLE_AUDITOR  # Force to Auditor
+                    role = self.ROLE_AUDITOR  # Force to Auditor
                 
                 # Only Owner can create Owner users (though this should never happen)
-                if requested_role == self.ROLE_OWNER and creator_role != self.ROLE_OWNER:
+                if role == self.ROLE_OWNER and creator_role != self.ROLE_OWNER:
                     logger.warning(f"User {created_by} (role: {creator_role}) attempted to create Owner user {username}")
-                    user_data['role'] = self.ROLE_AUDITOR  # Force to Auditor
+                    role = self.ROLE_AUDITOR  # Force to Auditor
             
             # Secure password handling
+            app_pass_hash = None
+            app_pass_salt = None
             if SECURITY_AVAILABLE and 'app_pass' in user_data:
                 # Hash the app password
                 password = user_data['app_pass']
-                hashed_password, salt = security_manager.hash_password(password)
-                user_data['app_pass_hash'] = hashed_password
-                user_data['app_pass_salt'] = salt
-                del user_data['app_pass']  # Remove plain text password
-                
-                # Encrypt ReadyMode credentials if provided
-                if 'readymode_pass' in user_data and user_data['readymode_pass']:
-                    # Make sure we encrypt the plain text password
-                    plain_password = user_data['readymode_pass']
-                    user_data['readymode_pass_encrypted'] = security_manager.encrypt_string(plain_password)
-                    del user_data['readymode_pass']  # Remove plain text password
-                    
-                    logger.info(f"Added user {username} with secure password hashing and ReadyMode encryption")
-                else:
-                    logger.info(f"Added user {username} with secure password hashing")
+                app_pass_hash, app_pass_salt = security_manager.hash_password(password)
+                logger.info(f"Added user {username} with secure password hashing")
+            elif 'app_pass_hash' in user_data and 'app_pass_salt' in user_data:
+                # Already hashed
+                app_pass_hash = user_data['app_pass_hash']
+                app_pass_salt = user_data['app_pass_salt']
             else:
-                logger.warning(f"Added user {username} with role {user_data['role']} and plain text password (security not available)")
+                logger.warning(f"Added user {username} without password hash (security not available)")
+                # Create a dummy hash/salt to satisfy NOT NULL constraint
+                if SECURITY_AVAILABLE:
+                    app_pass_hash, app_pass_salt = security_manager.hash_password("")
+                else:
+                    app_pass_hash = ""
+                    app_pass_salt = ""
             
+            # Encrypt ReadyMode credentials if provided
+            readymode_pass_encrypted = None
+            if SECURITY_AVAILABLE and 'readymode_pass' in user_data and user_data['readymode_pass']:
+                plain_password = user_data['readymode_pass']
+                readymode_pass_encrypted = security_manager.encrypt_string(plain_password)
+                logger.info(f"Encrypted ReadyMode password for user {username}")
+            elif 'readymode_pass_encrypted' in user_data:
+                readymode_pass_encrypted = user_data['readymode_pass_encrypted']
+            
+            # Encrypt AssemblyAI API key if provided
+            assemblyai_api_key_encrypted = None
+            if SECURITY_AVAILABLE and 'assemblyai_api_key' in user_data and user_data['assemblyai_api_key']:
+                api_key = user_data['assemblyai_api_key']
+                assemblyai_api_key_encrypted = security_manager.encrypt_string(api_key)
+                logger.info(f"Encrypted AssemblyAI API key for user {username}")
+            elif 'assemblyai_api_key_encrypted' in user_data:
+                assemblyai_api_key_encrypted = user_data['assemblyai_api_key_encrypted']
+            
+            # Insert into database
+            if self._db_manager:
+                try:
+                    query = """
+                        INSERT INTO users (username, app_pass_hash, app_pass_salt, readymode_user, 
+                                          readymode_pass_encrypted, assemblyai_api_key_encrypted, daily_limit, role, created_by)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    params = (
+                        username,
+                        app_pass_hash,
+                        app_pass_salt,
+                        user_data.get('readymode_user'),
+                        readymode_pass_encrypted,
+                        assemblyai_api_key_encrypted,
+                        user_data.get('daily_limit', 5000),
+                        role,
+                        created_by
+                    )
+                    self._db_manager.execute_query(query, params, fetch=False)
+                    logger.info(f"Added user {username} to database")
+                    return True
+                except Exception as e:
+                    error_msg = str(e)
+                    logger.error(f"Error adding user {username} to database: {e}", exc_info=True)
+                    # Log more details for debugging
+                    if "column" in error_msg.lower() and "does not exist" in error_msg.lower():
+                        logger.error(f"Database schema issue detected. Missing column in users table. Full error: {error_msg}")
+                        logger.error("Run scripts/fix_users_table_schema.sql to add missing columns.")
+                    elif "unique" in error_msg.lower() or "duplicate" in error_msg.lower():
+                        logger.error(f"User '{username}' already exists in database (unique constraint violation)")
+                        return False  # Don't fallback to JSON if user already exists
+                    elif "not null" in error_msg.lower():
+                        logger.error(f"NOT NULL constraint violation. Missing required field. Error: {error_msg}")
+                        logger.error(f"Params were: username={username}, app_pass_hash={'***' if app_pass_hash else 'None'}, app_pass_salt={'***' if app_pass_salt else 'None'}, created_by={created_by}")
+                    # Fallback to JSON only if it's not a constraint violation
+                    try:
+                        users = self.get_all_users()
+                        user_data['role'] = role
+                        user_data['app_pass_hash'] = app_pass_hash
+                        user_data['app_pass_salt'] = app_pass_salt
+                        if readymode_pass_encrypted:
+                            user_data['readymode_pass_encrypted'] = readymode_pass_encrypted
+                        users[username] = user_data
+                        json_result = safe_json_write(self.users_file, users)
+                        if json_result:
+                            logger.warning(f"User {username} saved to JSON fallback (database insert failed)")
+                        return json_result
+                    except Exception as json_error:
+                        logger.error(f"JSON fallback also failed: {json_error}")
+                        return False
+            
+            # Fallback to JSON
+            users = self.get_all_users()
+            user_data['role'] = role
+            user_data['app_pass_hash'] = app_pass_hash
+            user_data['app_pass_salt'] = app_pass_salt
+            if readymode_pass_encrypted:
+                user_data['readymode_pass_encrypted'] = readymode_pass_encrypted
             users[username] = user_data
-            return self.save_all_users(users)
+            return safe_json_write(self.users_file, users)
         except Exception as e:
             logger.error(f"Error adding user {username}: {e}")
             return False
 
     def remove_user(self, username: str, removed_by: str = None) -> bool:
         """Remove a user with role-based permissions."""
+        # Check if migration is in progress (read-only mode)
         try:
-            users = self.get_all_users()
-            if username not in users:
+            from lib.migration_lock import is_application_read_only
+            if is_application_read_only():
+                logger.warning("Write blocked: Migration in progress - cannot remove user")
+                if STREAMLIT_AVAILABLE and st:
+                    st.warning("⚠️ Application is in read-only mode due to data migration. Please try again later.")
+                return False
+        except ImportError:
+            pass
+        
+        try:
+            if not self.user_exists(username):
                 logger.warning(f"User {username} does not exist")
                 return False
             
@@ -846,19 +1324,57 @@ class UserManager:
                     logger.error(f"Error cleaning up quota system for user {username}: {e}")
                     # Continue with user deletion even if quota cleanup fails
             
-            del users[username]
-            return self.save_all_users(users)
+            # Delete from database
+            if self._db_manager:
+                try:
+                    query = "DELETE FROM users WHERE username = %s"
+                    self._db_manager.execute_query(query, (username,), fetch=False)
+                    logger.info(f"Removed user {username} from database")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error removing user {username} from database: {e}")
+                    # Fallback to JSON
+                    users = self.get_all_users()
+                    if username in users:
+                        del users[username]
+                        return safe_json_write(self.users_file, users)
+                    return False
+            
+            # Fallback to JSON
+            users = self.get_all_users()
+            if username in users:
+                del users[username]
+                return safe_json_write(self.users_file, users)
+            return False
         except Exception as e:
             logger.error(f"Error removing user {username}: {e}")
             return False
 
     def update_user(self, username: str, user_data: Dict[str, Any], updated_by: str = None) -> bool:
         """Update user data with role-based permissions."""
+        # Check if migration is in progress (read-only mode)
         try:
-            users = self.get_all_users()
-            if username not in users:
+            from lib.migration_lock import is_application_read_only
+            if is_application_read_only():
+                logger.warning("Write blocked: Migration in progress - cannot update user")
+                if STREAMLIT_AVAILABLE and st:
+                    st.warning("⚠️ Application is in read-only mode due to data migration. Please try again later.")
+                return False
+        except ImportError:
+            pass
+        
+        try:
+            if not self.user_exists(username):
                 logger.warning(f"User {username} does not exist")
                 return False
+            
+            # Get current user data
+            current_user = self.get_user(username)
+            if not current_user:
+                return False
+
+            # Determine if this is a self-update (user updating their own settings)
+            is_self_update = updated_by is not None and updated_by == username
             
             # MAXIMUM SECURITY: Protect Mohamed Abdo account from ANY modifications
             if username == self.PROTECTED_OWNER or username.lower() == "mohamed abdo":
@@ -880,7 +1396,9 @@ class UserManager:
                     return False
             
             # Check if user has permission to modify this user
-            if updated_by and not self.can_admin_modify_user(updated_by, username):
+            # Self-updates are allowed for non-privileged fields (handled by callers);
+            # admin/owner permission checks apply only when modifying other users.
+            if updated_by and not is_self_update and not self.can_admin_modify_user(updated_by, username):
                 logger.warning(f"User {updated_by} does not have permission to modify {username}")
                 return False
             
@@ -888,7 +1406,7 @@ class UserManager:
             if updated_by and 'role' in user_data:
                 updater_role = self.get_user_role(updated_by)
                 new_role = user_data['role']
-                current_role = users[username].get('role', self.ROLE_AUDITOR)
+                current_role = current_user.get('role', self.ROLE_AUDITOR)
                 
                 # Only Owner can change roles to/from Owner or Admin
                 if (new_role in [self.ROLE_OWNER, self.ROLE_ADMIN] or 
@@ -898,35 +1416,144 @@ class UserManager:
                     user_data = user_data.copy()
                     del user_data['role']
             
-            # Merge with existing data to preserve fields not being updated
-            updated_data = users[username].copy()
-            updated_data.update(user_data)
+            # Handle password updates
+            app_pass_hash = current_user.get('app_pass_hash')
+            app_pass_salt = current_user.get('app_pass_salt')
+            if 'app_pass' in user_data and SECURITY_AVAILABLE:
+                password = user_data['app_pass']
+                app_pass_hash, app_pass_salt = security_manager.hash_password(password)
+                del user_data['app_pass']
             
             # Handle ReadyMode password encryption if it's being updated
-            if SECURITY_AVAILABLE and 'readymode_pass' in updated_data and updated_data['readymode_pass']:
-                # Encrypt the new password
-                plain_password = updated_data['readymode_pass']
-                updated_data['readymode_pass_encrypted'] = security_manager.encrypt_string(plain_password)
-                del updated_data['readymode_pass']  # Remove plain text
-                
-                # Remove any existing encrypted password to avoid conflicts
-                if 'readymode_pass_encrypted' in users[username]:
-                    del users[username]['readymode_pass_encrypted']
-                    
-            users[username] = updated_data
+            readymode_pass_encrypted = current_user.get('readymode_pass_encrypted')
+            if SECURITY_AVAILABLE and 'readymode_pass' in user_data and user_data['readymode_pass']:
+                plain_password = user_data['readymode_pass']
+                readymode_pass_encrypted = security_manager.encrypt_string(plain_password)
+                del user_data['readymode_pass']
             
-            return self.save_all_users(users)
+            # Handle AssemblyAI API key encryption if it's being updated
+            assemblyai_api_key_encrypted = current_user.get('assemblyai_api_key_encrypted')
+            if SECURITY_AVAILABLE and 'assemblyai_api_key' in user_data and user_data['assemblyai_api_key'] is not None:
+                api_key = user_data['assemblyai_api_key']
+                if api_key:  # Only encrypt if not empty
+                    assemblyai_api_key_encrypted = security_manager.encrypt_string(api_key)
+                else:  # Allow setting to empty/null
+                    assemblyai_api_key_encrypted = None
+                del user_data['assemblyai_api_key']
+            
+            # Build UPDATE query dynamically based on what's being updated
+            if self._db_manager:
+                try:
+                    update_fields = []
+                    params = []
+                    
+                    if 'readymode_user' in user_data:
+                        update_fields.append("readymode_user = %s")
+                        params.append(user_data['readymode_user'])
+                    
+                    if readymode_pass_encrypted is not None:
+                        update_fields.append("readymode_pass_encrypted = %s")
+                        params.append(readymode_pass_encrypted)
+                    
+                    if assemblyai_api_key_encrypted is not None:
+                        update_fields.append("assemblyai_api_key_encrypted = %s")
+                        params.append(assemblyai_api_key_encrypted)
+                    
+                    if 'daily_limit' in user_data:
+                        update_fields.append("daily_limit = %s")
+                        params.append(user_data['daily_limit'])
+                    
+                    if 'role' in user_data:
+                        update_fields.append("role = %s")
+                        params.append(user_data['role'])
+                    
+                    if app_pass_hash is not None:
+                        update_fields.append("app_pass_hash = %s")
+                        params.append(app_pass_hash)
+                    
+                    if app_pass_salt is not None:
+                        update_fields.append("app_pass_salt = %s")
+                        params.append(app_pass_salt)
+                    
+                    # Always update updated_at timestamp
+                    update_fields.append("updated_at = CURRENT_TIMESTAMP")
+                    
+                    if update_fields:
+                        params.append(username)
+                        query = f"UPDATE users SET {', '.join(update_fields)} WHERE username = %s"
+                        self._db_manager.execute_query(query, tuple(params), fetch=False)
+                        logger.info(f"Updated user {username} in database")
+                        return True
+                    else:
+                        logger.warning(f"No fields to update for user {username}")
+                        return True
+                except Exception as e:
+                    logger.error(f"Error updating user {username} in database: {e}")
+                    # Fallback to JSON
+                    users = self.get_all_users()
+                    updated_data = current_user.copy()
+                    updated_data.update(user_data)
+                    if readymode_pass_encrypted:
+                        updated_data['readymode_pass_encrypted'] = readymode_pass_encrypted
+                    if assemblyai_api_key_encrypted is not None:
+                        updated_data['assemblyai_api_key_encrypted'] = assemblyai_api_key_encrypted
+                    users[username] = updated_data
+                    return safe_json_write(self.users_file, users)
+            
+            # Fallback to JSON
+            users = self.get_all_users()
+            updated_data = current_user.copy()
+            updated_data.update(user_data)
+            if readymode_pass_encrypted:
+                updated_data['readymode_pass_encrypted'] = readymode_pass_encrypted
+            if assemblyai_api_key_encrypted is not None:
+                updated_data['assemblyai_api_key_encrypted'] = assemblyai_api_key_encrypted
+            users[username] = updated_data
+            return safe_json_write(self.users_file, users)
         except Exception as e:
             logger.error(f"Error updating user {username}: {e}")
             return False
 
     def get_user(self, username: str) -> Optional[Dict[str, Any]]:
         """Get specific user data."""
+        if self._db_manager:
+            try:
+                query = "SELECT * FROM users WHERE username = %s"
+                user = self._db_manager.execute_query(query, (username,), fetchone=True)
+                if user:
+                    return {
+                        'username': user['username'],
+                        'app_pass_hash': user.get('app_pass_hash'),
+                        'app_pass_salt': user.get('app_pass_salt'),
+                        'readymode_user': user.get('readymode_user'),
+                        'readymode_pass_encrypted': user.get('readymode_pass_encrypted'),
+                        'assemblyai_api_key_encrypted': user.get('assemblyai_api_key_encrypted'),
+                        'daily_limit': user.get('daily_limit', 5000),
+                        'role': user.get('role', self.ROLE_AUDITOR),
+                        'created_by': user.get('created_by'),
+                        'created_date': user.get('created_at').isoformat() if user.get('created_at') else None,
+                        'updated_at': user.get('updated_at').isoformat() if user.get('updated_at') else None
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"Error getting user {username} from database: {e}")
+                # Fallback to JSON
+                users = self.get_all_users()
+                return users.get(username)
         users = self.get_all_users()
         return users.get(username)
 
     def user_exists(self, username: str) -> bool:
         """Check if user exists."""
+        if self._db_manager:
+            try:
+                query = "SELECT COUNT(*) as count FROM users WHERE username = %s"
+                result = self._db_manager.execute_query(query, (username,), fetchone=True)
+                return result and result['count'] > 0
+            except Exception as e:
+                logger.error(f"Error checking if user {username} exists in database: {e}")
+                # Fallback to JSON
+                return username in self.get_all_users()
         return username in self.get_all_users()
     
     def verify_user_password(self, username: str, password: str) -> bool:
@@ -1227,6 +1854,16 @@ class UserManager:
     # ===== QUOTA MANAGEMENT INTEGRATION =====
     
     def create_user_with_quota(self, username: str, user_data: Dict[str, Any], created_by: str, daily_quota: int = None) -> Tuple[bool, str]:
+        # Check if migration is in progress (read-only mode)
+        try:
+            from lib.migration_lock import is_application_read_only
+            if is_application_read_only():
+                logger.warning("Write blocked: Migration in progress - cannot create user")
+                if STREAMLIT_AVAILABLE and st:
+                    st.warning("⚠️ Application is in read-only mode due to data migration. Please try again later.")
+                return False, "Migration in progress - user creation disabled"
+        except ImportError:
+            pass
         """
         Create a user with quota assignment (for Admin users).
         
@@ -1259,29 +1896,24 @@ class UserManager:
             if daily_quota and not quota_manager.can_admin_assign_quota(created_by, daily_quota):
                 return False, "Insufficient quota available for assignment"
         
-        # Use transaction manager to ensure atomicity
-        # If user creation succeeds but quota assignment fails, rollback user creation
-        with TransactionManager() as tx:
-            # Step 1: Create the user
-            success = self.add_user(username, user_data, created_by)
-            if not success:
-                return False, "Failed to create user"
+        # Step 1: Create the user
+        success = self.add_user(username, user_data, created_by)
+        if not success:
+            return False, "Failed to create user"
         
-            # Add rollback for user creation
-            tx.add_rollback(lambda: self.remove_user(username, created_by))
-            
-            # Step 2: Assign quota if Admin is creating the user
+        # Step 2: Assign quota if Admin is creating the user
+        # Note: For database operations, we rely on database transactions
+        # If quota assignment fails, we'll remove the user manually
         if creator_role == self.ROLE_ADMIN and daily_quota:
             quota_success, quota_message = quota_manager.assign_user_to_admin(username, created_by, daily_quota)
             if not quota_success:
-                    # Transaction manager will automatically rollback user creation
-                return False, f"User creation failed: {quota_message}"
+                # Log the quota assignment failure but don't rollback the user
+                # The user was successfully created, quota assignment is a separate concern
+                logger.warning(f"User '{username}' created successfully but quota assignment failed: {quota_message}")
+                logger.warning(f"User exists in database but quota assignment needs to be done manually or retried")
+                # Return success with a warning message instead of failing completely
+                return True, f"User created successfully, but quota assignment failed: {quota_message}. User exists but quota may need manual assignment."
         
-                # Add rollback for quota assignment
-                tx.add_rollback(lambda: quota_manager.remove_user_from_admin(username, created_by))
-            
-            # All steps succeeded - commit transaction
-            tx.commit()
         return True, "User created successfully with quota assignment"
     
     def remove_user_with_quota(self, username: str, removed_by: str) -> Tuple[bool, str]:
@@ -1426,10 +2058,72 @@ class DashboardManager:
         self.daily_counters_dir = self.base_dir / "daily_counters"
         self.lite_audit_dir = self.base_dir / "lite_audits"
         self.sharing_config_file = self.base_dir / "dashboard_sharing.json"
+        try:
+            self._db_manager = get_db_manager() if DB_AVAILABLE and get_db_manager else None
+        except Exception as e:
+            logger.warning(f"Could not initialize database manager: {e}. Using JSON fallback.")
+            self._db_manager = None
         self._ensure_directories()
         
         # Initialize sharing configuration
         self._initialize_sharing_config()
+    
+    def _extract_campaign_name_from_path(self, file_path: str) -> Optional[str]:
+        """
+        Extract campaign name from file path.
+        Looks for pattern: Recordings/Campaign/{CampaignName}/...
+        
+        Args:
+            file_path: Full file path
+            
+        Returns:
+            Campaign name if found, None otherwise
+        """
+        if not file_path:
+            return None
+        
+        try:
+            # Normalize path separators
+            normalized_path = file_path.replace('\\', '/')
+            
+            # Look for Campaign/{CampaignName} pattern
+            if '/Campaign/' in normalized_path:
+                parts = normalized_path.split('/Campaign/')
+                if len(parts) > 1:
+                    # Get the part after Campaign/
+                    after_campaign = parts[1]
+                    # Extract campaign name (first directory after Campaign/)
+                    campaign_parts = after_campaign.split('/')
+                    if campaign_parts:
+                        campaign_name = campaign_parts[0].strip()
+                        # Remove any trailing path components that might be part of filename
+                        if campaign_name:
+                            return campaign_name
+        except Exception as e:
+            logger.debug(f"Error extracting campaign name from path {file_path}: {e}")
+        
+        return None
+    
+    def _detect_campaign_from_dataframe(self, df: pd.DataFrame) -> Optional[str]:
+        """
+        Detect campaign name from DataFrame by checking File Path column.
+        
+        Args:
+            df: DataFrame with audit results
+            
+        Returns:
+            Campaign name if detected, None otherwise
+        """
+        if df.empty or 'File Path' not in df.columns:
+            return None
+        
+        # Check all file paths for campaign pattern
+        for file_path in df['File Path'].dropna().unique():
+            campaign_name = self._extract_campaign_name_from_path(str(file_path))
+            if campaign_name:
+                return campaign_name
+        
+        return None
     
     def _ensure_directories(self):
         """Create necessary directories."""
@@ -1440,34 +2134,85 @@ class DashboardManager:
     
     def _initialize_sharing_config(self):
         """Initialize the dashboard sharing configuration."""
+        initial_config = {
+            "sharing_groups": {},
+            "user_dashboard_mode": {}
+        }
+        
+        # Try to save to database first
+        if self._db_manager:
+            try:
+                config_json = json.dumps(initial_config)
+                query = """
+                    INSERT INTO app_settings (setting_key, setting_value, updated_at)
+                    VALUES ('dashboard_sharing.global', %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (setting_key) DO NOTHING
+                """
+                self._db_manager.execute_query(query, (config_json,), fetch=False)
+                return
+            except Exception as e:
+                logger.error(f"Error initializing sharing config in database: {e}")
+                # Fallback to JSON
+                pass
+        
+        # Fallback to JSON
         if not self.sharing_config_file.exists():
-            initial_config = {
-                "sharing_groups": {
-                    # "group_name": {
-                    #     "members": ["user1", "user2"],
-                    #     "created_by": "owner_username",
-                    #     "created_date": "2025-01-01"
-                    # }
-                },
-                "user_dashboard_mode": {
-                    # "username": "isolated" or "group_name"
-                }
-            }
             safe_json_write(self.sharing_config_file, initial_config)
     
     def _load_sharing_config(self) -> Dict:
-        """Load sharing configuration."""
+        """Load sharing configuration from database or JSON."""
         try:
-            with open(self.sharing_config_file, 'r') as f:
-                return json.load(f)
+            # Try to load from database first
+            if self._db_manager:
+                try:
+                    query = "SELECT setting_value FROM app_settings WHERE setting_key = 'dashboard_sharing.global'"
+                    result = self._db_manager.execute_query(query, fetchone=True)
+                    if result:
+                        config_json = result['setting_value']
+                        if isinstance(config_json, str):
+                            return json.loads(config_json)
+                        return config_json
+                except Exception as e:
+                    logger.error(f"Error loading sharing config from database: {e}")
+                    # Fallback to JSON
+                    pass
+            
+            # Fallback to JSON
+            if self.sharing_config_file.exists():
+                with open(self.sharing_config_file, 'r') as f:
+                    return json.load(f)
+            else:
+                # Initialize if file doesn't exist
+                self._initialize_sharing_config()
+                return self._load_sharing_config()
         except Exception as e:
             logger.error(f"Error loading sharing config: {e}")
             self._initialize_sharing_config()
             return self._load_sharing_config()
     
     def _save_sharing_config(self, config: Dict):
-        """Save sharing configuration."""
+        """Save sharing configuration to database or JSON."""
         try:
+            # Try to save to database first
+            if self._db_manager:
+                try:
+                    config_json = json.dumps(config)
+                    query = """
+                        INSERT INTO app_settings (setting_key, setting_value, updated_at)
+                        VALUES ('dashboard_sharing.global', %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (setting_key) 
+                        DO UPDATE SET setting_value = EXCLUDED.setting_value, 
+                                      updated_at = CURRENT_TIMESTAMP
+                    """
+                    self._db_manager.execute_query(query, (config_json,), fetch=False)
+                    logger.info("Saved sharing config to database")
+                    return
+                except Exception as e:
+                    logger.error(f"Error saving sharing config to database: {e}")
+                    # Fallback to JSON
+                    pass
+            
+            # Fallback to JSON
             safe_json_write(self.sharing_config_file, config)
         except Exception as e:
             logger.error(f"Error saving sharing config: {e}")
@@ -1630,19 +2375,93 @@ class DashboardManager:
             df: DataFrame with audit results
             username: Current user's username (optional)
         """
+        # Check if migration is in progress (read-only mode)
+        try:
+            from lib.migration_lock import is_application_read_only
+            if is_application_read_only():
+                logger.warning("Write blocked: Migration in progress - cannot save agent audit results")
+                if STREAMLIT_AVAILABLE and st:
+                    st.warning("⚠️ Application is in read-only mode due to data migration. Please try again later.")
+                return
+        except ImportError:
+            # Migration lock system not available, continue normally
+            pass
+        
         if df.empty:
             return
         
         if not username:
-            username = st.session_state.get('username', 'default_user')
-        
-        # Initialize storage for this user
-        self.initialize_agent_audit_storage(username)
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
         
         # Add metadata to the DataFrame
         df_with_metadata = df.copy()
-        df_with_metadata['audit_timestamp'] = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+        audit_timestamp = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+        df_with_metadata['audit_timestamp'] = audit_timestamp
         df_with_metadata['username'] = username
+        
+        # Save to database
+        if self._db_manager:
+            try:
+                df_dict = df_with_metadata.to_dict('records')
+                for record in df_dict:
+                    query = """
+                        INSERT INTO agent_audit_results 
+                        (username, agent_name, file_name, file_path, releasing_detection, 
+                         late_hello_detection, rebuttal_detection, timestamp, call_duration, 
+                         transcript, confidence_score, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """
+                    # Map DataFrame columns to database columns
+                    # Use 'Transcription' to match RESULT_KEYS, fallback to 'Transcript' for backwards compatibility
+                    transcription = record.get('Transcription') or record.get('Transcript', '')
+                    
+                    # Convert detection values to string for database insertion
+                    # Database columns are VARCHAR and expect 'Yes', 'No', or 'N/A' values
+                    # The constraints check for these specific text values
+                    releasing_detection = convert_detection_to_string(record.get('Releasing Detection'), default="No")
+                    late_hello_detection = convert_detection_to_string(record.get('Late Hello Detection'), default="No")
+                    rebuttal_detection = convert_detection_to_string(record.get('Rebuttal Detection'), default="No")
+                    
+                    params = (
+                        username,
+                        record.get('Agent Name'),
+                        record.get('File Name'),
+                        record.get('File Path'),
+                        releasing_detection,  # String: 'Yes', 'No', or 'N/A'
+                        late_hello_detection,   # String: 'Yes', 'No', or 'N/A'
+                        rebuttal_detection,     # String: 'Yes', 'No', or 'N/A'
+                        record.get('Timestamp') or audit_timestamp,
+                        record.get('Call Duration'),
+                        transcription,
+                        record.get('Confidence Score'),
+                        json.dumps(record) if record else None  # Store full record as metadata
+                    )
+                    self._db_manager.execute_query(query, params, fetch=False)
+                logger.info(f"Saved {len(df_dict)} agent audit results to database for user {username}")
+                
+                # Check if this is a campaign audit and also save to campaign audit storage
+                campaign_name = self._detect_campaign_from_dataframe(df_with_metadata)
+                if campaign_name:
+                    # Ensure Audit Type is set
+                    if 'Audit Type' not in df_with_metadata.columns:
+                        df_with_metadata['Audit Type'] = 'Heavy Audit'
+                    try:
+                        self.save_campaign_audit_results(df_with_metadata, campaign_name, username)
+                        logger.info(f"Also saved {len(df_with_metadata)} records to campaign audit: {campaign_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to save to campaign audit: {e}")
+                
+                return
+            except Exception as e:
+                logger.error(f"Error saving agent audit results to database: {e}")
+                # Fallback to JSON
+                pass
+        
+        # Fallback to JSON
+        self.initialize_agent_audit_storage(username)
         
         # Load existing data
         try:
@@ -1666,7 +2485,10 @@ class DashboardManager:
         with other users. Each user has their own personal dashboard.
         """
         if not username:
-            username = st.session_state.get('username', 'default_user')
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
 
         # Each user gets their own isolated dashboard file
         self.agent_audit_file = self.agent_audit_dir / f"agent_audits_{username}.json"
@@ -1691,11 +2513,95 @@ class DashboardManager:
             Combined DataFrame of all agent audit results for the user/group
         """
         if not username:
-            username = st.session_state.get('username', 'default_user')
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
         
         # Get all users whose data this user can access
         shared_users = self.get_shared_users(username)
         
+        # Load from database
+        if self._db_manager:
+            try:
+                # Build query with usernames
+                placeholders = ','.join(['%s'] * len(shared_users))
+                query = f"""
+                    SELECT * FROM agent_audit_results 
+                    WHERE username IN ({placeholders})
+                    ORDER BY created_at DESC
+                """
+                results = self._db_manager.execute_query(query, tuple(shared_users), fetch=True)
+                
+                if not results:
+                    return pd.DataFrame()
+                
+                # Convert to DataFrame format matching the original JSON structure
+                records = []
+                for row in results:
+                    record = {
+                        'Agent Name': row.get('agent_name'),
+                        'File Name': row.get('file_name'),
+                        'File Path': row.get('file_path'),
+                        'Releasing Detection': row.get('releasing_detection'),
+                        'Late Hello Detection': row.get('late_hello_detection'),
+                        'Rebuttal Detection': row.get('rebuttal_detection'),
+                        'Timestamp': row.get('timestamp'),
+                        'Call Duration': row.get('call_duration'),
+                        'Transcription': row.get('transcript', ''),  # Map database 'transcript' to 'Transcription'
+                        'Confidence Score': row.get('confidence_score'),
+                        'username': row.get('username'),
+                        'audit_timestamp': row.get('created_at').isoformat() if row.get('created_at') else None
+                    }
+                    # Try to extract ALL fields from metadata JSONB (metadata contains the full record)
+                    if row.get('metadata'):
+                        try:
+                            metadata = row['metadata'] if isinstance(row['metadata'], dict) else json.loads(row['metadata'])
+                            # Update record with ALL metadata fields first (metadata is the complete record)
+                            # This ensures we get all columns like Dialer Name, Agent Intro, Owner Name, etc.
+                            record.update(metadata)
+                            # Then ensure database values take precedence for core fields that might be more up-to-date
+                            # But keep metadata values for fields that don't exist in database columns
+                            if row.get('agent_name'):
+                                record['Agent Name'] = row.get('agent_name')
+                            if row.get('timestamp'):
+                                record['Timestamp'] = row.get('timestamp')
+                            if row.get('transcript'):
+                                record['Transcription'] = row.get('transcript')
+                        except Exception as e:
+                            logger.warning(f"Error parsing metadata: {e}")
+                            pass
+                    records.append(record)
+                
+                combined_df = pd.DataFrame(records)
+                
+                # Ensure all Campaign Audit columns exist with empty defaults if missing
+                # Match Campaign Audit columns exactly (from convert_all_to_dataframe_format)
+                campaign_audit_columns = [
+                    'Agent Name', 'Phone Number', 'Timestamp', 'Disposition',
+                    'Releasing Detection', 'Late Hello Detection', 'Rebuttal Detection',
+                    'Transcription', 'Dialer Name', 'Agent Intro', 'Owner Name',
+                    'Reason for calling', 'Intro Score', 'Status',
+                    'File Name', 'File Path', 'Call Duration', 'Confidence Score',
+                    'username', 'audit_timestamp', 'Audit Type'
+                ]
+                for col in campaign_audit_columns:
+                    if col not in combined_df.columns:
+                        combined_df[col] = ''
+                
+                # Remove duplicates based on phone number, keeping the most recent entry
+                if not combined_df.empty and 'Phone Number' in combined_df.columns:
+                    combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
+                    combined_df = combined_df.drop_duplicates(subset=['Phone Number'], keep='first')
+                    combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
+                
+                return combined_df
+            except Exception as e:
+                logger.error(f"Error loading agent audit data from database: {e}")
+                # Fallback to JSON
+                pass
+        
+        # Fallback to JSON
         all_data = []
         
         for shared_user in shared_users:
@@ -1723,6 +2629,20 @@ class DashboardManager:
         
         # Combine all data from shared users
         combined_df = pd.concat(all_data, ignore_index=True)
+        
+        # Ensure all Campaign Audit columns exist with empty defaults if missing
+        # Match Campaign Audit columns exactly (from convert_all_to_dataframe_format)
+        campaign_audit_columns = [
+            'Agent Name', 'Phone Number', 'Timestamp', 'Disposition',
+            'Releasing Detection', 'Late Hello Detection', 'Rebuttal Detection',
+            'Transcription', 'Dialer Name', 'Agent Intro', 'Owner Name',
+            'Reason for calling', 'Intro Score', 'Status',
+            'File Name', 'File Path', 'Call Duration', 'Confidence Score',
+            'username', 'audit_timestamp', 'Audit Type'
+        ]
+        for col in campaign_audit_columns:
+            if col not in combined_df.columns:
+                combined_df[col] = ''
         
         # Remove duplicates based on phone number, keeping the most recent entry
         if not combined_df.empty and 'Phone Number' in combined_df.columns:
@@ -1763,20 +2683,108 @@ class DashboardManager:
             df: DataFrame with lite audit results
             username: Current user's username (optional)
         """
+        # Check if migration is in progress (read-only mode)
+        try:
+            from lib.migration_lock import is_application_read_only
+            if is_application_read_only():
+                logger.warning("Write blocked: Migration in progress - cannot save lite audit results")
+                if STREAMLIT_AVAILABLE and st:
+                    st.warning("⚠️ Application is in read-only mode due to data migration. Please try again later.")
+                return
+        except ImportError:
+            pass
         if df.empty:
             return
         
         if not username:
-            username = st.session_state.get('username', 'default_user')
-        
-        # Initialize storage for this user
-        self.initialize_lite_audit_storage(username)
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
         
         # Add metadata to the DataFrame
         df_with_metadata = df.copy()
-        df_with_metadata['audit_timestamp'] = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+        audit_timestamp = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+        df_with_metadata['audit_timestamp'] = audit_timestamp
         df_with_metadata['username'] = username
         df_with_metadata['audit_type'] = 'lite'
+        
+        # Save to database
+        if self._db_manager:
+            try:
+                df_dict = df_with_metadata.to_dict('records')
+                for record in df_dict:
+                    # Validate and normalize detection values before saving
+                    releasing = record.get('Releasing Detection', 'No')
+                    if not isinstance(releasing, str) or releasing.strip() not in ['Yes', 'No']:
+                        # Normalize invalid values
+                        releasing_str = str(releasing).strip() if releasing else ''
+                        if releasing_str.lower() in ['yes', 'true', '1', 'y']:
+                            releasing = 'Yes'
+                        else:
+                            releasing = 'No'
+                        if releasing != record.get('Releasing Detection'):
+                            logger.debug(f"Normalized Releasing Detection: {record.get('Releasing Detection')} -> {releasing}")
+                    
+                    late_hello = record.get('Late Hello Detection', 'No')
+                    if not isinstance(late_hello, str) or late_hello.strip() not in ['Yes', 'No']:
+                        # Normalize invalid values
+                        late_hello_str = str(late_hello).strip() if late_hello else ''
+                        if late_hello_str.lower() in ['yes', 'true', '1', 'y']:
+                            late_hello = 'Yes'
+                        else:
+                            late_hello = 'No'
+                        if late_hello != record.get('Late Hello Detection'):
+                            logger.debug(f"Normalized Late Hello Detection: {record.get('Late Hello Detection')} -> {late_hello}")
+                    
+                    # Store all detection results as JSONB
+                    detection_results = {
+                        'releasing_detection': releasing,
+                        'late_hello_detection': late_hello,
+                        'rebuttal_detection': record.get('Rebuttal Detection', 'N/A'),
+                        'confidence_score': record.get('Confidence Score', ''),
+                        'call_duration': record.get('Call Duration', ''),
+                        'transcript': record.get('Transcription') or record.get('Transcript', 'N/A'),
+                        'dialer_name': record.get('Dialer Name', ''),  # Save dialer name
+                        'audit_timestamp': audit_timestamp
+                    }
+                    
+                    query = """
+                        INSERT INTO lite_audit_results 
+                        (username, agent_name, file_name, file_path, detection_results)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """
+                    params = (
+                        username,
+                        record.get('Agent Name'),
+                        record.get('File Name'),
+                        record.get('File Path'),
+                        json.dumps(detection_results)
+                    )
+                    self._db_manager.execute_query(query, params, fetch=False)
+                logger.info(f"Saved {len(df_dict)} lite audit results to database for user {username}")
+                
+                # Check if this is a campaign audit and also save to campaign audit storage
+                campaign_name = self._detect_campaign_from_dataframe(df_with_metadata)
+                if campaign_name:
+                    # Ensure Audit Type is set
+                    if 'Audit Type' not in df_with_metadata.columns:
+                        df_with_metadata['Audit Type'] = 'Lite Audit'
+                    try:
+                        self.save_campaign_audit_results(df_with_metadata, campaign_name, username)
+                        logger.info(f"Also saved {len(df_with_metadata)} records to campaign audit: {campaign_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to save to campaign audit: {e}")
+                
+                return
+            except Exception as e:
+                logger.error(f"Error saving lite audit results to database: {e}")
+                # Fallback to JSON
+                pass
+        
+        # Fallback to JSON
+        # Initialize storage for this user
+        self.initialize_lite_audit_storage(username)
         
         # Load existing data
         try:
@@ -1804,11 +2812,242 @@ class DashboardManager:
             Combined DataFrame of all lite audit results for the user/group
         """
         if not username:
-            username = st.session_state.get('username', 'default_user')
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
         
         # Get all users whose data this user can access
         shared_users = self.get_shared_users(username)
         
+        # Load from database first (if available)
+        if self._db_manager:
+            try:
+                # Build query with usernames
+                placeholders = ','.join(['%s'] * len(shared_users))
+                query = f"""
+                    SELECT * FROM lite_audit_results 
+                    WHERE username IN ({placeholders})
+                    ORDER BY created_at DESC
+                """
+                results = self._db_manager.execute_query(query, tuple(shared_users), fetch=True)
+                
+                if results:
+                    records = []
+                    for row in results:
+                        # Extract data from database row
+                        record = {
+                            'Agent Name': row.get('agent_name', ''),
+                            'File Name': row.get('file_name', ''),
+                            'File Path': row.get('file_path', ''),
+                            'username': row.get('username', ''),
+                            'audit_timestamp': row.get('created_at').isoformat() if row.get('created_at') else None
+                        }
+                        
+                        # Extract detection results from JSONB
+                        detection_results = {}
+                        if row.get('detection_results'):
+                            try:
+                                if isinstance(row['detection_results'], dict):
+                                    detection_results = row['detection_results']
+                                elif isinstance(row['detection_results'], str):
+                                    detection_results = json.loads(row['detection_results'])
+                                else:
+                                    logger.warning(f"Unexpected detection_results type: {type(row['detection_results'])}")
+                                    detection_results = {}
+                            except json.JSONDecodeError as e:
+                                logger.error(f"JSON decode error parsing detection_results JSONB for file {row.get('file_name', 'unknown')}: {e}")
+                                logger.debug(f"Raw detection_results value: {row.get('detection_results')}")
+                                detection_results = {}
+                            except Exception as e:
+                                logger.error(f"Unexpected error parsing detection_results JSONB for file {row.get('file_name', 'unknown')}: {e}")
+                                detection_results = {}
+                        else:
+                            logger.debug(f"No detection_results found for file {row.get('file_name', 'unknown')}")
+                        
+                        # Helper function to normalize detection values
+                        def normalize_detection_value(value, default='No'):
+                            """Normalize detection value to 'Yes' or 'No'"""
+                            if value is None:
+                                return default
+                            if isinstance(value, bool):
+                                return 'Yes' if value else 'No'
+                            if isinstance(value, (int, float)):
+                                return 'Yes' if value else 'No'
+                            value_str = str(value).strip()
+                            if not value_str:
+                                return default
+                            value_lower = value_str.lower()
+                            if value_lower in ['yes', 'true', '1', 'y']:
+                                return 'Yes'
+                            elif value_lower in ['no', 'false', '0', 'n', '']:
+                                return 'No'
+                            else:
+                                logger.warning(f"Unexpected detection value format: '{value_str}', defaulting to '{default}'")
+                                return default
+                        
+                        # Map detection results to record with normalization
+                        releasing_raw = detection_results.get('releasing_detection', '')
+                        late_hello_raw = detection_results.get('late_hello_detection', '')
+                        
+                        record['Releasing Detection'] = normalize_detection_value(releasing_raw, 'No')
+                        record['Late Hello Detection'] = normalize_detection_value(late_hello_raw, 'No')
+                        
+                        # Debug logging for flagged calls
+                        if record['Releasing Detection'] == 'Yes' or record['Late Hello Detection'] == 'Yes':
+                            logger.debug(f"Flagged call detected - File: {row.get('file_name', 'unknown')}, "
+                                       f"Releasing: {record['Releasing Detection']}, "
+                                       f"Late Hello: {record['Late Hello Detection']}")
+                        record['Rebuttal Detection'] = detection_results.get('rebuttal_detection', 'N/A')
+                        record['Transcription'] = detection_results.get('transcript', 'N/A')
+                        record['Call Duration'] = detection_results.get('call_duration', '')
+                        record['Confidence Score'] = detection_results.get('confidence_score', '')
+                        
+                        # Extract Phone Number, Timestamp, Disposition from file_name
+                        # Use same logic as process_single_file_lite
+                        file_name = row.get('file_name', '')
+                        phone_number = ''
+                        timestamp = ''
+                        disposition = ''
+                        
+                        if file_name:
+                            try:
+                                from pathlib import Path
+                                import re
+                                stem = Path(file_name).stem
+                                parts = stem.split(" _ ")
+                                
+                                if len(parts) == 4:
+                                    # New format: AgentName _ Timestamp _ Phone _ Disposition.mp3
+                                    agent_name_raw, timestamp_raw, phone_number, disposition = parts
+                                    # Format timestamp for display (same as process_single_file_lite)
+                                    if timestamp_raw and timestamp_raw.strip():
+                                        # Use same format_timestamp_for_display logic: replace underscore with colon in time portion
+                                        import re
+                                        time_pattern = r'(\d{1,2})_(\d{2})(AM|PM)'
+                                        timestamp = re.sub(time_pattern, r'\1:\2\3', timestamp_raw)
+                                    else:
+                                        timestamp = ''
+                                elif len(parts) == 2:
+                                    # Old format: AgentName _ Phone.mp3
+                                    agent_name_raw, phone_number = parts
+                                    timestamp = ''
+                                    disposition = ''
+                                else:
+                                    phone_number = ''
+                                    timestamp = ''
+                                    disposition = ''
+                            except Exception as e:
+                                logger.debug(f"Error parsing file_name for metadata: {e}")
+                                phone_number = ''
+                                timestamp = ''
+                                disposition = ''
+                        
+                        # Override with detection_results if they exist (more reliable)
+                        if detection_results.get('phone_number'):
+                            phone_number = detection_results.get('phone_number')
+                        if detection_results.get('timestamp'):
+                            timestamp = detection_results.get('timestamp')
+                        if detection_results.get('disposition'):
+                            disposition = detection_results.get('disposition')
+                        
+                        record['Phone Number'] = phone_number
+                        record['Timestamp'] = timestamp
+                        record['Disposition'] = disposition
+                        
+                        # Extract Dialer Name from detection_results or file path
+                        dialer_name = detection_results.get('dialer_name', '')
+                        if not dialer_name:
+                            # Try to extract from file path if not in detection_results
+                            file_path_str = row.get('file_path', '')
+                            if file_path_str:
+                                try:
+                                    from pathlib import Path
+                                    file_path = Path(file_path_str)
+                                    parent_dir = file_path.parent.name
+                                    if ' ' in parent_dir:
+                                        # Split on last space to get dialer name (handles "users-2025-12-12_005 resva3" -> "resva3")
+                                        parts = parent_dir.rsplit(' ', 1)
+                                        if len(parts) == 2:
+                                            dialer_name = parts[1].strip().rstrip('/\\')
+                                except Exception as e:
+                                    logger.debug(f"Error extracting dialer name from file path: {e}")
+                        
+                        # Add standard lite audit columns with defaults (matching Agent Audit Dashboard)
+                        record['Agent Intro'] = 'N/A'
+                        record['Owner Name'] = 'N/A'
+                        record['Reason for calling'] = 'N/A'  # Match Agent Audit Dashboard column name (lowercase 'c')
+                        record['Intro Score'] = 'N/A'
+                        record['Status'] = detection_results.get('status', '')
+                        record['Dialer Name'] = dialer_name  # Use extracted dialer name (or empty if not found)
+                        record['Audit Type'] = 'Lite Audit'
+                        
+                        records.append(record)
+                    
+                    combined_df = pd.DataFrame(records)
+                    
+                    # Ensure all expected columns exist with empty defaults if missing
+                    # Match Agent Audit Dashboard columns exactly
+                    expected_columns = [
+                        'Agent Name', 'Phone Number', 'Timestamp', 'Disposition',
+                        'Releasing Detection', 'Late Hello Detection', 'Rebuttal Detection',
+                        'Transcription', 'Dialer Name', 'Agent Intro', 'Owner Name',
+                        'Reason for calling', 'Intro Score', 'Status',
+                        'File Name', 'File Path', 'Call Duration', 'Confidence Score',
+                        'username', 'audit_timestamp', 'Audit Type'
+                    ]
+                    for col in expected_columns:
+                        if col not in combined_df.columns:
+                            combined_df[col] = ''
+                    
+                    # Final normalization pass to ensure all detection values are 'Yes' or 'No'
+                    if not combined_df.empty:
+                        if 'Releasing Detection' in combined_df.columns:
+                            def normalize_releasing(val):
+                                if pd.isna(val):
+                                    return 'No'
+                                val_str = str(val).strip()
+                                if val_str.lower() in ['yes', 'true', '1', 'y']:
+                                    return 'Yes'
+                                return 'No'
+                            combined_df['Releasing Detection'] = combined_df['Releasing Detection'].apply(normalize_releasing)
+                        
+                        if 'Late Hello Detection' in combined_df.columns:
+                            def normalize_late_hello(val):
+                                if pd.isna(val):
+                                    return 'No'
+                                val_str = str(val).strip()
+                                if val_str.lower() in ['yes', 'true', '1', 'y']:
+                                    return 'Yes'
+                                return 'No'
+                            combined_df['Late Hello Detection'] = combined_df['Late Hello Detection'].apply(normalize_late_hello)
+                        
+                        # Debug: Log summary of flagged calls
+                        if 'Releasing Detection' in combined_df.columns and 'Late Hello Detection' in combined_df.columns:
+                            releasing_count = len(combined_df[combined_df['Releasing Detection'] == 'Yes'])
+                            late_hello_count = len(combined_df[combined_df['Late Hello Detection'] == 'Yes'])
+                            flagged_count = len(combined_df[
+                                (combined_df['Releasing Detection'] == 'Yes') |
+                                (combined_df['Late Hello Detection'] == 'Yes')
+                            ])
+                            logger.info(f"Lite audit data loaded: {len(combined_df)} total calls, "
+                                      f"{releasing_count} releasing, {late_hello_count} late hello, "
+                                      f"{flagged_count} flagged total")
+                    
+                    # Remove duplicates based on phone number, keeping the most recent entry
+                    if not combined_df.empty and 'Phone Number' in combined_df.columns:
+                        combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
+                        combined_df = combined_df.drop_duplicates(subset=['Phone Number'], keep='first')
+                        combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
+                    
+                    return combined_df
+                    
+            except Exception as e:
+                logger.error(f"Error loading lite audit data from database: {e}")
+                # Fallback to JSON
+                pass
+        
+        # Fallback to JSON file loading
         all_data = []
         
         for shared_user in shared_users:
@@ -1850,7 +3089,20 @@ class DashboardManager:
     def clear_lite_audit_data(self, username: str = None):
         """Clear lite audit data for the specified user."""
         if not username:
-            username = st.session_state.get('username', 'default_user')
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
+        
+        # Clear from database first (if available)
+        if self._db_manager:
+            try:
+                query = "DELETE FROM lite_audit_results WHERE username = %s"
+                self._db_manager.execute_query(query, (username,), fetch=False)
+                logger.info(f"Cleared lite audit data from database for user {username}")
+            except Exception as e:
+                logger.error(f"Error clearing lite audit data from database: {e}")
+                # Continue to JSON fallback
         
         # Clear the user's individual lite audit file
         self.lite_audit_file = self.lite_audit_dir / f"lite_audits_{username}.json"
@@ -1872,8 +3124,26 @@ class DashboardManager:
         Returns:
             int: Number of records downloaded today
         """
-        today = datetime.now().date().isoformat()
-        counter_file = self.daily_counters_dir / f"{username}_{today}.json"
+        today = datetime.now().date()
+        
+        if self._db_manager:
+            try:
+                query = """
+                    SELECT download_count FROM daily_counters 
+                    WHERE username = %s AND date = %s
+                """
+                result = self._db_manager.execute_query(query, (username, today), fetchone=True)
+                if result:
+                    return result.get('download_count', 0)
+                return 0
+            except Exception as e:
+                logger.error(f"Error getting daily download count from database: {e}")
+                # Fallback to JSON
+                pass
+        
+        # Fallback to JSON
+        today_str = today.isoformat()
+        counter_file = self.daily_counters_dir / f"{username}_{today_str}.json"
         
         if not counter_file.exists():
             return 0
@@ -1906,8 +3176,45 @@ class DashboardManager:
                 logger.error(f"Error recording quota usage for {username}: {e}")
                 # Continue with legacy system if quota system fails
         
-        today = datetime.now().date().isoformat()
-        counter_file = self.daily_counters_dir / f"{username}_{today}.json"
+        today = datetime.now().date()
+        today_str = today.isoformat()
+        
+        if self._db_manager:
+            try:
+                # Check if record exists
+                check_query = """
+                    SELECT download_count FROM daily_counters 
+                    WHERE username = %s AND date = %s
+                """
+                existing = self._db_manager.execute_query(check_query, (username, today), fetchone=True)
+                
+                if existing:
+                    # Update existing record
+                    new_count = existing.get('download_count', 0) + count
+                    update_query = """
+                        UPDATE daily_counters 
+                        SET download_count = %s, last_updated = CURRENT_TIMESTAMP
+                        WHERE username = %s AND date = %s
+                    """
+                    self._db_manager.execute_query(update_query, (new_count, username, today), fetch=False)
+                else:
+                    # Insert new record
+                    insert_query = """
+                        INSERT INTO daily_counters (username, date, download_count, last_updated)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    """
+                    self._db_manager.execute_query(insert_query, (username, today, count), fetch=False)
+                logger.info(f"Incremented daily download count for {username} by {count}")
+                return
+            except Exception as e:
+                # Only log error if it's not a pool exhaustion (we handle that gracefully)
+                if "pool exhausted" not in str(e).lower() and "pool" not in str(e).lower():
+                logger.error(f"Error incrementing daily download count in database: {e}")
+                # Fallback to JSON silently
+                pass
+        
+        # Fallback to JSON
+        counter_file = self.daily_counters_dir / f"{username}_{today_str}.json"
         
         # Load existing data
         if counter_file.exists():
@@ -1915,9 +3222,9 @@ class DashboardManager:
                 with open(counter_file, 'r') as f:
                     data = json.load(f)
             except json.JSONDecodeError:
-                data = {'download_count': 0, 'date': today}
+                data = {'download_count': 0, 'date': today_str}
         else:
-            data = {'download_count': 0, 'date': today}
+            data = {'download_count': 0, 'date': today_str}
         
         # Increment count
         data['download_count'] += count
@@ -2022,7 +3329,20 @@ class DashboardManager:
     def clear_agent_audit_data(self, username: str = None):
         """Clear agent audit data for the specified user."""
         if not username:
-            username = st.session_state.get('username', 'default_user')
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
+        
+        # Clear from database first (if available)
+        if self._db_manager:
+            try:
+                query = "DELETE FROM agent_audit_results WHERE username = %s"
+                self._db_manager.execute_query(query, (username,), fetch=False)
+                logger.info(f"Cleared agent audit data from database for user {username}")
+            except Exception as e:
+                logger.error(f"Error clearing agent audit data from database: {e}")
+                # Continue to JSON fallback
         
         # Clear the user's individual audit file
         self.agent_audit_file = self.agent_audit_dir / f"agent_audits_{username}.json"
@@ -2052,6 +3372,17 @@ class DashboardManager:
             campaign_name: Name of the campaign
             username: User who ran the audit
         """
+        # Check if migration is in progress (read-only mode)
+        try:
+            from lib.migration_lock import is_application_read_only
+            if is_application_read_only():
+                logger.warning("Write blocked: Migration in progress - cannot save campaign audit results")
+                if STREAMLIT_AVAILABLE and st:
+                    st.warning("⚠️ Application is in read-only mode due to data migration. Please try again later.")
+                return
+        except ImportError:
+            pass
+        
         if df.empty:
             return
         
@@ -2069,8 +3400,56 @@ class DashboardManager:
         elif 'Reason for calling' in df_to_save.columns and 'Reason for Calling' not in df_to_save.columns:
             df_to_save = df_to_save.rename(columns={'Reason for calling': 'Reason for Calling'})
 
-        # Create filename with timestamp
+        # Create timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Calculate counts
+        record_count = len(df_to_save)
+        releasing_count = len(df_to_save[df_to_save.get("Releasing Detection") == "Yes"]) if "Releasing Detection" in df_to_save.columns else 0
+        late_hello_count = len(df_to_save[df_to_save.get("Late Hello Detection") == "Yes"]) if "Late Hello Detection" in df_to_save.columns else 0
+        rebuttal_count = len(df_to_save[df_to_save.get("Rebuttal Detection") == "Yes"]) if "Rebuttal Detection" in df_to_save.columns else 0
+        
+        # Save to database
+        if self._db_manager:
+            try:
+                # Store full DataFrame as metadata JSONB
+                metadata = {
+                    "campaign_name": campaign_name,
+                    "username": username,
+                    "timestamp": timestamp,
+                    "data": df_to_save.to_dict('records')
+                }
+                
+                query = """
+                    INSERT INTO campaign_audit_results 
+                    (campaign_name, username, timestamp, record_count, releasing_count, 
+                     late_hello_count, rebuttal_count, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                params = (
+                    campaign_name,
+                    username,
+                    timestamp,
+                    record_count,
+                    releasing_count,
+                    late_hello_count,
+                    rebuttal_count,
+                    json.dumps(metadata)
+                )
+                self._db_manager.execute_query(query, params, fetch=False)
+                logger.info(f"Saved campaign audit results to database: {campaign_name} ({record_count} records)")
+                
+                # Also save CSV for backup/reference (optional)
+                filename = f"{campaign_name}_{timestamp}.csv"
+                filepath = self.campaign_audit_dir / filename
+                df_to_save.to_csv(filepath, index=False)
+                return
+            except Exception as e:
+                logger.error(f"Error saving campaign audit results to database: {e}")
+                # Fallback to CSV/JSON
+                pass
+        
+        # Fallback to CSV/JSON
         filename = f"{campaign_name}_{timestamp}.csv"
         filepath = self.campaign_audit_dir / filename
         
@@ -2082,9 +3461,9 @@ class DashboardManager:
             "campaign_name": campaign_name,
             "username": username,
             "timestamp": timestamp,
-            "record_count": len(df_to_save),
-            "releasing_count": len(df_to_save[df_to_save["Releasing Detection"] == "Yes"]),
-            "late_hello_count": len(df_to_save[df_to_save["Late Hello Detection"] == "Yes"])
+            "record_count": record_count,
+            "releasing_count": releasing_count,
+            "late_hello_count": late_hello_count
         }
         
         metadata_file = filepath.with_suffix('.json')
@@ -2094,17 +3473,43 @@ class DashboardManager:
         """
         Get list of campaigns - users in sharing groups see combined campaigns.
         Supports shared dashboards - users see campaigns from all group members.
+        Checks both database and CSV files.
 
         SECURITY NOTE: Users in sharing groups can access campaigns from all group members.
         """
         if not username:
-            username = st.session_state.get('username', 'default_user')
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
 
         # Get all users whose data this user can access
         shared_users = self.get_shared_users(username)
 
-        campaign_files = list(self.campaign_audit_dir.glob("*.csv"))
         campaigns = set()
+        
+        # Check database first (if available)
+        if self._db_manager:
+            try:
+                placeholders = ','.join(['%s'] * len(shared_users))
+                query = f"""
+                    SELECT DISTINCT campaign_name FROM campaign_audit_results 
+                    WHERE username IN ({placeholders})
+                """
+                results = self._db_manager.execute_query(query, tuple(shared_users), fetch=True)
+                
+                if results:
+                    for row in results:
+                        campaign_name = row.get('campaign_name')
+                        if campaign_name:
+                            campaigns.add(campaign_name)
+            except Exception as e:
+                logger.error(f"Error loading campaigns from database: {e}")
+                # Fallback to CSV
+                pass
+        
+        # Also check CSV files (fallback or additional data)
+        campaign_files = list(self.campaign_audit_dir.glob("*.csv"))
         
         for filepath in campaign_files:
             # Check metadata for username
@@ -2131,16 +3536,55 @@ class DashboardManager:
         """
         Load campaign audit data - users in sharing groups see combined data.
         Supports shared dashboards - users can access campaigns from all group members.
+        Loads from both database and CSV files.
 
         SECURITY NOTE: Users in sharing groups can access campaigns from all group members.
         """
         if not username:
-            username = st.session_state.get('username', 'default_user')
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
 
         # Get all users whose data this user can access
         shared_users = self.get_shared_users(username)
 
         all_data = []
+        
+        # Load from database first (if available)
+        if self._db_manager:
+            try:
+                placeholders = ','.join(['%s'] * len(shared_users))
+                query = f"""
+                    SELECT * FROM campaign_audit_results 
+                    WHERE campaign_name = %s AND username IN ({placeholders})
+                    ORDER BY timestamp DESC
+                """
+                results = self._db_manager.execute_query(query, (campaign_name, *tuple(shared_users)), fetch=True)
+                
+                if results:
+                    for row in results:
+                        try:
+                            # Extract data from metadata JSONB
+                            metadata = row.get('metadata')
+                            if metadata:
+                                if isinstance(metadata, str):
+                                    metadata = json.loads(metadata)
+                                
+                                # Get data from metadata
+                                data_records = metadata.get('data', [])
+                                if data_records:
+                                    df_from_db = pd.DataFrame(data_records)
+                                    all_data.append(df_from_db)
+                        except Exception as e:
+                            logger.warning(f"Error loading campaign data from database row: {e}")
+                            continue
+            except Exception as e:
+                logger.error(f"Error loading campaign audit data from database: {e}")
+                # Fallback to CSV
+                pass
+        
+        # Also load from CSV files (fallback or additional data)
         campaign_files = self.campaign_audit_dir.glob(f"{campaign_name}_*.csv")
 
         for filepath in campaign_files:
@@ -2869,7 +4313,27 @@ class DashboardManager:
             campaign_name: Optional campaign name to scope deletion
         """
         if not username:
-            username = st.session_state.get('username', 'default_user')
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
+
+        # Clear from database first (if available)
+        if self._db_manager:
+            try:
+                if campaign_name:
+                    # Clear specific campaign
+                    query = "DELETE FROM campaign_audit_results WHERE username = %s AND campaign_name = %s"
+                    self._db_manager.execute_query(query, (username, campaign_name), fetch=False)
+                    logger.info(f"Cleared campaign audit data from database for user {username}, campaign {campaign_name}")
+                else:
+                    # Clear all campaigns for user
+                    query = "DELETE FROM campaign_audit_results WHERE username = %s"
+                    self._db_manager.execute_query(query, (username,), fetch=False)
+                    logger.info(f"Cleared all campaign audit data from database for user {username}")
+            except Exception as e:
+                logger.error(f"Error clearing campaign audit data from database: {e}")
+                # Continue to file fallback
 
         # Clear campaign audit files for this user (optionally filtered by campaign)
         campaign_files = list(self.campaign_audit_dir.glob("*.csv"))

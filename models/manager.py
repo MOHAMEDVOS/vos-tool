@@ -96,7 +96,16 @@ def reload_semantic_embeddings():
 
 
 def get_whisper_model():
-    """Get or create the global Whisper model instance (thread-safe singleton)."""
+    """
+    DEPRECATED: This function is no longer used.
+    The app uses AssemblyAI for transcription instead of local Whisper models.
+    
+    Returns None to indicate Whisper is not used.
+    """
+    logger.warning("get_whisper_model() called but app uses AssemblyAI for transcription. Returning None.")
+    return None
+    
+    # Original Whisper loading code below (kept for reference but never executed)
     global _WHISPER_MODEL
 
     if _WHISPER_MODEL is not None:
@@ -151,7 +160,7 @@ def get_whisper_model():
                 batch_size=batch_size,  # Added batch processing
                 model_kwargs={
                     "attn_implementation": attn_implementation,
-                    "torch_dtype": dtype,
+                    "dtype": dtype,  # Updated: torch_dtype -> dtype
                     "use_safetensors": True,
                     "low_cpu_mem_usage": True
                 }
@@ -180,7 +189,7 @@ def get_whisper_model():
                     device=device,
                     model_kwargs={
                         "attn_implementation": attn_implementation,
-                        "torch_dtype": dtype,
+                        "dtype": dtype,  # Updated: torch_dtype -> dtype
                         "use_safetensors": True,
                         "low_cpu_mem_usage": True
                     }

@@ -30,6 +30,14 @@ recordings/
 
 # Chrome profile sessions (may contain login data)
 chrome_profile_sessions/
+chromedriver.exe
+
+# Backup directories
+*_backup*/
+dashboard_data_backup_*/
+
+# Large external dependencies (not needed in repo)
+llama.cpp/
 
 # ────────────── PYTHON & DEVELOPMENT ──────────────
 # Python cache
@@ -93,12 +101,60 @@ test_*.py
 debug_*.py
 *_test.py
 
+# ────────────── SYSTEM FILES & DIRECTORIES ──────────────
+# Windows system directories (should not be in project)
+AppData/
+Application Data/
+Cookies/
+Local Settings/
+My Documents/
+NetHood/
+PrintHood/
+Recent/
+SendTo/
+Start Menu/
+Templates/
+Desktop/
+Documents/
+Downloads/
+Pictures/
+Music/
+Contacts/
+Favorites/
+Links/
+OneDrive/
+Models/
+App/
+NTUSER.DAT*
+*.regtrans-ms
+*.TM.blf
+*.TMContainer*
+
+# IDE and editor cache
+.windsurf/
+.cursor/
+.codeium/
+.cache/
+.AnyLogicPLE/
+.streamlit/
+
+# SSH keys and personal configs
+.ssh/
+.gitconfig
+.bash_history
+.python_history
+
+# Temporary files
+.tmp-*
+.wdm/
+
 # ────────────── SECURITY NOTES ──────────────
 # This .gitignore protects:
 # 1. Environment variables with credentials
 # 2. User data and recordings (privacy)
 # 3. Session data and temporary files
 # 4. Development and debug files
+# 5. System files and directories
 #
 # Always verify before committing:
 # git status --ignored
