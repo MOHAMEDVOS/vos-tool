@@ -30,7 +30,8 @@ ENV/
 # Environment files
 .env
 .env.*
-!.env.example
+# .env.example is for reference only, not needed in containers
+.env.example
 
 # Documentation
 *.md
