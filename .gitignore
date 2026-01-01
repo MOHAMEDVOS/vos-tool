@@ -133,7 +133,8 @@ Contacts/
 Favorites/
 Links/
 OneDrive/
-Models/
+# Only ignore root-level Models/ directory, not backend/models/
+/Models/
 App/
 NTUSER.DAT*
 *.regtrans-ms
