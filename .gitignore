@@ -21,8 +21,11 @@ models/.cache/
 !dashboard_data/**/*.json
 
 # Audio recordings (privacy protection)
-Recordings/
-recordings/
+# Ignore all files in Recordings folder, but keep the folder structure
+Recordings/*
+!Recordings/.gitkeep
+recordings/*
+!recordings/.gitkeep
 *.mp3
 *.wav
 *.m4a
