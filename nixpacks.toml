@@ -1,7 +1,5 @@
-# Disable Nixpacks - Force Railway to use Docker builds
-# This file tells Railway NOT to use Nixpacks buildpack
-# Railway will then use Dockerfile instead
-
-[phases.setup]
-nixPkgs = []
+# Force Railway to use Docker builds instead of Nixpacks
+# Railway will detect Dockerfiles and use them instead of this buildpack
+[providers]
+docker = true
 
