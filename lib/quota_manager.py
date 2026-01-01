@@ -150,7 +150,7 @@ class QuotaManager:
                 except Exception as e:
                     # Only log error if it's not a pool exhaustion (we handle that gracefully)
                     if "pool exhausted" not in str(e).lower() and "pool" not in str(e).lower():
-                    logger.error(f"Error loading quota data from database: {e}")
+                        logger.error(f"Error loading quota data from database: {e}")
                     # Fallback to JSON silently
                     pass
             
