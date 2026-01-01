@@ -71,6 +71,22 @@ class DatabaseManager:
                 logger.info("Running locally, using 'localhost' instead of 'postgres'")
                 host = 'localhost'
 
+        # Prefer IPv4 for Supabase (Railway containers often have no IPv6 route)
+        try:
+            import socket
+
+            force_ipv4 = os.getenv('POSTGRES_FORCE_IPV4')
+            if force_ipv4 is None:
+                force_ipv4 = '1' if 'supabase.co' in host else '0'
+
+            if str(force_ipv4).lower() in {'1', 'true', 'yes', 'on'}:
+                ipv4 = socket.gethostbyname(host)
+                if ipv4 and ipv4 != host:
+                    logger.info(f"Resolved IPv4 database host: {host} -> {ipv4}")
+                    host = ipv4
+        except Exception as e:
+            logger.warning(f"Could not resolve IPv4 database host for {host}: {e}")
+
         try:
             # Get pool size from environment or use default (50 for better concurrency)
             max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '50'))
