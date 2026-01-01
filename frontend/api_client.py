@@ -2,6 +2,7 @@
 API Client for communicating with the backend FastAPI service.
 """
 
+import os
 import requests
 from typing import Optional, Dict, Any, List
 from datetime import date
@@ -14,12 +15,14 @@ logger = logging.getLogger(__name__)
 class APIClient:
     """Client for backend API communication."""
     
-    def __init__(self, base_url: str = "http://localhost:8000"):
+    def __init__(self, base_url: Optional[str] = None):
         """Initialize API client.
         
         Args:
             base_url: Base URL of the backend API
         """
+        if base_url is None:
+            base_url = os.getenv("BACKEND_URL", "http://localhost:8000")
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
     
