@@ -17,7 +17,13 @@ COPY requirements-backend.txt /app/requirements-backend.txt
 # Install CPU-only PyTorch (only torch, not torchvision/torchaudio - saves ~500MB-1GB)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir --user -r /app/requirements-backend.txt
+    pip install --no-cache-dir --user -r /app/requirements-backend.txt && \
+    # Clean up pip cache and unnecessary files
+    pip cache purge && \
+    find /root/.local -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null || true && \
+    find /root/.local -type d -name "*.dist-info" -exec rm -r {} + 2>/dev/null || true && \
+    find /root/.local -type f -name "*.pyc" -delete && \
+    find /root/.local -type f -name "*.pyo" -delete
 
 # Stage 2: Runtime (minimal image)
 FROM python:3.11-slim
@@ -33,13 +39,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy Python packages from builder
 COPY --from=builder /root/.local /root/.local
 
+# Clean up unnecessary files to reduce image size
+RUN find /root/.local -type d -name "tests" -exec rm -r {} + 2>/dev/null || true && \
+    find /root/.local -type d -name "test" -exec rm -r {} + 2>/dev/null || true && \
+    find /root/.local -type d -name "*.dist-info" -exec rm -r {} + 2>/dev/null || true && \
+    find /root/.local -type f -name "*.pyc" -delete && \
+    find /root/.local -type f -name "*.pyo" -delete && \
+    # Remove HuggingFace cache if present (models will be downloaded at runtime if needed)
+    rm -rf /root/.cache/huggingface 2>/dev/null || true && \
+    # Remove pip cache
+    rm -rf /root/.cache/pip 2>/dev/null || true
+
 # Make sure scripts in .local are usable
 ENV PATH=/root/.local/bin:$PATH
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    # Prevent HuggingFace from downloading models during build
+    HF_HOME=/tmp/.cache/huggingface \
+    TRANSFORMERS_CACHE=/tmp/.cache/transformers
 
 # Copy only required backend code (excludes archive/, test files, etc. via .dockerignore)
 # Backend doesn't need: app.py, frontend/, ui/, static/ (frontend-only)
@@ -55,7 +75,13 @@ COPY config.py /app/
 
 # Create necessary directories (will be mounted as volumes in production)
 RUN mkdir -p /app/Recordings /app/dashboard_data /app/logs && \
-    chmod -R 755 /app
+    chmod -R 755 /app && \
+    # Final cleanup: remove any remaining cache or temporary files
+    rm -rf /tmp/* /var/tmp/* 2>/dev/null || true && \
+    # Remove Python package documentation and examples
+    find /root/.local -type d -name "doc" -exec rm -r {} + 2>/dev/null || true && \
+    find /root/.local -type d -name "docs" -exec rm -r {} + 2>/dev/null || true && \
+    find /root/.local -type d -name "examples" -exec rm -r {} + 2>/dev/null || true
 
 # Expose backend port
 EXPOSE 8000
