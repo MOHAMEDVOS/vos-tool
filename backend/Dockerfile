@@ -68,6 +68,8 @@ ENV PYTHONUNBUFFERED=1 \
 # Backend doesn't need: app.py, frontend/, ui/, static/ (frontend-only)
 # Copy backend directory (includes backend/models/, backend/api/, backend/core/, etc.)
 COPY backend/ /app/backend/
+# Verify backend/models was copied correctly
+RUN ls -la /app/backend/models/ || (echo "ERROR: backend/models not found!" && exit 1)
 COPY lib/ /app/lib/
 COPY analyzer/ /app/analyzer/
 COPY audio_pipeline/ /app/audio_pipeline/
