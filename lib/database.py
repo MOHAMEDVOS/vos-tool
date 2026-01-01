@@ -70,23 +70,59 @@ class DatabaseManager:
                 # "postgres" doesn't resolve, we're running locally
                 logger.info("Running locally, using 'localhost' instead of 'postgres'")
                 host = 'localhost'
-        
+
         try:
             # Get pool size from environment or use default (50 for better concurrency)
             max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '50'))
             connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
-            
-            self.connection_pool = psycopg2.pool.ThreadedConnectionPool(
-                minconn=1,
-                maxconn=max_connections,
-                host=host,
-                port=os.getenv('POSTGRES_PORT', '5432'),
-                database=os.getenv('POSTGRES_DB', 'vos_tool'),
-                user=os.getenv('POSTGRES_USER', 'vos_user'),
-                password=os.getenv('POSTGRES_PASSWORD', ''),
-                connect_timeout=connect_timeout,  # Connection timeout in seconds
-            )
-            logger.info(f"✓ PostgreSQL connection pool created successfully (host: {host}, maxconn: {max_connections}, timeout: {connect_timeout}s)")
+
+            port = os.getenv('POSTGRES_PORT', '5432')
+            database = os.getenv('POSTGRES_DB', 'vos_tool')
+            user = os.getenv('POSTGRES_USER', 'vos_user')
+            password = os.getenv('POSTGRES_PASSWORD', '')
+
+            sslmode = os.getenv('POSTGRES_SSLMODE')
+            if not sslmode:
+                sslmode = 'require' if 'supabase.co' in host else 'prefer'
+
+            def _create_pool(resolved_host: str):
+                return psycopg2.pool.ThreadedConnectionPool(
+                    minconn=1,
+                    maxconn=max_connections,
+                    host=resolved_host,
+                    port=port,
+                    database=database,
+                    user=user,
+                    password=password,
+                    connect_timeout=connect_timeout,
+                    sslmode=sslmode,
+                )
+
+            try:
+                self.connection_pool = _create_pool(host)
+                logger.info(
+                    f"✓ PostgreSQL connection pool created successfully (host: {host}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
+                )
+            except Exception as e:
+                message = str(e)
+                if 'Network is unreachable' in message:
+                    import socket
+
+                    try:
+                        addrinfo = socket.getaddrinfo(host, int(port), family=socket.AF_INET, type=socket.SOCK_STREAM)
+                        ipv4 = addrinfo[0][4][0] if addrinfo else None
+                    except Exception:
+                        ipv4 = None
+
+                    if ipv4:
+                        self.connection_pool = _create_pool(ipv4)
+                        logger.info(
+                            f"✓ PostgreSQL connection pool created successfully (host: {ipv4}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
+                        )
+                    else:
+                        raise
+                else:
+                    raise
         except Exception as e:
             logger.error(f"✗ Failed to create PostgreSQL connection pool: {e}")
             raise

@@ -29,6 +29,9 @@ def init_db():
     """Initialize database connection."""
     try:
         db = get_db()
+        if db is None:
+            logger.warning("Database manager not available; running without PostgreSQL connection")
+            return
         # Test connection
         db.execute_query("SELECT 1", fetch=True)
         logger.info("Database connection established")
