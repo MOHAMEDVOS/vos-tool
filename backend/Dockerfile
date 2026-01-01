@@ -67,6 +67,8 @@ ENV PYTHONUNBUFFERED=1 \
 # Copy only required backend code (excludes archive/, test files, etc. via .dockerignore)
 # Backend doesn't need: app.py, frontend/, ui/, static/ (frontend-only)
 COPY backend/ /app/backend/
+# Explicitly ensure backend/models is included (should be in backend/ but being explicit)
+COPY backend/models/ /app/backend/models/
 COPY lib/ /app/lib/
 COPY analyzer/ /app/analyzer/
 COPY audio_pipeline/ /app/audio_pipeline/
