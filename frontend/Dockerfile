@@ -39,7 +39,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     curl \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -snf /usr/share/zoneinfo/America/New_York /etc/localtime && echo America/New_York > /etc/timezone
 
 # Install Chrome and ChromeDriver for ReadyMode automation
 RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
@@ -72,6 +74,7 @@ ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
+    TZ=America/New_York \
     STREAMLIT_SERVER_FILE_WATCHER_TYPE=none \
     # Prevent HuggingFace from downloading models during build
     HF_HOME=/tmp/.cache/huggingface \

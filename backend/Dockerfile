@@ -34,7 +34,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*
+    tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -snf /usr/share/zoneinfo/America/New_York /etc/localtime && echo America/New_York > /etc/timezone
 
 # Copy Python packages from builder
 COPY --from=builder /root/.local /root/.local
@@ -57,6 +59,7 @@ ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
+    TZ=America/New_York \
     # Prevent HuggingFace from downloading models during build
     HF_HOME=/tmp/.cache/huggingface \
     TRANSFORMERS_CACHE=/tmp/.cache/transformers
