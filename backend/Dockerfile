@@ -75,13 +75,18 @@ RUN echo "=== Build Context Debug ===" && \
 
 # Copy only required backend code (excludes archive/, test files, etc. via .dockerignore)
 # Backend doesn't need: app.py, frontend/, ui/, static/ (frontend-only)
-# Copy backend directory (includes backend/models/, backend/api/, backend/core/, etc.)
-COPY backend/ /app/backend/
+# Copy backend directory structure
+COPY backend/api/ /app/backend/api/
+COPY backend/core/ /app/backend/core/
+COPY backend/services/ /app/backend/services/
+COPY backend/models/ /app/backend/models/
+COPY backend/main.py /app/backend/main.py
+COPY backend/requirements.txt /app/backend/requirements.txt
 # Verify backend/models was copied correctly
 RUN ls -la /app/backend/models/ && \
     test -f /app/backend/models/__init__.py && \
     test -f /app/backend/models/schemas.py || \
-    (echo "ERROR: backend/models files not found after COPY backend/!" && \
+    (echo "ERROR: backend/models files not found!" && \
      echo "Debug: Listing /app/backend/ contents:" && \
      ls -la /app/backend/ && \
      echo "Debug: Checking if models directory exists:" && \
