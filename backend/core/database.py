@@ -5,6 +5,7 @@ Uses the existing database manager from lib.
 
 import sys
 from pathlib import Path
+from typing import List
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -44,14 +45,141 @@ def init_db():
         raise
 
 
+def _split_sql_statements(sql: str) -> List[str]:
+    statements: List[str] = []
+    buf: List[str] = []
+    i = 0
+    in_single = False
+    in_double = False
+    dollar_tag = None
+
+    def _flush():
+        s = ''.join(buf).strip()
+        buf.clear()
+        if s:
+            statements.append(s)
+
+    while i < len(sql):
+        ch = sql[i]
+
+        if dollar_tag is not None:
+            if sql.startswith(dollar_tag, i):
+                buf.append(dollar_tag)
+                i += len(dollar_tag)
+                dollar_tag = None
+                continue
+            buf.append(ch)
+            i += 1
+            continue
+
+        if not in_single and not in_double and ch == '$':
+            j = i + 1
+            while j < len(sql) and (sql[j].isalnum() or sql[j] == '_'):
+                j += 1
+            if j < len(sql) and sql[j] == '$':
+                tag = sql[i:j + 1]
+                buf.append(tag)
+                dollar_tag = tag
+                i = j + 1
+                continue
+
+        if ch == "'" and not in_double:
+            if in_single and i + 1 < len(sql) and sql[i + 1] == "'":
+                buf.append("''")
+                i += 2
+                continue
+            in_single = not in_single
+            buf.append(ch)
+            i += 1
+            continue
+
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            buf.append(ch)
+            i += 1
+            continue
+
+        if ch == ';' and not in_single and not in_double:
+            _flush()
+            i += 1
+            continue
+
+        buf.append(ch)
+        i += 1
+
+    if buf:
+        _flush()
+
+    return statements
+
+
+def _normalize_schema_sql(sql: str) -> str:
+    sql = sql.replace('uuid_generate_v4()', '(md5(random()::text || clock_timestamp()::text)::uuid)')
+    return sql
+
+
+def _apply_schema_file(db, schema_path: Path):
+    try:
+        sql = schema_path.read_text(encoding='utf-8')
+    except Exception as e:
+        logger.error(f"Failed to read schema file {schema_path}: {e}")
+        return
+
+    sql = _normalize_schema_sql(sql)
+    for stmt in _split_sql_statements(sql):
+        stmt_stripped = stmt.strip()
+        if not stmt_stripped:
+            continue
+
+        upper = stmt_stripped.upper()
+
+        if upper.startswith('GRANT '):
+            continue
+        if ' TO VOS_USER' in upper:
+            continue
+        if upper.startswith('INSERT INTO USERS '):
+            continue
+        if upper.startswith('CREATE EXTENSION IF NOT EXISTS "UUID-OSSP"'):
+            continue
+
+        if upper.startswith('CREATE EXTENSION'):
+            try:
+                db.execute_query(stmt_stripped, fetch=False)
+            except Exception:
+                pass
+            continue
+
+        try:
+            db.execute_query(stmt_stripped, fetch=False)
+        except Exception as e:
+            logger.warning(f"Schema statement failed (continuing): {e}")
+
+
+def _apply_full_schema(db):
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    schema_files = [
+        root_dir / 'cloud-migration' / 'init.sql',
+        root_dir / 'cloud-migration' / 'migration_schema.sql',
+    ]
+
+    for schema_file in schema_files:
+        if schema_file.exists():
+            _apply_schema_file(db, schema_file)
+        else:
+            logger.warning(f"Schema file missing: {schema_file}")
+
+
 def create_tables_if_needed(db):
     """Create essential tables if they don't exist."""
     try:
-        # Best-effort: attempt to enable UUID helpers, but do not rely on them.
         try:
             db.execute_query('CREATE EXTENSION IF NOT EXISTS "pgcrypto";', fetch=False)
         except Exception as e:
             logger.warning(f"Could not ensure pgcrypto extension exists: {e}")
+        try:
+            db.execute_query('CREATE EXTENSION IF NOT EXISTS "pg_trgm";', fetch=False)
+        except Exception:
+            pass
 
         # Create users table
         create_users_table = """
@@ -105,15 +233,24 @@ def create_tables_if_needed(db):
         # Create app_settings table
         create_settings_table = """
         CREATE TABLE IF NOT EXISTS app_settings (
-            setting_key TEXT PRIMARY KEY,
-            setting_value TEXT,
+            id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+            setting_key TEXT UNIQUE NOT NULL,
+            setting_value TEXT NOT NULL,
+            category TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
         """
         db.execute_query(create_settings_table, fetch=False)
         logger.info("✓ App settings table created/verified")
 
+        db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS id UUID;", fetch=False)
+        db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS setting_value TEXT;", fetch=False)
+        db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS category TEXT;", fetch=False)
+        db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
         db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
+
+        _apply_full_schema(db)
         
         logger.info("✅ Database tables initialized successfully")
         

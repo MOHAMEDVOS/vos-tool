@@ -228,7 +228,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_audit_results_created_at ON agent_audit_res
 CREATE INDEX IF NOT EXISTS idx_lite_audit_results_username ON lite_audit_results(username);
 CREATE INDEX IF NOT EXISTS idx_lite_audit_results_created_at ON lite_audit_results(created_at);
 CREATE INDEX IF NOT EXISTS idx_campaign_audit_results_username ON campaign_audit_results(username);
-CREATE INDEX IF NOT EXISTS idx_campaign_audit_results_campaign ON campaign_audit_results(campaign);
+CREATE INDEX IF NOT EXISTS idx_campaign_audit_results_campaign ON campaign_audit_results(campaign_name);
 CREATE INDEX IF NOT EXISTS idx_campaign_audit_results_created_at ON campaign_audit_results(created_at);
 
 -- Indexes for phrase tables
