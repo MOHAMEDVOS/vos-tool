@@ -99,6 +99,7 @@ COPY processing/ /app/processing/
 COPY models/ /app/models/
 COPY tools/ /app/tools/
 COPY automation/ /app/automation/
+COPY cloud-migration/ /app/cloud-migration/
 COPY config.py /app/
 
 # Create necessary directories (will be mounted as volumes in production)
