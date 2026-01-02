@@ -185,6 +185,35 @@ CREATE TABLE IF NOT EXISTS dashboard_sharing (
 
 CREATE INDEX IF NOT EXISTS idx_dashboard_sharing_username ON dashboard_sharing(username);
 
+CREATE TABLE IF NOT EXISTS admin_audits (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    admin_username VARCHAR(255) NOT NULL,
+    action VARCHAR(255) NOT NULL,
+    target_username VARCHAR(255),
+    details JSONB,
+    ip_address INET,
+    session_id VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audits_admin_username ON admin_audits(admin_username);
+CREATE INDEX IF NOT EXISTS idx_admin_audits_created_at ON admin_audits(created_at);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    plan VARCHAR(50),
+    status VARCHAR(50) DEFAULT 'active',
+    start_date TIMESTAMP WITH TIME ZONE,
+    end_date TIMESTAMP WITH TIME ZONE,
+    created_by VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    metadata JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_created_at ON subscriptions(created_at);
+
 -- ============================================================================
 -- 6. REBUTTAL PHRASES
 -- ============================================================================
@@ -272,6 +301,10 @@ CREATE TRIGGER update_client_subscriptions_updated_at
 
 CREATE TRIGGER update_dashboard_sharing_updated_at 
     BEFORE UPDATE ON dashboard_sharing 
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_subscriptions_updated_at 
+    BEFORE UPDATE ON subscriptions 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================================
