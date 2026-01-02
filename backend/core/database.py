@@ -126,7 +126,10 @@ def _apply_schema_file(db, schema_path: Path):
         return
 
     sql = _normalize_schema_sql(sql)
-    for stmt in _split_sql_statements(sql):
+    statements = _split_sql_statements(sql)
+    logger.info(f"Applying schema file: {schema_path} (statements: {len(statements)})")
+
+    for stmt in statements:
         stmt_stripped = stmt.strip()
         if not stmt_stripped:
             continue
@@ -152,11 +155,15 @@ def _apply_schema_file(db, schema_path: Path):
         try:
             db.execute_query(stmt_stripped, fetch=False)
         except Exception as e:
-            logger.warning(f"Schema statement failed (continuing): {e}")
+            preview = stmt_stripped.replace('\n', ' ')
+            if len(preview) > 160:
+                preview = preview[:160] + '...'
+            logger.warning(f"Schema statement failed (continuing): {e} | stmt={preview}")
 
 
 def _apply_full_schema(db):
     root_dir = Path(__file__).resolve().parent.parent.parent
+    logger.info(f"Schema root directory: {root_dir}")
     schema_files = [
         root_dir / 'cloud-migration' / 'init.sql',
         root_dir / 'cloud-migration' / 'migration_schema.sql',
@@ -164,6 +171,7 @@ def _apply_full_schema(db):
 
     for schema_file in schema_files:
         if schema_file.exists():
+            logger.info(f"Schema file found: {schema_file}")
             _apply_schema_file(db, schema_file)
         else:
             logger.warning(f"Schema file missing: {schema_file}")

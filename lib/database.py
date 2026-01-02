@@ -55,7 +55,7 @@ class DatabaseManager:
     def _init_postgresql(self):
         """Initialize PostgreSQL connection pool."""
         # Get host from environment, default to localhost
-        host = os.getenv('POSTGRES_HOST', 'localhost')
+        host = os.getenv('POSTGRES_HOST') or os.getenv('PGHOST') or 'localhost'
         
         # If host is "postgres" (Docker service name) and we're running locally,
         # try localhost instead (for local development)
@@ -92,10 +92,10 @@ class DatabaseManager:
             max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '50'))
             connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
 
-            port = os.getenv('POSTGRES_PORT', '5432')
-            database = os.getenv('POSTGRES_DB', 'vos_tool')
-            user = os.getenv('POSTGRES_USER', 'vos_user')
-            password = os.getenv('POSTGRES_PASSWORD', '')
+            port = os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or '5432'
+            database = os.getenv('POSTGRES_DB') or os.getenv('PGDATABASE') or 'vos_tool'
+            user = os.getenv('POSTGRES_USER') or os.getenv('PGUSER') or 'vos_user'
+            password = os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD') or ''
 
             sslmode = os.getenv('POSTGRES_SSLMODE')
             if not sslmode:
@@ -117,7 +117,7 @@ class DatabaseManager:
             try:
                 self.connection_pool = _create_pool(host)
                 logger.info(
-                    f"✓ PostgreSQL connection pool created successfully (host: {host}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
+                    f"✓ PostgreSQL connection pool created successfully (host: {host}, db: {database}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
                 )
             except Exception as e:
                 message = str(e)
@@ -133,7 +133,7 @@ class DatabaseManager:
                     if ipv4:
                         self.connection_pool = _create_pool(ipv4)
                         logger.info(
-                            f"✓ PostgreSQL connection pool created successfully (host: {ipv4}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
+                            f"✓ PostgreSQL connection pool created successfully (host: {ipv4}, db: {database}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
                         )
                     else:
                         raise
