@@ -18,7 +18,6 @@ import logging
 
 from backend.core.config import settings
 from backend.core.database import init_db
-from backend.api import auth, audio, dashboard, settings as settings_api, readymode
 
 # Configure logging
 logging.basicConfig(
@@ -26,6 +25,18 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+
+# Ensure DB/tables exist as early as possible, before importing routers that may
+# import modules which query the database at import time.
+try:
+    init_db()
+    logger.info("Database initialized successfully (early init)")
+except Exception as e:
+    logger.error(f"Database initialization failed (early init): {e}")
+
+
+from backend.api import auth, audio, dashboard, settings as settings_api, readymode
 
 
 @asynccontextmanager
