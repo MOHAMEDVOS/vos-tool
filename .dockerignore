@@ -87,6 +87,7 @@ Dockerfile*
 # Cloud migration (keep init.sql, ignore rest)
 cloud-migration/
 !cloud-migration/init.sql
+!cloud-migration/migration_schema.sql
 
 # Scripts (not needed in containers)
 scripts/
