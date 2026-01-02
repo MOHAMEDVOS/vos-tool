@@ -503,8 +503,12 @@ class SessionManager:
                     SET is_active = FALSE 
                     WHERE expires_at < CURRENT_TIMESTAMP AND is_active = TRUE
                 """
-                self._db_manager.execute_query(query, fetch=False)
-                return
+                try:
+                    self._db_manager.execute_query(query, fetch=False)
+                    return
+                except Exception as e:
+                    logger.warning(f"Error cleaning up expired sessions in database: {e}")
+                    # Fall back to JSON cleanup
 
             # Fallback to JSON
             if not self.sessions_file.exists():
