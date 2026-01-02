@@ -4,6 +4,7 @@ Uses the existing database manager from lib.
 """
 
 import sys
+import os
 from pathlib import Path
 from typing import List
 
@@ -60,6 +61,20 @@ def _split_sql_statements(sql: str) -> List[str]:
             statements.append(s)
 
     while i < len(sql):
+        if dollar_tag is None and not in_single and not in_double:
+            if sql.startswith('--', i):
+                j = sql.find('\n', i + 2)
+                if j == -1:
+                    break
+                i = j + 1
+                continue
+            if sql.startswith('/*', i):
+                j = sql.find('*/', i + 2)
+                if j == -1:
+                    break
+                i = j + 2
+                continue
+
         ch = sql[i]
 
         if dollar_tag is not None:
@@ -164,6 +179,17 @@ def _apply_schema_file(db, schema_path: Path):
 def _apply_full_schema(db):
     root_dir = Path(__file__).resolve().parent.parent.parent
     logger.info(f"Schema root directory: {root_dir}")
+
+    schema_dir = root_dir / 'cloud-migration'
+    try:
+        if schema_dir.exists():
+            files = sorted([p.name for p in schema_dir.iterdir() if p.is_file()])
+            logger.info(f"Schema dir contents: {', '.join(files) if files else '(no files)'}")
+        else:
+            logger.warning(f"Schema dir missing: {schema_dir}")
+    except Exception as e:
+        logger.warning(f"Could not list schema dir contents for {schema_dir}: {e}")
+
     schema_files = [
         root_dir / 'cloud-migration' / 'init.sql',
         root_dir / 'cloud-migration' / 'migration_schema.sql',
