@@ -190,6 +190,17 @@ def _apply_full_schema(db):
     except Exception as e:
         logger.warning(f"Could not list schema dir contents for {schema_dir}: {e}")
 
+    expected_migration_schema = root_dir / 'cloud-migration' / 'migration_schema.sql'
+    if not expected_migration_schema.exists():
+        try:
+            hits = sorted({str(p) for p in root_dir.rglob('migration_schema.sql')})
+            logger.warning(
+                f"Debug search: migration_schema.sql not at {expected_migration_schema}. "
+                f"Found: {', '.join(hits) if hits else '(none)'}"
+            )
+        except Exception as e:
+            logger.warning(f"Debug search failed for migration_schema.sql under {root_dir}: {e}")
+
     schema_files = [
         root_dir / 'cloud-migration' / 'init.sql',
         root_dir / 'cloud-migration' / 'migration_schema.sql',

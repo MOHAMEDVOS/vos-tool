@@ -103,6 +103,12 @@ COPY cloud-migration/init.sql /app/cloud-migration/init.sql
 COPY cloud-migration/migration_schema.sql /app/cloud-migration/migration_schema.sql
 COPY config.py /app/
 
+# Hard fail if schema files are not actually present in the built image.
+RUN echo "Schema files check:" && \
+    ls -la /app/cloud-migration/ && \
+    test -f /app/cloud-migration/init.sql && \
+    test -f /app/cloud-migration/migration_schema.sql
+
 # Create necessary directories (will be mounted as volumes in production)
 RUN mkdir -p /app/Recordings /app/dashboard_data /app/logs && \
     chmod -R 755 /app && \
