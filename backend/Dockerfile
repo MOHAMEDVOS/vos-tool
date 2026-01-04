@@ -64,10 +64,15 @@ ENV PYTHONUNBUFFERED=1 \
     HF_HOME=/tmp/.cache/huggingface \
     TRANSFORMERS_CACHE=/tmp/.cache/transformers
 
-# Debug: Check what's available in build context (temporary - remove after fix)
+# Debug: Check what's available in build context
 RUN echo "=== Build Context Debug ===" && \
     echo "Current directory:" && pwd && \
-    echo "Listing root:" && ls -la / 2>&1 | head -20 || true && \
+    echo "Listing root:" && (ls -la / 2>&1 | head -20 || true) && \
+    echo "Checking for backend directory:" && \
+    (test -d backend && echo "backend/ exists" || echo "backend/ NOT found") && \
+    (test -d backend/models && echo "backend/models/ exists" || echo "backend/models/ NOT found") && \
+    (test -f backend/models/schemas.py && echo "backend/models/schemas.py exists" || echo "backend/models/schemas.py NOT found") || true
+
 # Copy only required backend code (excludes archive/, test files, etc. via .dockerignore)
 # Backend doesn't need: app.py, frontend/, ui/, static/ (frontend-only)
 # Copy backend directory structure
@@ -125,7 +130,7 @@ EXPOSE 8000
 
 # Health check (requires requests package from requirements)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health', timeout=5)" || exit 1
+    CMD sh -c "python -c \"import os, requests; port=os.getenv('PORT','8000'); requests.get(f'http://localhost:{port}/health', timeout=5)\"" || exit 1
 
 # Run backend
 # Use $PORT environment variable from Railway, fallback to 8000
