@@ -21,7 +21,6 @@ RUN pip install --no-cache-dir --upgrade pip && \
     # Clean up pip cache and unnecessary files
     pip cache purge && \
     find /root/.local -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null || true && \
-    find /root/.local -type d -name "*.dist-info" -exec rm -r {} + 2>/dev/null || true && \
     find /root/.local -type f -name "*.pyc" -delete && \
     find /root/.local -type f -name "*.pyo" -delete
 
@@ -58,7 +57,6 @@ COPY --from=builder /root/.local /root/.local
 # Clean up unnecessary files to reduce image size
 RUN find /root/.local -type d -name "tests" -exec rm -r {} + 2>/dev/null || true && \
     find /root/.local -type d -name "test" -exec rm -r {} + 2>/dev/null || true && \
-    find /root/.local -type d -name "*.dist-info" -exec rm -r {} + 2>/dev/null || true && \
     find /root/.local -type f -name "*.pyc" -delete && \
     find /root/.local -type f -name "*.pyo" -delete && \
     # Remove HuggingFace cache if present (models will be downloaded at runtime if needed)
