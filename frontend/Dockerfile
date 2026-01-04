@@ -49,9 +49,8 @@ RUN wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearm
     && apt-get update \
     && apt-get install -y --no-install-recommends google-chrome-stable \
     && rm -rf /var/lib/apt/lists/* \
-    && # Clean up Chrome unnecessary files
-    rm -rf /opt/google/chrome/locales/*.pak 2>/dev/null || true && \
-    rm -rf /opt/google/chrome/resources/*.pak 2>/dev/null || true
+    && rm -rf /opt/google/chrome/locales/*.pak 2>/dev/null || true \
+    && rm -rf /opt/google/chrome/resources/*.pak 2>/dev/null || true
 
 # Copy Python packages from builder
 COPY --from=builder /root/.local /root/.local
@@ -122,7 +121,7 @@ EXPOSE 8501
 
 # Health check (requires requests package from requirements)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8501/_stcore/health', timeout=5)" || exit 1
+    CMD sh -c "python -c \"import os, requests; port=os.getenv('PORT','8501'); requests.get(f'http://localhost:{port}/_stcore/health', timeout=5)\"" || exit 1
 
 # Run Streamlit
 # Use $PORT environment variable from Railway, fallback to 8501
