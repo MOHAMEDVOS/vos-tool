@@ -1913,11 +1913,21 @@ def show_settings_section():
                 
                 quality_options = {"low": "Fast", "medium": "Balanced", "high": "Accurate"}
                 current_quality = audio_settings.get("audio_quality", "medium")
+                if isinstance(current_quality, str):
+                    current_quality = current_quality.strip()
+                    if (
+                        (current_quality.startswith('"') and current_quality.endswith('"'))
+                        or (current_quality.startswith("'") and current_quality.endswith("'"))
+                    ):
+                        current_quality = current_quality[1:-1].strip()
+                if current_quality not in quality_options:
+                    current_quality = "medium"
+                current_quality_index = list(quality_options.keys()).index(current_quality)
                 
                 audio_quality = st.selectbox(
                     "Processing Speed",
                     options=list(quality_options.keys()),
-                    index=list(quality_options.keys()).index(current_quality),
+                    index=current_quality_index,
                     format_func=lambda x: quality_options[x]
                 )
                 
