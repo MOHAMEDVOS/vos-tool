@@ -1,16 +1,22 @@
 import json
 import logging
+import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-try:
-    # Optional local LLM backend (user must install llama-cpp-python and provide a model file)
-    from llama_cpp import Llama  # type: ignore
-    _LLM_AVAILABLE = True
-except Exception as e:  # pragma: no cover - safe fallback if dependency is missing
-    logger.warning(f"Local LLM backend not available: {e}")
+_ENABLE_LOCAL_LLM = os.getenv("VOS_ENABLE_LOCAL_LLM", "false").lower() in {"1", "true", "yes", "on"}
+
+if _ENABLE_LOCAL_LLM:
+    try:
+        from llama_cpp import Llama  # type: ignore
+        _LLM_AVAILABLE = True
+    except Exception as e:  # pragma: no cover - safe fallback if dependency is missing
+        logger.warning(f"Local LLM backend not available: {e}")
+        Llama = None  # type: ignore
+        _LLM_AVAILABLE = False
+else:
     Llama = None  # type: ignore
     _LLM_AVAILABLE = False
 
@@ -31,8 +37,6 @@ def _get_llm() -> Optional["Llama"]:
 
     if _llm_instance is not None:
         return _llm_instance
-
-    import os
 
     # Allow overriding model path via environment variable
     model_path = os.getenv("VOS_AI_MODEL_PATH")
