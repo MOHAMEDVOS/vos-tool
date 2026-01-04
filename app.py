@@ -1956,17 +1956,30 @@ def show_settings_section():
                 
                 # Get current detection settings
                 detection_settings = persistent_app_settings.get_category("detection")
+                current_semantic_raw = detection_settings.get("semantic_threshold", 0.68)
+                try:
+                    if isinstance(current_semantic_raw, str):
+                        current_semantic_raw = current_semantic_raw.strip()
+                        if (
+                            (current_semantic_raw.startswith('"') and current_semantic_raw.endswith('"'))
+                            or (current_semantic_raw.startswith("'") and current_semantic_raw.endswith("'"))
+                        ):
+                            current_semantic_raw = current_semantic_raw[1:-1].strip()
+                    current_semantic_threshold = float(current_semantic_raw)
+                except Exception:
+                    current_semantic_threshold = 0.68
+                current_semantic_threshold = max(0.5, min(current_semantic_threshold, 0.9))
                 
                 semantic_input = st.text_input(
                     "Semantic Threshold (0.50 - 0.90)",
-                    value=f"{detection_settings.get('semantic_threshold', 0.68):.2f}",
+                    value=f"{current_semantic_threshold:.2f}",
                     help="Similarity cutoff for semantic rebuttal detection; higher = stricter matches"
                 )
                 try:
                     semantic_threshold = float(semantic_input)
                 except ValueError:
                     st.warning("Invalid semantic threshold; using the current setting.")
-                    semantic_threshold = detection_settings.get("semantic_threshold", 0.68)
+                    semantic_threshold = current_semantic_threshold
                 else:
                     semantic_threshold = max(0.5, min(semantic_threshold, 0.9))
                 

@@ -1791,7 +1791,7 @@ class PhraseLearningManager:
                 conn = self._get_db_connection()
                 cursor = conn.cursor()
                 
-                cursor.execute("SELECT COUNT(*) FROM rebuttal_phrases")
+                cursor.execute("SELECT COUNT(*) FROM repository_phrases")
                 total_phrases = cursor.fetchone()[0]
                 
                 cursor.execute("SELECT COUNT(*) FROM pending_phrases WHERE status = 'pending'")
@@ -1799,7 +1799,7 @@ class PhraseLearningManager:
                 
                 auto_learned_count = 0
                 try:
-                    cursor.execute("SELECT COUNT(*) FROM rebuttal_phrases WHERE source = 'auto_learned'")
+                    cursor.execute("SELECT COUNT(*) FROM repository_phrases WHERE source = 'auto_learned'")
                     auto_learned_count = cursor.fetchone()[0]
                 except Exception:
                     try:
@@ -1808,11 +1808,11 @@ class PhraseLearningManager:
                     except Exception:
                         auto_learned_count = 0
                 
-                cursor.execute("SELECT COUNT(DISTINCT category) FROM rebuttal_phrases")
+                cursor.execute("SELECT COUNT(DISTINCT category) FROM repository_phrases")
                 categories = cursor.fetchone()[0]
                 
                 try:
-                    cursor.execute("SELECT MAX(created_at) FROM rebuttal_phrases")
+                    cursor.execute("SELECT COALESCE(MAX(added_date), MAX(created_at)) FROM repository_phrases")
                     last_updated_row = cursor.fetchone()
                     last_updated = last_updated_row[0].isoformat() if last_updated_row and last_updated_row[0] else "Unknown"
                 except Exception:
@@ -1878,8 +1878,30 @@ class PhraseLearningManager:
                 cursor = conn.cursor()
                 
                 try:
-                    cursor.execute("SELECT category, phrase FROM rebuttal_phrases ORDER BY category, phrase")
-                    results = cursor.fetchall()
+                    debug_enabled = os.getenv("VOS_DEBUG_PHRASES_DB", "false").lower() in {"1", "true", "yes", "on"}
+                    if debug_enabled:
+                        try:
+                            cursor.execute("SELECT COUNT(*) FROM repository_phrases")
+                            repo_count = cursor.fetchone()[0]
+                        except Exception:
+                            repo_count = None
+                        try:
+                            cursor.execute("SELECT COUNT(*) FROM rebuttal_phrases")
+                            rebuttal_count = cursor.fetchone()[0]
+                        except Exception:
+                            rebuttal_count = None
+                        logger.info(f"Phrase DB counts: repository_phrases={repo_count}, rebuttal_phrases={rebuttal_count}")
+
+                    results = []
+                    try:
+                        cursor.execute("SELECT category, phrase FROM repository_phrases ORDER BY category, phrase")
+                        results = cursor.fetchall()
+                    except Exception as e:
+                        logger.warning(f"Failed to read repository_phrases, trying rebuttal_phrases: {e}")
+
+                    if not results:
+                        cursor.execute("SELECT category, phrase FROM rebuttal_phrases ORDER BY category, phrase")
+                        results = cursor.fetchall()
                     
                     phrases_dict = {}
                     for row in results:
