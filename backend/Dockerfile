@@ -68,11 +68,6 @@ ENV PYTHONUNBUFFERED=1 \
 RUN echo "=== Build Context Debug ===" && \
     echo "Current directory:" && pwd && \
     echo "Listing root:" && ls -la / 2>&1 | head -20 || true && \
-    echo "Checking for backend directory:" && \
-    (test -d backend && echo "backend/ exists" || echo "backend/ NOT found") && \
-    (test -d backend/models && echo "backend/models/ exists" || echo "backend/models/ NOT found") && \
-    (test -f backend/models/schemas.py && echo "backend/models/schemas.py exists" || echo "backend/models/schemas.py NOT found") || true
-
 # Copy only required backend code (excludes archive/, test files, etc. via .dockerignore)
 # Backend doesn't need: app.py, frontend/, ui/, static/ (frontend-only)
 # Copy backend directory structure
@@ -80,6 +75,7 @@ COPY backend/api/ /app/backend/api/
 COPY backend/core/ /app/backend/core/
 COPY backend/services/ /app/backend/services/
 COPY backend/models/ /app/backend/models/
+COPY backend/__init__.py /app/backend/__init__.py
 COPY backend/main.py /app/backend/main.py
 COPY backend/requirements.txt /app/backend/requirements.txt
 # Verify backend/models was copied correctly
