@@ -231,6 +231,7 @@ CREATE TABLE IF NOT EXISTS rebuttal_phrases (
 CREATE INDEX IF NOT EXISTS idx_rebuttal_phrases_category ON rebuttal_phrases(category);
 CREATE INDEX IF NOT EXISTS idx_rebuttal_phrases_source ON rebuttal_phrases(source);
 
+DROP TRIGGER IF EXISTS update_rebuttal_phrases_updated_at ON rebuttal_phrases;
 CREATE TRIGGER update_rebuttal_phrases_updated_at 
     BEFORE UPDATE ON rebuttal_phrases 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -259,50 +260,62 @@ CREATE INDEX IF NOT EXISTS idx_learned_rebuttals_source ON learned_rebuttals(sou
 -- ============================================================================
 
 -- Apply updated_at triggers to new tables
+DROP TRIGGER IF EXISTS update_app_settings_updated_at ON app_settings;
 CREATE TRIGGER update_app_settings_updated_at 
     BEFORE UPDATE ON app_settings 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_quota_system_config_updated_at ON quota_system_config;
 CREATE TRIGGER update_quota_system_config_updated_at 
     BEFORE UPDATE ON quota_system_config 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_admin_limits_updated_at ON admin_limits;
 CREATE TRIGGER update_admin_limits_updated_at 
     BEFORE UPDATE ON admin_limits 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_user_quota_assignments_updated_at ON user_quota_assignments;
 CREATE TRIGGER update_user_quota_assignments_updated_at 
     BEFORE UPDATE ON user_quota_assignments 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_admin_usage_updated_at ON admin_usage;
 CREATE TRIGGER update_admin_usage_updated_at 
     BEFORE UPDATE ON admin_usage 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_user_usage_updated_at ON user_usage;
 CREATE TRIGGER update_user_usage_updated_at 
     BEFORE UPDATE ON user_usage 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_daily_counters_updated_at ON daily_counters;
 CREATE TRIGGER update_daily_counters_updated_at 
     BEFORE UPDATE ON daily_counters 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_subscription_plans_updated_at ON subscription_plans;
 CREATE TRIGGER update_subscription_plans_updated_at 
     BEFORE UPDATE ON subscription_plans 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_subscription_data_updated_at ON subscription_data;
 CREATE TRIGGER update_subscription_data_updated_at 
     BEFORE UPDATE ON subscription_data 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_client_subscriptions_updated_at ON client_subscriptions;
 CREATE TRIGGER update_client_subscriptions_updated_at 
     BEFORE UPDATE ON client_subscriptions 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_dashboard_sharing_updated_at ON dashboard_sharing;
 CREATE TRIGGER update_dashboard_sharing_updated_at 
     BEFORE UPDATE ON dashboard_sharing 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+DROP TRIGGER IF EXISTS update_subscriptions_updated_at ON subscriptions;
 CREATE TRIGGER update_subscriptions_updated_at 
     BEFORE UPDATE ON subscriptions 
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

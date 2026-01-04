@@ -17,6 +17,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 _db_manager = None
+_db_initialized = False
+_db_init_in_progress = False
 
 
 def get_db():
@@ -29,7 +31,11 @@ def get_db():
 
 def init_db():
     """Initialize database connection and create tables if needed."""
+    global _db_initialized, _db_init_in_progress
+    if _db_initialized or _db_init_in_progress:
+        return
     try:
+        _db_init_in_progress = True
         db = get_db()
         if db is None:
             logger.warning("Database manager not available; running without PostgreSQL connection")
@@ -40,10 +46,13 @@ def init_db():
         
         # Create tables if they don't exist
         create_tables_if_needed(db)
+        _db_initialized = True
         
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         raise
+    finally:
+        _db_init_in_progress = False
 
 
 def _split_sql_statements(sql: str) -> List[str]:

@@ -250,9 +250,13 @@ END;
 $$ language 'plpgsql';
 
 -- Apply triggers
+DROP TRIGGER IF EXISTS update_users_updated_at ON users;
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_call_recordings_updated_at ON call_recordings;
 CREATE TRIGGER update_call_recordings_updated_at BEFORE UPDATE ON call_recordings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_quota_usage_updated_at ON quota_usage;
 CREATE TRIGGER update_quota_usage_updated_at BEFORE UPDATE ON quota_usage FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_rebuttal_phrases_updated_at ON rebuttal_phrases;
 CREATE TRIGGER update_rebuttal_phrases_updated_at BEFORE UPDATE ON rebuttal_phrases FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Insert default admin user (password should be changed after deployment)
