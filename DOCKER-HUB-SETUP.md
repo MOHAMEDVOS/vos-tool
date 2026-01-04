@@ -132,27 +132,12 @@ Check that tables were created:
 
 ### Step 6: Configure PostgreSQL for Docker Access
 
-#### For Local PostgreSQL (Windows/Mac)
+#### For Local PostgreSQL
 
-The `host.docker.internal` hostname should work automatically. If it doesn't:
+Ensure PostgreSQL is configured to accept connections from your Docker host:
 
-**Windows:**
-- Ensure PostgreSQL is configured to accept connections
-- Check `pg_hba.conf` (usually in `C:\Program Files\PostgreSQL\15\data\`)
-- Add or verify this line:
-  ```
-  host    all    all    0.0.0.0/0    md5
-  ```
-- Restart PostgreSQL service
-
-**macOS:**
-- Same as Windows, check `pg_hba.conf` location:
-  ```bash
-  # Find pg_hba.conf
-  sudo find /usr/local/var/postgres -name pg_hba.conf
-  # Or
-  sudo find /opt/homebrew/var/postgres -name pg_hba.conf
-  ```
+- Check `pg_hba.conf` and add a rule that allows your Docker host/network
+- Restart the PostgreSQL service after changes
 
 #### For Remote PostgreSQL
 
@@ -217,8 +202,8 @@ The `host.docker.internal` hostname should work automatically. If it doesn't:
 
 **Solution:**
 1. **For local PostgreSQL:**
-   - Verify `host.docker.internal` resolves: `ping host.docker.internal`
-   - On Linux, use host IP instead: `POSTGRES_HOST=172.17.0.1` or your actual IP
+   - Verify PostgreSQL is listening on the configured port
+   - Verify `pg_hba.conf` allows connections from your Docker host/network
 
 2. **For remote PostgreSQL:**
    - Verify PostgreSQL is listening: `netstat -an | grep 5432`

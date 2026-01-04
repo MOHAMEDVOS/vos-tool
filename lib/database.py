@@ -8,6 +8,7 @@ import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import json
+from urllib.parse import urlparse, parse_qs, unquote
 
 # Load environment variables from .env file
 try:
@@ -34,14 +35,43 @@ except ImportError as e:
 # SQLite is always available
 import sqlite3
 
+
+def _parse_database_url(database_url: str) -> Dict[str, Optional[str]]:
+    try:
+        if not database_url:
+            return {}
+
+        normalized = database_url.strip()
+        if normalized.startswith('postgres://'):
+            normalized = 'postgresql://' + normalized[len('postgres://'):]
+
+        parsed = urlparse(normalized)
+        if parsed.scheme not in {'postgresql', 'postgres'}:
+            return {}
+
+        query = parse_qs(parsed.query)
+        sslmode = query.get('sslmode', [None])[0]
+
+        return {
+            'host': parsed.hostname,
+            'port': str(parsed.port) if parsed.port else None,
+            'database': parsed.path.lstrip('/') if parsed.path else None,
+            'user': unquote(parsed.username) if parsed.username else None,
+            'password': unquote(parsed.password) if parsed.password else None,
+            'sslmode': sslmode,
+        }
+    except Exception:
+        return {}
+
+
 class DatabaseManager:
     """Manages database connections and provides unified interface."""
-    
+
     def __init__(self):
         self.db_type = os.getenv('DB_TYPE', 'postgresql').lower()
         self.connection_pool = None
         self.db_path = None
-        
+
         if self.db_type == 'postgresql':
             if not POSTGRESQL_AVAILABLE:
                 logger.error("PostgreSQL requested but psycopg2 not installed. Install with: pip install psycopg2-binary")
@@ -51,12 +81,15 @@ class DatabaseManager:
             self._init_sqlite()
         else:
             raise ValueError(f"Unsupported DB_TYPE: {self.db_type}. Use 'postgresql' or 'sqlite'")
-    
+
     def _init_postgresql(self):
         """Initialize PostgreSQL connection pool."""
+        db_url = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
+        db_url_parts = _parse_database_url(db_url) if db_url else {}
+
         # Get host from environment, default to localhost
-        host = os.getenv('POSTGRES_HOST') or os.getenv('PGHOST') or 'localhost'
-        
+        host = os.getenv('POSTGRES_HOST') or os.getenv('PGHOST') or db_url_parts.get('host') or 'localhost'
+
         # If host is "postgres" (Docker service name) and we're running locally,
         # try localhost instead (for local development)
         if host == 'postgres':
@@ -92,12 +125,12 @@ class DatabaseManager:
             max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '50'))
             connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
 
-            port = os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or '5432'
-            database = os.getenv('POSTGRES_DB') or os.getenv('PGDATABASE') or 'vos_tool'
-            user = os.getenv('POSTGRES_USER') or os.getenv('PGUSER') or 'vos_user'
-            password = os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD') or ''
+            port = os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or db_url_parts.get('port') or '5432'
+            database = os.getenv('POSTGRES_DB') or os.getenv('PGDATABASE') or db_url_parts.get('database') or 'vos_tool'
+            user = os.getenv('POSTGRES_USER') or os.getenv('PGUSER') or db_url_parts.get('user') or 'vos_user'
+            password = os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD') or db_url_parts.get('password') or ''
 
-            sslmode = os.getenv('POSTGRES_SSLMODE')
+            sslmode = os.getenv('POSTGRES_SSLMODE') or db_url_parts.get('sslmode')
             if not sslmode:
                 sslmode = 'require' if 'supabase.co' in host else 'prefer'
 

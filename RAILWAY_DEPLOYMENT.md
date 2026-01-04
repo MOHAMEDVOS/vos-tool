@@ -14,29 +14,25 @@ This guide will help you deploy your VOS Tool to Railway with Supabase as the da
 
 ---
 
-## 🔑 Step 1: Security Keys (Already Generated)
+## 🔑 Step 1: Security Keys
 
-Your security keys have been generated:
+Generate security keys for your Railway environment variables:
 
 ```
-SECRET_KEY=MO6Rl-IME9m2vhFv78-8F6wuMy91GRyA3rPqArfkXNM
-JWT_SECRET=KIMLI_m3TlOcRd48ADMV7l4V4N_Y2yMqJLsz9vpMUW4
+SECRET_KEY=<generate-a-new-secret>
+JWT_SECRET=<generate-a-new-secret>
 ```
 
 **⚠️ IMPORTANT:** Save these keys securely. You'll need them for Railway environment variables.
 
 ---
 
-## 🗄️ Step 2: Supabase Connection Details
+## 🗄️ Step 2: Database Connection Details
 
-Your Supabase database connection information:
+Use your database provider connection information (recommended: Railway PostgreSQL).
 
 ```
-Host: db.gwmgpzcftdtiuhuoolso.supabase.co
-Port: 5432
-Database: postgres
-User: postgres
-Password: HX7!j@sB.mE3!cQ
+DATABASE_URL=<from-railway-postgres-or-your-provider>
 ```
 
 ---
@@ -62,17 +58,14 @@ Go to **Backend Service** → **Variables** tab and add:
 #### Database Configuration
 ```
 DB_TYPE=postgresql
-POSTGRES_HOST=db.gwmgpzcftdtiuhuoolso.supabase.co
-POSTGRES_PORT=5432
-POSTGRES_DB=postgres
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=HX7!j@sB.mE3!cQ
+DATABASE_URL=<from-railway-postgres-or-your-provider>
+POSTGRES_SSLMODE=require
 ```
 
 #### Security Keys
 ```
-SECRET_KEY=MO6Rl-IME9m2vhFv78-8F6wuMy91GRyA3rPqArfkXNM
-JWT_SECRET=KIMLI_m3TlOcRd48ADMV7l4V4N_Y2yMqJLsz9vpMUW4
+SECRET_KEY=<your-secret-key>
+JWT_SECRET=<your-jwt-secret>
 ```
 
 #### Application Settings
@@ -84,7 +77,7 @@ CORS_ORIGINS=https://your-frontend-service.railway.app
 
 #### Connection Pool Settings (Optional)
 ```
-DB_POOL_MAX_SIZE=50
+DB_POOL_MAX_SIZE=5
 DB_CONNECT_TIMEOUT=10
 DB_QUERY_TIMEOUT=30000
 ```

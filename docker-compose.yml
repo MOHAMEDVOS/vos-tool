@@ -16,7 +16,7 @@ services:
       - DEBUG=${DEBUG:-false}
       
       # Frontend URL for CORS
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8501}
+      - FRONTEND_URL=${FRONTEND_URL:-http://frontend:8501}
       
       # Security
       - SECRET_KEY=${SECRET_KEY}
@@ -24,7 +24,7 @@ services:
       
       # Database (Connecting to existing PostgreSQL)
       - DB_TYPE=postgresql
-      - POSTGRES_HOST=${POSTGRES_HOST:-host.docker.internal}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_DB=${POSTGRES_DB:-vos_tool}
       - POSTGRES_USER=${POSTGRES_USER:-vos_user}
@@ -53,8 +53,6 @@ services:
     restart: unless-stopped
     networks:
       - vos-network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
       interval: 30s
@@ -97,7 +95,7 @@ services:
       
       # Database (for direct access if needed)
       - DB_TYPE=postgresql
-      - POSTGRES_HOST=${POSTGRES_HOST:-host.docker.internal}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
       - POSTGRES_PORT=${POSTGRES_PORT:-5432}
       - POSTGRES_DB=${POSTGRES_DB:-vos_tool}
       - POSTGRES_USER=${POSTGRES_USER:-vos_user}
@@ -117,8 +115,6 @@ services:
     restart: unless-stopped
     networks:
       - vos-network
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8501/_stcore/health', timeout=5)"]
       interval: 30s

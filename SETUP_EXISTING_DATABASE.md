@@ -23,20 +23,23 @@ Create a file named `.env` in the project root with this content:
 
 ```env
 # ============================================
-# Database Configuration (Existing PostgreSQL)
+# Database Configuration
 # ============================================
 DB_TYPE=postgresql
-POSTGRES_HOST=host.docker.internal
-POSTGRES_PORT=5432
-POSTGRES_DB=vos_tool
-POSTGRES_USER=vos_tool
-POSTGRES_PASSWORD=20101964mm
+# Railway: prefer DATABASE_URL (or PG* variables provided by Railway)
+DATABASE_URL=
+POSTGRES_HOST=
+POSTGRES_PORT=
+POSTGRES_DB=
+POSTGRES_USER=
+POSTGRES_PASSWORD=
+POSTGRES_SSLMODE=require
 
 # ============================================
-# Security Keys (Generated)
+# Security Keys
 # ============================================
-SECRET_KEY=qpU3CuBEeGrWis6IsoCY5Pre92rgSZvda2CNusx8faQ
-JWT_SECRET=e4s0hLOn95IpxGixZaHyrgb89agIpEyfH06RjPfneoM
+SECRET_KEY=
+JWT_SECRET=
 
 # ============================================
 # Backend Configuration
@@ -122,23 +125,11 @@ curl http://localhost:8000/health
 curl http://localhost:8501/_stcore/health
 ```
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Issue: Cannot connect to database
 
-**Solution**: Verify PostgreSQL is running and accessible:
-```bash
-# Test from host machine
-psql -h localhost -U vos_tool -d vos_tool
-# Enter password: 20101964mm
-```
-
-### Issue: `host.docker.internal` not resolving
-
-**Solution**: This is Windows-specific. If it doesn't work, try:
-1. Use your machine's IP address instead of `host.docker.internal`
-2. Find your IP: `ipconfig` (look for IPv4 Address)
-3. Update `.env`: `POSTGRES_HOST=<your-ip-address>`
+**Solution**: Verify PostgreSQL is running and accessible.
 
 ### Issue: Backend won't start
 
@@ -148,23 +139,18 @@ psql -h localhost -U vos_tool -d vos_tool
 - Port 5432 is not blocked by firewall
 - Database credentials are correct
 
-## 📊 What Changed
+## What Changed
 
 ### docker-compose.yml Changes:
-- ✅ Removed `postgres` service (using existing database)
-- ✅ Updated `POSTGRES_HOST` to `host.docker.internal`
-- ✅ Updated `POSTGRES_USER` to `vos_tool`
-- ✅ Added `extra_hosts` for Windows Docker networking
-- ✅ Removed `depends_on: postgres` dependencies
-- ✅ Removed `postgres_data` volume
+- Removed `postgres` service (using existing database)
+- Updated database configuration to use environment variables
+- Removed `depends_on: postgres` dependencies
+- Removed `postgres_data` volume
 
 ### Database Connection:
-- **Host**: `host.docker.internal` (connects to your local PostgreSQL)
-- **Database**: `vos_tool`
-- **User**: `vos_tool`
-- **Password**: `20101964mm`
+- Configure your database connection using `DATABASE_URL` (recommended) or `POSTGRES_*` variables.
 
-## 🎯 Next Steps
+## Next Steps
 
 1. Create `.env` file (copy from `.env.template`)
 2. Ensure PostgreSQL is running in pgAdmin 4

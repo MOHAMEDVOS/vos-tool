@@ -491,7 +491,7 @@ class SessionManager:
 
     def _ensure_directories(self):
         """Create necessary directories."""
-        self.sessions_dir.mkdir(parents=True, exist_ok=True)
+        os.makedirs(os.path.dirname(self.sessions_file), exist_ok=True)
 
     def _cleanup_expired_sessions(self):
         """Remove expired sessions from storage."""

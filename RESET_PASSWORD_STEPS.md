@@ -10,14 +10,14 @@
 
 ### Step 2: Reset Password
 1. In the Properties window, go to the **"Definition"** tab
-2. In the **"Password"** field, enter: `20101964mm`
-3. In the **"Password (again)"** field, enter the same: `20101964mm`
+2. In the **"Password"** field, enter: `<new_password>`
+3. In the **"Password (again)"** field, enter the same: `<new_password>`
 4. Click **"Save"** button
 
 ### Step 3: Verify (Optional)
 1. Right-click on `vos_tool` again → **"Properties"**
 2. Go to **"Privileges"** tab
-3. Make sure **"Can login?"** is checked ✅
+3. Make sure **"Can login?"** is checked 
 
 ## Alternative: Using Query Tool
 
@@ -26,7 +26,7 @@ If you prefer SQL:
 1. **Right-click** on `vos_tool` database → **"Query Tool"**
 2. **Paste** this SQL:
    ```sql
-   ALTER USER vos_tool WITH PASSWORD '20101964mm';
+   ALTER USER vos_tool WITH PASSWORD '<new_password>';
    ```
 3. Click **"Execute"** button (or press F5)
 4. You should see: "Query returned successfully"

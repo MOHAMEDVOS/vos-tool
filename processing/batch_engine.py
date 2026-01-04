@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 import logging
 import asyncio
+import threading
 
 from audio_pipeline.audio_processor import AudioProcessor, RESULT_KEYS
 

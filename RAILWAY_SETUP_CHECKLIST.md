@@ -6,7 +6,7 @@ Step-by-step checklist for deploying VOS Tool to Railway with Supabase.
 
 ### Step 1.1: Create Supabase Project
 - [x] Project created: `vos-tool`
-- [x] Password set: `HX7!j@sB.mE3!cQ`
+- [x] Password set: `<your-password>`
 - [x] Connection details obtained
 
 ### Step 1.2: Initialize Database Schema
@@ -20,7 +20,7 @@ Step-by-step checklist for deploying VOS Tool to Railway with Supabase.
 
 **OR use PowerShell script:**
 ```powershell
-.\scripts\init-supabase-schema.ps1 -SupabaseHost "db.gwmgpzcftdtiuhuoolso.supabase.co" -SupabaseUser "postgres" -SupabasePassword "HX7!j@sB.mE3!cQ"
+.\scripts\init-supabase-schema.ps1 -SupabaseHost "<your-supabase-host>" -SupabaseUser "<your-db-user>" -SupabasePassword "<your-db-password>"
 ```
 
 ## ✅ Phase 2: Railway Project Setup
@@ -124,11 +124,11 @@ Step-by-step checklist for deploying VOS Tool to Railway with Supabase.
 
 **Supabase Connection:**
 ```
-Host: db.gwmgpzcftdtiuhuoolso.supabase.co
+Host: <your-supabase-host>
 Port: 5432
 Database: postgres
 User: postgres
-Password: HX7!j@sB.mE3!cQ
+Password: <your-db-password>
 ```
 
 **Environment Variables Template:**

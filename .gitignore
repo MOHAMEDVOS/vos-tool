@@ -18,10 +18,7 @@ models/.cache/
 
 # Dashboard data (contains user information)
 # Ignore JSON files but allow dashboard_data structure
-*.json
-!dashboard_data/**/*.json
-# Keep dashboard_data folder structure (ignore contents but allow folder)
-dashboard_data/*
+dashboard_data/**
 !dashboard_data/.gitkeep
 !dashboard_data/**/
 

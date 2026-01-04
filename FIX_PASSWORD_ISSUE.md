@@ -2,12 +2,12 @@
 
 ## Problem Identified
 
-**Root Cause:** The password in `.env` file (`20101964mm`) does not match the actual password for PostgreSQL user `vos_tool`.
+**Root Cause:** The password in your environment variables does not match the actual password for the configured PostgreSQL user.
 
 **Evidence:**
-- ✅ Network connectivity works (host.docker.internal resolves to 192.168.65.254)
-- ✅ PostgreSQL is reachable on port 5432
-- ❌ Password authentication fails: "FATAL: password authentication failed for user 'vos_tool'"
+- Network connectivity works
+- PostgreSQL is reachable on the configured port
+- Password authentication fails: "FATAL: password authentication failed for user '<db_user>'"
 
 ## Solution Options
 
@@ -18,12 +18,12 @@ If you know the correct password:
 1. **Open pgAdmin 4**
 2. **Connect to your PostgreSQL server**
 3. **Navigate to**: Servers → [Your Server] → Login/Group Roles
-4. **Right-click on `vos_tool`** → **Properties**
+4. **Right-click on `<db_user>`** → **Properties**
 5. **Go to "Definition" tab**
 6. **Enter the correct password** in the "Password" field
 7. **Click "Save"**
 
-Then update `.env` file with the correct password.
+Then update your environment variables with the correct password.
 
 ### Option 2: Reset Password in PostgreSQL
 
@@ -34,7 +34,7 @@ If you want to set a new password:
 3. **Open Query Tool** (Tools → Query Tool)
 4. **Run this SQL command**:
    ```sql
-   ALTER USER vos_tool WITH PASSWORD '20101964mm';
+   ALTER USER <db_user> WITH PASSWORD '<new_password>';
    ```
 5. **Click Execute** (F5)
 6. **Verify** the password is updated

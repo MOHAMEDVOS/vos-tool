@@ -21,7 +21,7 @@ Open `.env` file and update **ONLY** these database settings:
 # ============================================================================
 
 # For LOCAL PostgreSQL (on same machine):
-POSTGRES_HOST=host.docker.internal
+POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=vos_tool
 POSTGRES_USER=vos_user
@@ -115,7 +115,7 @@ POSTGRES_HOST=postgres  # Use service name when PostgreSQL is in Docker
 
 ### Local PostgreSQL (Windows/Mac)
 ```env
-POSTGRES_HOST=host.docker.internal
+POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=vos_tool
 POSTGRES_USER=vos_user
@@ -124,7 +124,7 @@ POSTGRES_PASSWORD=your_password
 
 ### Local PostgreSQL (Linux)
 ```env
-POSTGRES_HOST=172.17.0.1
+POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=vos_tool
 POSTGRES_USER=vos_user
@@ -185,18 +185,6 @@ docker-compose logs backend | grep -i "database\|connection"
    ```
 
 4. **Check firewall** allows port 5432
-
-### "host.docker.internal not found" (Linux)
-
-Use your host IP instead:
-```env
-POSTGRES_HOST=172.17.0.1
-```
-
-Or find your Docker bridge IP:
-```bash
-ip addr show docker0
-```
 
 ---
 

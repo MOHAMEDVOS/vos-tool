@@ -82,8 +82,7 @@ You need the following files from the repository:
 
    ```env
    # Database Connection
-   POSTGRES_HOST=host.docker.internal  # Use 'host.docker.internal' for local PostgreSQL
-                                       # Or use your remote PostgreSQL host/IP
+   POSTGRES_HOST=localhost             # Or use your remote PostgreSQL host/IP
    POSTGRES_PORT=5432
    POSTGRES_DB=vos_tool
    POSTGRES_USER=vos_user
@@ -164,8 +163,7 @@ You need the following files from the repository:
 The application connects to PostgreSQL using the credentials in your `.env` file.
 
 **For Local PostgreSQL:**
-- Use `POSTGRES_HOST=host.docker.internal` (Windows/Mac)
-- Use `POSTGRES_HOST=172.17.0.1` (Linux, or use your host IP)
+- Use `POSTGRES_HOST=localhost`
 
 **For Remote PostgreSQL:**
 - Use the actual hostname or IP address
@@ -204,9 +202,8 @@ These volumes persist even when containers are stopped.
 **Solutions**:
 1. Verify PostgreSQL is running: `pg_isready` or check service status
 2. Check database credentials in `.env` file
-3. For local PostgreSQL, ensure `host.docker.internal` resolves correctly
-4. Check PostgreSQL `pg_hba.conf` allows connections
-5. Verify firewall rules allow port 5432
+3. Check PostgreSQL `pg_hba.conf` allows connections
+4. Verify firewall rules allow port 5432
 
 ### Issue: Images not found
 

@@ -12,7 +12,7 @@ The `docker-compose.example.yml` and `.env.example` files include **sensible def
 
 ```yaml
 # In docker-compose.example.yml
-POSTGRES_HOST=${POSTGRES_HOST:-host.docker.internal}  # Default for local PostgreSQL
+POSTGRES_HOST=${POSTGRES_HOST:-postgres}              # Default for docker-compose PostgreSQL service
 POSTGRES_PORT=${POSTGRES_PORT:-5432}                  # Default PostgreSQL port
 POSTGRES_DB=${POSTGRES_DB:-vos_tool}                  # Default database name
 POSTGRES_USER=${POSTGRES_USER:-vos_user}              # Default user
@@ -56,20 +56,18 @@ Users only need to:
 Based on your current setup, the defaults are:
 
 ```env
-POSTGRES_HOST=host.docker.internal    # For local PostgreSQL
+POSTGRES_HOST=postgres               # For docker-compose PostgreSQL service
 POSTGRES_PORT=5432
 POSTGRES_DB=vos_tool
 POSTGRES_USER=vos_user
-POSTGRES_PASSWORD=20101964mm          # ⚠️ Users should change this!
+POSTGRES_PASSWORD=<your_password>
 ```
 
 ## For Users on Different PCs
 
 ### Scenario 1: Local PostgreSQL (Same Machine)
 ```env
-POSTGRES_HOST=host.docker.internal    # Windows/Mac
-# or
-POSTGRES_HOST=172.17.0.1              # Linux
+POSTGRES_HOST=localhost
 POSTGRES_PASSWORD=their_password
 ```
 

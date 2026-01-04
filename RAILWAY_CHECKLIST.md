@@ -7,25 +7,22 @@
 - [x] Security keys generated
 - [x] GitHub repository ready
 
-## 🚂 Railway Setup
+## Railway Setup
 
 - [ ] Create Railway account
 - [ ] Connect GitHub repository
 - [ ] Create Backend Service
 - [ ] Create Frontend Service
 
-## ⚙️ Backend Configuration
+## Backend Configuration
 
 - [ ] Add database environment variables:
   - [ ] `DB_TYPE=postgresql`
-  - [ ] `POSTGRES_HOST=db.gwmgpzcftdtiuhuoolso.supabase.co`
-  - [ ] `POSTGRES_PORT=5432`
-  - [ ] `POSTGRES_DB=postgres`
-  - [ ] `POSTGRES_USER=postgres`
-  - [ ] `POSTGRES_PASSWORD=HX7!j@sB.mE3!cQ`
+  - [ ] `DATABASE_URL=<from-railway-postgres-or-your-provider>`
+  - [ ] `POSTGRES_SSLMODE=require`
 - [ ] Add security keys:
-  - [ ] `SECRET_KEY=MO6Rl-IME9m2vhFv78-8F6wuMy91GRyA3rPqArfkXNM`
-  - [ ] `JWT_SECRET=KIMLI_m3TlOcRd48ADMV7l4V4N_Y2yMqJLsz9vpMUW4`
+  - [ ] `SECRET_KEY=<your-secret-key>`
+  - [ ] `JWT_SECRET=<your-jwt-secret>`
 - [ ] Add application settings:
   - [ ] `DEBUG=false`
   - [ ] `FRONTEND_URL` (update after deployment)

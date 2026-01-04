@@ -35,13 +35,13 @@ docker-compose restart backend
 
 If `vos_user` has a different password, you may also need to update:
 ```
-POSTGRES_PASSWORD=20101964mm
+POSTGRES_PASSWORD=<your_password>
 ```
 
 To find the correct password:
 1. In pgAdmin 4, expand "Login/Group Roles (18)"
 2. Right-click on `vos_user` → Properties
-3. Check the password (or reset it to `20101964mm`)
+3. Check the password (or reset it)
 
 ## After Updating
 

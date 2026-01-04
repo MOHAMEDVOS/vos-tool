@@ -1,9 +1,0 @@
-{
-  "system_config": {
-    "quota_reset_time": "00:00",
-    "default_admin_user_limit": 10,
-    "default_admin_daily_quota": 5000
-  },
-  "admin_limits": {},
-  "user_assignments": {}
-}
