@@ -420,15 +420,27 @@ class QuotaManager:
             if self._db_manager:
                 try:
                     query = """
-                        INSERT INTO admin_limits (admin_username, max_users, daily_quota, created_by, created_date, last_modified)
-                        VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                        INSERT INTO admin_limits 
+                        (admin_username, max_active_users, per_user_daily_quota, 
+                         monthly_creation_limit, cooldown_days, enabled, created_by, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (admin_username) 
-                        DO UPDATE SET max_users = EXCLUDED.max_users,
-                                      daily_quota = EXCLUDED.daily_quota,
-                                      last_modified = CURRENT_TIMESTAMP
+                        DO UPDATE SET 
+                            max_active_users = EXCLUDED.max_active_users,
+                            per_user_daily_quota = EXCLUDED.per_user_daily_quota,
+                            monthly_creation_limit = EXCLUDED.monthly_creation_limit,
+                            cooldown_days = EXCLUDED.cooldown_days,
+                            enabled = EXCLUDED.enabled,
+                            created_at = EXCLUDED.created_at
                     """
                     self._db_manager.execute_query(query, (
-                        admin_username, max_users, daily_quota, owner_username, date.today()
+                        admin_username,
+                        max_users,
+                        daily_quota,
+                        None,  # monthly_creation_limit (not present in old JSON)
+                        None,  # cooldown_days (not present in old JSON)
+                        True,  # enabled
+                        owner_username
                     ), fetch=False)
                     
                     # Initialize usage tracking for this admin
