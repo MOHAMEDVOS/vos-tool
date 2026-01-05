@@ -15,6 +15,33 @@ from lib.dashboard_manager import dashboard_manager
 logger = logging.getLogger(__name__)
 
 
+def _filter_df_by_date(df, start_date: Optional[date], end_date: Optional[date]):
+    if df is None or getattr(df, "empty", True):
+        return df
+
+    try:
+        import pandas as pd
+
+        ts_col = None
+        for candidate in ["audit_timestamp", "Timestamp", "timestamp", "created_at"]:
+            if candidate in df.columns:
+                ts_col = candidate
+                break
+
+        if not ts_col:
+            return df
+
+        dt = pd.to_datetime(df[ts_col], errors="coerce", utc=True)
+        keep = dt.notna()
+        if start_date:
+            keep &= (dt.dt.date >= start_date)
+        if end_date:
+            keep &= (dt.dt.date <= end_date)
+        return df.loc[keep]
+    except Exception:
+        return df
+
+
 def get_agent_audits(
     username: str,
     start_date: Optional[date] = None,
@@ -24,12 +51,15 @@ def get_agent_audits(
     """Get agent audit records."""
     try:
         # Convert DataFrame to list of dicts
-        df = dashboard_manager.load_agent_audit_data(
-            username,
-            start_date=start_date,
-            end_date=end_date,
-            agent_filter=agent_name
-        )
+        df = dashboard_manager.get_combined_agent_audit_data(username)
+        if df is not None and not df.empty:
+            if agent_name:
+                if "Agent Name" in df.columns:
+                    df = df[df["Agent Name"] == agent_name]
+                elif "agent_name" in df.columns:
+                    df = df[df["agent_name"] == agent_name]
+            if start_date or end_date:
+                df = _filter_df_by_date(df, start_date, end_date)
         if df is not None and not df.empty:
             return df.to_dict('records')
         return []
@@ -45,11 +75,9 @@ def get_lite_audits(
 ) -> List[Dict[str, Any]]:
     """Get lite audit records."""
     try:
-        df = dashboard_manager.load_lite_audit_data(
-            username,
-            start_date=start_date,
-            end_date=end_date
-        )
+        df = dashboard_manager.get_combined_lite_audit_data(username)
+        if df is not None and not df.empty and (start_date or end_date):
+            df = _filter_df_by_date(df, start_date, end_date)
         if df is not None and not df.empty:
             return df.to_dict('records')
         return []

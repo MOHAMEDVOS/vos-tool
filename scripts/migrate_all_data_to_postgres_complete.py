@@ -35,8 +35,11 @@ from datetime import datetime, date, time
 from typing import Dict, List, Tuple, Any, Optional
 import logging
 import hashlib
+from urllib.parse import urlparse
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+logger = logging.getLogger(__name__)
 
 # Import migration lock system
 try:
@@ -66,14 +69,37 @@ except ImportError:
     date_parser = None
     logger.warning("python-dateutil not installed. Some date parsing may be limited. Install with: pip install python-dateutil")
 
+def _build_db_config() -> Dict[str, Any]:
+    url = (
+        os.getenv('DATABASE_URL')
+        or os.getenv('POSTGRES_URL')
+        or os.getenv('POSTGRES_URL_NON_POOLING')
+    )
+    if url:
+        try:
+            parsed = urlparse(url)
+            return {
+                'host': parsed.hostname,
+                'port': int(parsed.port or 5432),
+                'database': (parsed.path or '').lstrip('/') or None,
+                'user': parsed.username,
+                'password': parsed.password,
+                'dsn': url,
+            }
+        except Exception:
+            return {'dsn': url}
+
+    return {
+        'host': os.getenv('POSTGRES_HOST', 'localhost'),
+        'port': int(os.getenv('POSTGRES_PORT', '5432')),
+        'database': os.getenv('POSTGRES_DB', 'vos_tool'),
+        'user': os.getenv('POSTGRES_USER', 'vos_user'),
+        'password': os.getenv('POSTGRES_PASSWORD', '')
+    }
+
+
 # Database connection settings
-DB_CONFIG = {
-    'host': os.getenv('POSTGRES_HOST', 'localhost'),
-    'port': int(os.getenv('POSTGRES_PORT', '5432')),
-    'database': os.getenv('POSTGRES_DB', 'vos_tool'),
-    'user': os.getenv('POSTGRES_USER', 'vos_user'),
-    'password': os.getenv('POSTGRES_PASSWORD', '')
-}
+DB_CONFIG = _build_db_config()
 
 # Migration configuration
 DRY_RUN = os.getenv('DRY_RUN', 'false').lower() == 'true'
@@ -102,7 +128,10 @@ def get_postgres_connection():
     """Get PostgreSQL connection."""
     try:
         import psycopg2
-        conn = psycopg2.connect(**DB_CONFIG)
+        if isinstance(DB_CONFIG, dict) and DB_CONFIG.get('dsn'):
+            conn = psycopg2.connect(DB_CONFIG['dsn'])
+        else:
+            conn = psycopg2.connect(**DB_CONFIG)
         conn.autocommit = False  # Use transactions
         return conn
     except ImportError:
@@ -1462,7 +1491,16 @@ def main():
     logger.info("=" * 80)
     logger.info("COMPREHENSIVE DATA MIGRATION TO POSTGRESQL")
     logger.info("=" * 80)
-    logger.info(f"Database: {DB_CONFIG['database']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}")
+    try:
+        db_name = DB_CONFIG.get('database') if isinstance(DB_CONFIG, dict) else None
+        db_host = DB_CONFIG.get('host') if isinstance(DB_CONFIG, dict) else None
+        db_port = DB_CONFIG.get('port') if isinstance(DB_CONFIG, dict) else None
+        if db_name and db_host and db_port:
+            logger.info(f"Database: {db_name}@{db_host}:{db_port}")
+        else:
+            logger.info("Database: <connection string>")
+    except Exception:
+        logger.info("Database: <unknown>")
     
     # Initialize migration lock
     migration_lock = None
