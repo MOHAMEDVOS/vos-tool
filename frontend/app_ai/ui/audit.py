@@ -943,7 +943,22 @@ def show_audit_section(
                         # Don't use st.info() here as it can trigger reruns - use status_text instead
 
                         dialer_name = extract_dialer_name_from_url(ready_url)
-                        recordings_base = Path("Recordings")
+
+                        recordings_base = Path("/app/Recordings")
+                        if not recordings_base.exists():
+                            recordings_base = Path("/tmp/Recordings")
+                        if not recordings_base.exists():
+                            recordings_base = Path("Recordings")
+
+                        def _list_mp3_files(folder: Path):
+                            try:
+                                return [
+                                    f
+                                    for f in folder.iterdir()
+                                    if f.is_file() and f.suffix.lower() == ".mp3"
+                                ]
+                            except Exception:
+                                return []
                         agent_name_lower = agent_name.lower()
                         all_users_mode = agent_name_lower.strip() in [
                             "all users",
@@ -957,14 +972,14 @@ def show_audit_section(
                             all_dirs = [
                                 d for d in recordings_base.rglob("*") if d.is_dir()
                             ]
-                            recent_cutoff = time.time() - (2 * 3600)
+                            recent_cutoff = time.time() - (24 * 3600)
                             candidate_dirs = []
 
                             for d in all_dirs:
                                 folder_name_lower = d.name.lower()
                                 if d.stat().st_mtime > recent_cutoff:
                                     if all_users_mode or agent_name_lower in folder_name_lower:
-                                        mp3_files = list(d.glob("*.mp3"))
+                                        mp3_files = _list_mp3_files(d)
                                         if mp3_files:
                                             candidate_dirs.append(
                                                 (d, mp3_files, d.stat().st_mtime)
@@ -985,7 +1000,7 @@ def show_audit_section(
                                     ]
                                     if all_users_mode:
                                         matching_subdirs = [
-                                            d for d in subdirs if list(d.glob("*.mp3"))
+                                            d for d in subdirs if _list_mp3_files(d)
                                         ]
                                     else:
                                         matching_subdirs = [
@@ -999,10 +1014,14 @@ def show_audit_section(
                                             reverse=True,
                                         )
                                         target_folder = matching_subdirs[0]
-                                        files = list(target_folder.glob("*.mp3"))
+                                        files = _list_mp3_files(target_folder)
 
                         if not files and recordings_base.exists():
-                            all_mp3s = list(recordings_base.rglob("*.mp3"))
+                            all_mp3s = [
+                                f
+                                for f in recordings_base.rglob("*")
+                                if f.is_file() and f.suffix.lower() == ".mp3"
+                            ]
                             if all_mp3s:
                                 if all_users_mode:
                                     all_mp3s.sort(
@@ -1010,7 +1029,7 @@ def show_audit_section(
                                         reverse=True,
                                     )
                                     target_folder = all_mp3s[0].parent
-                                    files = list(target_folder.glob("*.mp3"))
+                                    files = _list_mp3_files(target_folder)
                                 else:
                                     agent_files = [
                                         f
@@ -1023,7 +1042,7 @@ def show_audit_section(
                                             reverse=True,
                                         )
                                         target_folder = agent_files[0].parent
-                                        files = list(target_folder.glob("*.mp3"))
+                                        files = _list_mp3_files(target_folder)
 
                         if not files:
                             st.error(
