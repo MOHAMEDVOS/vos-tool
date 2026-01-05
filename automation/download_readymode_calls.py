@@ -443,23 +443,35 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
     # Get today's date for folder naming
     today_date = datetime.now().strftime('%Y-%m-%d')
     
+    # Use /tmp for Railway environment if volume not mounted, otherwise use /app/Recordings
+    base_dir = "/app"
+    recordings_dir = os.path.join(base_dir, "Recordings")
+    
+    # Check if volume is mounted
+    if not os.path.exists(recordings_dir) or not os.access(recordings_dir, os.W_OK):
+        logger.warning(f"Recordings volume not mounted at {recordings_dir}, using /tmp")
+        base_dir = "/tmp"
+        recordings_dir = os.path.join(base_dir, "Recordings")
+    
+    os.makedirs(recordings_dir, exist_ok=True)
+    
     if subfolder == "Campaign" and campaign_name:
         # Get next sequential counter for this campaign/date
         counter = get_next_run_counter(campaign_name, download_username, subfolder)
         counter_str = f"{counter:03d}"  # Zero-padded 3-digit number
         campaign_folder = f"{campaign_name}-{today_date}_{counter_str} {dialer_name}"
-        DOWNLOAD_DIR = os.path.join(os.getcwd(), "Recordings", subfolder, download_username, campaign_folder)
+        DOWNLOAD_DIR = os.path.join(recordings_dir, subfolder, download_username, campaign_folder)
     elif subfolder == "Agent" and agent:
         # Get next sequential counter for this agent/date
         counter = get_next_run_counter(agent, download_username, subfolder)
         counter_str = f"{counter:03d}"  # Zero-padded 3-digit number
         agent_folder = f"{agent}-{today_date}_{counter_str} {dialer_name}"
-        DOWNLOAD_DIR = os.path.join(os.getcwd(), "Recordings", subfolder, download_username, agent_folder)
+        DOWNLOAD_DIR = os.path.join(recordings_dir, subfolder, download_username, agent_folder)
     else:
         # Fallback for unknown cases
         counter = get_next_run_counter("Unknown", download_username, subfolder)
         counter_str = f"{counter:03d}"
-        DOWNLOAD_DIR = os.path.join(os.getcwd(), "Recordings", subfolder, download_username, f"Unknown-{today_date}_{counter_str}")
+        DOWNLOAD_DIR = os.path.join(recordings_dir, subfolder, download_username, f"Unknown-{today_date}_{counter_str}")
     
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     
