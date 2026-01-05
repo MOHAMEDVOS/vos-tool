@@ -96,11 +96,14 @@ class SecurityManager:
         Decrypt a string.
         
         Args:
-            encrypted_text: Base64 encoded encrypted string
+            encrypted_text: Base64 encoded encrypted string (can be None)
             
         Returns:
-            Decrypted plaintext string
+            Decrypted plaintext string or empty string if input is None
         """
+        if not encrypted_text:
+            return ""
+        
         if not self.fernet:
             logger.error("No encryption key available")
             return encrypted_text
