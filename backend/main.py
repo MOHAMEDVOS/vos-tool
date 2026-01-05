@@ -36,7 +36,7 @@ except Exception as e:
     logger.error(f"Database initialization failed (early init): {e}")
 
 
-from backend.api import auth, audio, dashboard, settings as settings_api, readymode
+from backend.api import auth, audio, dashboard, settings as settings_api, readymode, user_data
 
 
 @asynccontextmanager
@@ -79,6 +79,7 @@ app.include_router(audio.router, prefix="/api/audio", tags=["Audio Processing"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(readymode.router, prefix="/api/readymode", tags=["ReadyMode"])
+app.include_router(user_data.router, prefix="/api/user", tags=["User Data"])
 
 
 @app.get("/")

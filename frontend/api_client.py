@@ -96,6 +96,23 @@ class APIClient:
             headers=self._get_headers()
         )
         return self._handle_response(response)
+
+    # User data endpoints
+    def get_my_everything(self) -> Dict[str, Any]:
+        """Get aggregated "everything" payload for the current user."""
+        response = self.session.get(
+            f"{self.base_url}/api/user/me/everything",
+            headers=self._get_headers(),
+        )
+        return self._handle_response(response)
+
+    def get_user_everything(self, username: str) -> Dict[str, Any]:
+        """Get aggregated "everything" payload for a specific user (admin/owner only)."""
+        response = self.session.get(
+            f"{self.base_url}/api/user/{username}/everything",
+            headers=self._get_headers(),
+        )
+        return self._handle_response(response)
     
     def check_session(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Check if session is valid.
