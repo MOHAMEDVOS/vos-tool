@@ -163,15 +163,15 @@ class AppSettingsManager:
                             for key, value in category_settings.items():
                                 setting_key = f"{category}.{key}"
                                 query = """
-                                    INSERT INTO app_settings (setting_key, setting_value, updated_at)
-                                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                                    INSERT INTO app_settings (setting_key, setting_value, category, updated_at)
+                                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                                     ON CONFLICT (setting_key) 
                                     DO UPDATE SET setting_value = EXCLUDED.setting_value, 
                                                   updated_at = CURRENT_TIMESTAMP
                                 """
                                 # Convert value to JSONB-compatible format (always JSON string)
                                 value_json = json.dumps(value)
-                                self._db_manager.execute_query(query, (setting_key, value_json), fetch=False)
+                                self._db_manager.execute_query(query, (setting_key, value_json, category), fetch=False)
                     
                     logger.info("Saved app settings to database")
                     return
@@ -221,13 +221,13 @@ class AppSettingsManager:
                     setting_key = f"{category}.{key}"
                     value_json = json.dumps(value) if not isinstance(value, str) or not value.startswith('{') else value
                     query = """
-                        INSERT INTO app_settings (setting_key, setting_value, updated_at)
-                        VALUES (%s, %s, CURRENT_TIMESTAMP)
+                        INSERT INTO app_settings (setting_key, setting_value, category, updated_at)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (setting_key) 
                         DO UPDATE SET setting_value = EXCLUDED.setting_value, 
                                       updated_at = CURRENT_TIMESTAMP
                     """
-                    self._db_manager.execute_query(query, (setting_key, value_json), fetch=False)
+                    self._db_manager.execute_query(query, (setting_key, value_json, category), fetch=False)
                     logger.info(f"Updated setting in database: {category}.{key} = {value}")
                     return True
                 except Exception as e:
@@ -262,13 +262,13 @@ class AppSettingsManager:
                         setting_key = f"{category}.{key}"
                         value_json = json.dumps(value) if not isinstance(value, str) or not value.startswith('{') else value
                         query = """
-                            INSERT INTO app_settings (setting_key, setting_value, updated_at)
-                            VALUES (%s, %s, CURRENT_TIMESTAMP)
+                            INSERT INTO app_settings (setting_key, setting_value, category, updated_at)
+                            VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                             ON CONFLICT (setting_key) 
                             DO UPDATE SET setting_value = EXCLUDED.setting_value, 
                                           updated_at = CURRENT_TIMESTAMP
                         """
-                        self._db_manager.execute_query(query, (setting_key, value_json), fetch=False)
+                        self._db_manager.execute_query(query, (setting_key, value_json, category), fetch=False)
                     logger.info(f"Updated {category} settings in database: {list(updates.keys())}")
                     return True
                 except Exception as e:

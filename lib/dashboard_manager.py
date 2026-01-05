@@ -2148,9 +2148,9 @@ class DashboardManager:
             try:
                 config_json = json.dumps(initial_config)
                 query = """
-                    INSERT INTO app_settings (setting_key, setting_value, updated_at)
-                    VALUES ('dashboard_sharing.global', %s, CURRENT_TIMESTAMP)
-                    ON CONFLICT (setting_key) DO NOTHING
+                    INSERT INTO dashboard_sharing (username, sharing_groups, dashboard_mode, updated_at)
+                    VALUES ('global', %s, 'isolated', CURRENT_TIMESTAMP)
+                    ON CONFLICT (username) DO NOTHING
                 """
                 self._db_manager.execute_query(query, (config_json,), fetch=False)
                 return
@@ -2169,13 +2169,17 @@ class DashboardManager:
             # Try to load from database first
             if self._db_manager:
                 try:
-                    query = "SELECT setting_value FROM app_settings WHERE setting_key = 'dashboard_sharing.global'"
+                    query = "SELECT sharing_groups, dashboard_mode FROM dashboard_sharing WHERE username = 'global'"
                     result = self._db_manager.execute_query(query, fetchone=True)
                     if result:
-                        config_json = result['setting_value']
-                        if isinstance(config_json, str):
-                            return json.loads(config_json)
-                        return config_json
+                        sharing_groups = result.get('sharing_groups', '{}')
+                        dashboard_mode = result.get('dashboard_mode', 'isolated')
+                        if isinstance(sharing_groups, str):
+                            sharing_groups = json.loads(sharing_groups)
+                        return {
+                            "sharing_groups": sharing_groups,
+                            "user_dashboard_mode": {}
+                        }
                 except Exception as e:
                     logger.error(f"Error loading sharing config from database: {e}")
                     # Fallback to JSON
@@ -2200,12 +2204,12 @@ class DashboardManager:
             # Try to save to database first
             if self._db_manager:
                 try:
-                    config_json = json.dumps(config)
+                    config_json = json.dumps(config.get('sharing_groups', {}))
                     query = """
-                        INSERT INTO app_settings (setting_key, setting_value, updated_at)
-                        VALUES ('dashboard_sharing.global', %s, CURRENT_TIMESTAMP)
-                        ON CONFLICT (setting_key) 
-                        DO UPDATE SET setting_value = EXCLUDED.setting_value, 
+                        INSERT INTO dashboard_sharing (username, sharing_groups, dashboard_mode, updated_at)
+                        VALUES ('global', %s, 'isolated', CURRENT_TIMESTAMP)
+                        ON CONFLICT (username) 
+                        DO UPDATE SET sharing_groups = EXCLUDED.sharing_groups,
                                       updated_at = CURRENT_TIMESTAMP
                     """
                     self._db_manager.execute_query(query, (config_json,), fetch=False)
@@ -2302,8 +2306,50 @@ class DashboardManager:
     
     def get_user_dashboard_mode(self, username: str) -> str:
         """Get dashboard mode for a user (isolated or group name)."""
+        # Try to get from database first
+        if self._db_manager:
+            try:
+                query = "SELECT dashboard_mode FROM dashboard_sharing WHERE username = %s"
+                result = self._db_manager.execute_query(query, (username,), fetchone=True)
+                if result:
+                    return result.get('dashboard_mode', 'isolated')
+            except Exception:
+                pass
+        
+        # Fallback to JSON config
         config = self._load_sharing_config()
         return config["user_dashboard_mode"].get(username, "isolated")
+    
+    def set_user_dashboard_mode(self, username: str, mode: str) -> bool:
+        """Set dashboard mode for a user (isolated or group name)."""
+        try:
+            # Try to save to database first
+            if self._db_manager:
+                try:
+                    query = """
+                        INSERT INTO dashboard_sharing (username, sharing_groups, dashboard_mode, updated_at)
+                        VALUES (%s, '{}', %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (username) 
+                        DO UPDATE SET dashboard_mode = EXCLUDED.dashboard_mode,
+                                      updated_at = CURRENT_TIMESTAMP
+                    """
+                    self._db_manager.execute_query(query, (username, mode), fetch=False)
+                    logger.info(f"Set dashboard mode for {username} to {mode} in database")
+                    return True
+                except Exception as e:
+                    logger.error(f"Error setting dashboard mode in database: {e}")
+                    # Fallback to JSON
+                    pass
+            
+            # Fallback to JSON
+            config = self._load_sharing_config()
+            config["user_dashboard_mode"][username] = mode
+            self._save_sharing_config(config)
+            logger.info(f"Set dashboard mode for {username} to {mode} in JSON")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting dashboard mode: {e}")
+            return False
     
     def get_sharing_groups(self) -> Dict:
         """Get all sharing groups."""

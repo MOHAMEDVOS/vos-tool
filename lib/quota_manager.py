@@ -595,14 +595,14 @@ class QuotaManager:
             if self._db_manager:
                 try:
                     query = """
-                        INSERT INTO user_quota_assignments (user_username, assigned_to_admin, daily_quota, created_date)
-                        VALUES (%s, %s, %s, %s)
+                        INSERT INTO user_quota_assignments (user_username, assigned_to_admin, daily_quota, created_at)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (user_username) 
                         DO UPDATE SET assigned_to_admin = EXCLUDED.assigned_to_admin,
                                       daily_quota = EXCLUDED.daily_quota
                     """
                     self._db_manager.execute_query(query, (
-                        username, admin_username, daily_quota, date.today()
+                        username, admin_username, daily_quota
                     ), fetch=False)
                     
                     logger.info(f"Assigned user {username} to admin {admin_username} in database")
