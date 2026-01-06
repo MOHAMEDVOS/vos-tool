@@ -52,7 +52,7 @@ if PYDANTIC_V2:
         POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "")
         
         # File storage
-        UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR", "Recordings"))
+        UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR") or os.getenv("RECORDINGS_ROOT") or "Recordings")
         MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
         
         # ReadyMode
@@ -114,7 +114,7 @@ else:
         POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "")
         
         # File storage
-        UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR", "Recordings"))
+        UPLOAD_DIR: Path = Path(os.getenv("UPLOAD_DIR") or os.getenv("RECORDINGS_ROOT") or "Recordings")
         MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
         
         # ReadyMode

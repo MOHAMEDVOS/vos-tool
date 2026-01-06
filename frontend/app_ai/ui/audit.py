@@ -944,11 +944,8 @@ def show_audit_section(
 
                         dialer_name = extract_dialer_name_from_url(ready_url)
 
-                        recordings_base = Path("/app/Recordings")
-                        if not recordings_base.exists():
-                            recordings_base = Path("/tmp/Recordings")
-                        if not recordings_base.exists():
-                            recordings_base = Path("Recordings")
+                        from config import RECORDINGS_ROOT
+                        recordings_base = Path(RECORDINGS_ROOT)
 
                         def _list_mp3_files(folder: Path):
                             try:

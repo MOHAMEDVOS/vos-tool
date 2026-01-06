@@ -16,6 +16,7 @@ import requests
 import re
 import shutil
 import tempfile
+import logging
 from pathlib import Path
 from uuid import uuid4
 from selenium import webdriver
@@ -32,6 +33,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import subprocess
 import platform
+
+logger = logging.getLogger(__name__)
 
 # ✅ PERFORMANCE FIX: Import WebDriver manager for memory leak prevention
 try:
@@ -92,7 +95,8 @@ def get_next_run_counter(agent_name: str, username: str, subfolder: str) -> int:
     today = datetime.now().strftime('%Y-%m-%d')
 
     # Base directory for this user and type
-    base_dir = os.path.join(os.getcwd(), "Recordings", subfolder, username)
+    from config import RECORDINGS_ROOT
+    base_dir = str(Path(RECORDINGS_ROOT) / subfolder / username)
 
     # Pattern to match folders: {agent}-{YYYY-MM-DD}_{counter} {dialer}
     # We need to find all folders that start with "{agent}-{today}_"
@@ -442,18 +446,19 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
     
     # Get today's date for folder naming
     today_date = datetime.now().strftime('%Y-%m-%d')
-    
-    # Use /tmp for Railway environment if volume not mounted, otherwise use /app/Recordings
-    base_dir = "/app"
-    recordings_dir = os.path.join(base_dir, "Recordings")
-    
-    # Check if volume is mounted
+
+    from config import RECORDINGS_ROOT
+    recordings_dir = str(RECORDINGS_ROOT)
+    try:
+        os.makedirs(recordings_dir, exist_ok=True)
+    except Exception:
+        pass
+
     if not os.path.exists(recordings_dir) or not os.access(recordings_dir, os.W_OK):
-        logger.warning(f"Recordings volume not mounted at {recordings_dir}, using /tmp")
-        base_dir = "/tmp"
-        recordings_dir = os.path.join(base_dir, "Recordings")
-    
-    os.makedirs(recordings_dir, exist_ok=True)
+        fallback_dir = "/tmp/Recordings"
+        logger.warning(f"Recordings root not writable at {recordings_dir}, using {fallback_dir}")
+        recordings_dir = fallback_dir
+        os.makedirs(recordings_dir, exist_ok=True)
     
     if subfolder == "Campaign" and campaign_name:
         # Get next sequential counter for this campaign/date

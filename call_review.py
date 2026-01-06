@@ -9,6 +9,7 @@ from pathlib import Path
 import os
 from lib.dashboard_manager import dashboard_manager
 from streamlit.runtime.media_file_storage import MediaFileStorageError
+from config import RECORDINGS_ROOT
 
 def show_call_review_page():
     """Display Call Review page with flagged calls and audio player."""
@@ -205,7 +206,7 @@ def show_audio_player(call_data, idx):
         
         # If we have a filename, search recursively in Recordings folder
         if filename and filename != 'Unknown':
-            recordings_dir = Path("Recordings")
+            recordings_dir = Path(RECORDINGS_ROOT)
             if recordings_dir.exists() and recordings_dir.is_dir():
                 try:
                     # Search recursively for the file
@@ -222,7 +223,7 @@ def show_audio_player(call_data, idx):
         phone = call_data.get('Phone Number', '')
         if phone:
             # Try to find file by phone number in Recordings folder and ALL subfolders
-            recordings_dir = Path("Recordings")
+            recordings_dir = Path(RECORDINGS_ROOT)
             
             if recordings_dir.exists() and recordings_dir.is_dir():
                 try:

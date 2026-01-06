@@ -15,6 +15,25 @@ RECORDINGS_DIR  = BASE_DIR / "Recordings"
 # Ensure directories exist
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
+def _select_recordings_root() -> Path:
+    env_root = os.getenv("RECORDINGS_ROOT")
+    candidates = []
+    if env_root:
+        candidates.append(Path(env_root))
+    candidates.extend([Path("/app/Recordings"), Path("/tmp/Recordings"), RECORDINGS_DIR])
+    for candidate in candidates:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            test_file = candidate / ".write_test"
+            test_file.write_text("ok", encoding="utf-8")
+            test_file.unlink(missing_ok=True)
+            return candidate
+        except Exception:
+            continue
+    return RECORDINGS_DIR
+
+RECORDINGS_ROOT = _select_recordings_root()
+
 # ────────────── ReadyMode Dialer URLs ──────────────
 READY_MODE_URLS = {
     "default": "https://resva.readymode.com/",
