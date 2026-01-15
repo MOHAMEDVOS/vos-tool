@@ -37,6 +37,9 @@ class PhraseLearningManager:
         if not self.db_manager:
              raise RuntimeError("Could not initialize database manager")
 
+        # Phase 4: Always use PostgreSQL
+        self.use_postgresql = True
+
         logger.info("Using PostgreSQL for phrase management")
         
         # Cache for settings and performance stats
