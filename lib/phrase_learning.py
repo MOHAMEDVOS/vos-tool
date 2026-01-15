@@ -5,6 +5,7 @@ PHASE 4: PostgreSQL-Only Implementation
 """
 
 import logging
+import os
 import time
 from decimal import Decimal
 from contextlib import contextmanager
