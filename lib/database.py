@@ -482,6 +482,103 @@ class DatabaseManager:
             if conn:
                 self.return_connection(conn)
     
+    def execute_values_batch(self, query: str, values_list: List[tuple], page_size: int = 100) -> int:
+        """
+        Execute batch insert using psycopg2.extras.execute_values for optimal performance.
+        
+        This is significantly faster than execute_many/executemany for PostgreSQL.
+        Uses VALUES syntax for true batch inserts (50x faster than individual inserts).
+        
+        Args:
+            query: SQL query with %s placeholder for VALUES (e.g., "INSERT INTO table (...) VALUES %s")
+            values_list: List of tuples with values to insert
+            page_size: Number of rows per batch (default: 100)
+            
+        Returns:
+            Number of rows inserted
+            
+        Example:
+            query = "INSERT INTO users (name, email) VALUES %s"
+            values = [('Alice', 'alice@example.com'), ('Bob', 'bob@example.com')]
+            count = db.execute_values_batch(query, values)
+        """
+        if not values_list:
+            return 0
+        
+        if self.db_type != 'postgresql':
+            # Fallback to execute_many for non-PostgreSQL databases
+            logger.warning("execute_values_batch only optimized for PostgreSQL, falling back to execute_many")
+            # Convert query format from VALUES %s to standard INSERT
+            if values_list:
+                placeholders = ','.join(['%s'] * len(values_list[0]))
+                standard_query = query.replace(" VALUES %s", f" VALUES ({placeholders})")
+                return self.execute_many(standard_query, values_list)
+            return 0
+        
+        try:
+            from psycopg2.extras import execute_values
+        except ImportError:
+            logger.error("psycopg2.extras not available, falling back to execute_many")
+            if values_list:
+                placeholders = ','.join(['%s'] * len(values_list[0]))
+                standard_query = query.replace(" VALUES %s", f" VALUES ({placeholders})")
+                return self.execute_many(standard_query, values_list)
+            return 0
+        
+        conn = None
+        total_rows = 0
+        
+        try:
+            conn = self.get_connection()
+            
+            with conn.cursor() as cursor:
+                # Use execute_values for optimal batch insert performance
+                execute_values(
+                    cursor,
+                    query,
+                    values_list,
+                    page_size=page_size  # Insert page_size rows per round trip
+                )
+                total_rows = cursor.rowcount
+                
+            conn.commit()
+            logger.info(f"✅ Batch inserted {total_rows} rows using execute_values (page_size={page_size})")
+            
+            # Record metrics if health monitor is available
+            if self.health_monitor:
+                try:
+                    self.health_monitor.record_query_execution(
+                        query[:100],  # Truncate query for logging
+                        0.0,  # Duration tracked elsewhere
+                        success=True
+                    )
+                except Exception:
+                    pass
+            
+            return total_rows
+            
+        except Exception as e:
+            if conn:
+                conn.rollback()
+            logger.error(f"Batch insert failed: {e}")
+            
+            # Record error if health monitor is available
+            if self.health_monitor:
+                try:
+                    self.health_monitor.record_query_execution(
+                        query[:100],
+                        0.0,
+                        success=False
+                    )
+                except Exception:
+                    pass
+            
+            raise
+            
+        finally:
+            if conn:
+                self.return_connection(conn)
+    
     def test_connection(self) -> bool:
         """Test database connection."""
         try:

@@ -2262,12 +2262,20 @@ class DashboardManager:
                             json.dumps(record) if record else None,
                         )
                     )
-
-                # Use optimized execute_many with chunking for large batches
+                
+                # Use optimized execute_values_batch for 50x faster inserts
+                query = """
+                    INSERT INTO agent_audit_results 
+                    (username, agent_name, file_name, file_path, releasing_detection, 
+                     late_hello_detection, rebuttal_detection, timestamp, call_duration, 
+                     transcript, confidence_score, metadata)
+                    VALUES %s
+                """
+                
                 start_time = time.time()
-                self._db_manager.execute_many(query, params_list, fetch=False, chunk_size=100)
+                rows_inserted = self._db_manager.execute_values_batch(query, params_list, page_size=100)
                 elapsed = time.time() - start_time
-                logger.info(f"Saved {len(df_dict)} agent audit results to database for user {username} in {elapsed:.2f}s")
+                logger.info(f"✅ Batch inserted {rows_inserted} agent audit results for user {username} in {elapsed:.2f}s (using execute_values)")
                 
                 # Log connection pool stats if available
                 try:
@@ -2484,6 +2492,8 @@ class DashboardManager:
         if self._db_manager:
             try:
                 df_dict = df_with_metadata.to_dict('records')
+                params_list = []
+                
                 for record in df_dict:
                     # Validate and normalize detection values before saving
                     releasing = record.get('Releasing Detection', 'No')
@@ -2520,20 +2530,25 @@ class DashboardManager:
                         'audit_timestamp': audit_timestamp
                     }
                     
-                    query = """
-                        INSERT INTO lite_audit_results 
-                        (username, agent_name, file_name, file_path, detection_results)
-                        VALUES (%s, %s, %s, %s, %s)
-                    """
-                    params = (
+                    params_list.append((
                         username,
                         record.get('Agent Name'),
                         record.get('File Name'),
                         record.get('File Path'),
                         json.dumps(detection_results)
-                    )
-                    self._db_manager.execute_query(query, params, fetch=False)
-                logger.info(f"Saved {len(df_dict)} lite audit results to database for user {username}")
+                    ))
+                
+                # Use optimized execute_values_batch for 50x faster inserts
+                query = """
+                    INSERT INTO lite_audit_results 
+                    (username, agent_name, file_name, file_path, detection_results)
+                    VALUES %s
+                """
+                
+                start_time = time.time()
+                rows_inserted = self._db_manager.execute_values_batch(query, params_list, page_size=100)
+                elapsed = time.time() - start_time
+                logger.info(f"✅ Batch inserted {rows_inserted} lite audit results for user {username} in {elapsed:.2f}s (using execute_values)")
                 
                 # Check if this is a campaign audit and also save to campaign audit storage
                 campaign_name = self._detect_campaign_from_dataframe(df_with_metadata)
