@@ -45,6 +45,7 @@ class ProcessingStatus(BaseModel):
     status: str  # "pending", "processing", "completed", "failed"
     progress: Optional[float] = None
     message: Optional[str] = None
+    stage: Optional[str] = None  # Current processing stage (e.g., "queued", "processing_heavy_single", "transcribing")
 
 
 class ProcessingResult(BaseModel):
@@ -57,6 +58,10 @@ class ProcessingResult(BaseModel):
     accent_corrections: Optional[List[Dict[str, Any]]] = None
     metadata: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    # New transcription-specific fields for better error reporting
+    transcription_status: Optional[str] = None  # "completed", "failed", "timeout"
+    transcription_error: Optional[str] = None  # Specific transcription error details
+    processing_stage: Optional[str] = None  # Current processing stage
 
 
 # Dashboard schemas

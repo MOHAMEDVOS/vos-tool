@@ -2,69 +2,41 @@ import sys
 import os
 import subprocess
 import time
+import io
+import tempfile
+import threading
+import uuid
+import warnings
+import math
+import importlib
+from datetime import date, datetime, timedelta
+from typing import List
+from pathlib import Path
+import logging
+import pandas as pd
+import streamlit as st
+
 os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
+
 # Import from frontend.app_ai (backend/frontend separation architecture)
 from frontend.app_ai.css.custom_styles import apply_custom_styles, apply_login_styles, render_header_bar
-from pathlib import Path
-import importlib
 
 # Add current directory to Python path to ensure all modules can be imported
 sys.path.insert(0, str(Path(__file__).parent))
 
-def reload_modules():
-    """Reload all custom modules to pick up code changes without restarting"""
-    modules_to_reload = [
-        'config',
-        'lib.dashboard_manager',
-        'lib.ai_campaign_report',
-        'lib.quota_manager',
-        'tools.quota_redistribution',
-        'audio_pipeline.detections',
-        'analyzer.rebuttal_detection',
-        'lib.agent_only_detector',
-        'lib.optimized_pipeline',
-        'lib.phrase_learning',
-        'audio_pipeline.audio_processor'
-    ]
-    
-    for module_name in modules_to_reload:
-        if module_name in sys.modules:
-            try:
-                importlib.reload(sys.modules[module_name])
-                print(f"Reloaded: {module_name}")
-            except Exception as e:
-                print(f"Failed to reload {module_name}: {e}")
-    
-    # Clear Streamlit cache
-    st.cache_data.clear()
-    st.cache_resource.clear()
-    print("Streamlit cache cleared")
-
-import io
-import tempfile
-from datetime import date, datetime, timedelta
-from typing import List
-import logging
-import threading
-import time
-import uuid
-import warnings
-import math
+# Import utility functions
+from frontend.utils.module_reloader import reload_modules
+from frontend.utils.csv_generator import generate_csv_data
+from frontend.utils.system_resources import check_system_resources
+from frontend.utils.ffmpeg_setup import maybe_set_ffmpeg_converter as _maybe_set_ffmpeg_converter
+from frontend.utils.helpers import generate_timestamped_folder_name
 
 # Suppress Streamlit file watcher errors on Windows (different drive paths)
 warnings.filterwarnings('ignore', message="Paths don't have the same drive")
 
 # Configure logging for CMD output - Essential info only
-logging.basicConfig(
-    level=logging.WARNING,  # Reduce verbosity
-    format='%(message)s',  # Simple format without timestamps
-    handlers=[
-        logging.StreamHandler(),  # This ensures logs appear in CMD
-    ]
-)
-
-import pandas as pd
-import streamlit as st
+from lib.logging_config import setup_frontend_logging
+setup_frontend_logging()
 
 # Runtime Protection (must be imported early)
 try:
@@ -77,40 +49,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def generate_csv_data(df: pd.DataFrame, filename_prefix: str) -> tuple[bytes, str]:
-    """
-    Generate and cache CSV data to prevent hash changes in download buttons.
-
-    Args:
-        df: DataFrame to convert to CSV
-        filename_prefix: Prefix for the filename
-
-    Returns:
-        tuple: (csv_bytes, filename)
-    """
-    if df.empty:
-        return b"", f"{filename_prefix}_empty.csv"
-
-    csv_data = df.to_csv(index=False).encode("utf-8")
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"{filename_prefix}_{timestamp}.csv"
-
-    return csv_data, filename
-
-def generate_timestamped_folder_name(base_name: str = "All users") -> str:
-    """
-    Generate a unique folder name with timestamp to avoid duplicates.
-
-    Args:
-        base_name: Base name for the folder (default: "All users")
-
-    Returns:
-        Folder name with timestamp: "All users-2025-10-26_14-30-45"
-    """
-    now = datetime.now()
-    timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
-    return f"{base_name}-{timestamp}"
+# Utility functions imported from frontend.utils modules
 
 from processing import batch_analyze_folder, batch_analyze_folder_fast, batch_analyze_folder_lite
 from ui.batch import (
@@ -144,16 +83,12 @@ from frontend.app_ai.auth.authentication import (
     logout_current_user,
     logout_user_by_name,
 )
-import os
 
 # Import API client for backend communication
 try:
-    import sys
-    from pathlib import Path
     # Add frontend directory to path
     frontend_path = Path(__file__).parent / "frontend"
     if frontend_path.exists():
-        sys.path.insert(0, str(Path(__file__).parent))
         from frontend.api_client import get_api_client
         API_CLIENT_AVAILABLE = True
     else:
@@ -165,10 +100,9 @@ except ImportError as e:
 
 # Audio player removed for simplified interface
 
-# Try to import ReadyMode automation, disable if not available (e.g., on Streamlit Cloud)
+    # Try to import ReadyMode automation, disable if not available (e.g., on Streamlit Cloud)
 try:
     # Check deployment environment
-    import os
     deployment_mode = os.getenv('DEPLOYMENT_MODE', 'auto')
     force_readymode = os.getenv('FORCE_READYMODE', 'false').lower() == 'true'
     
@@ -213,39 +147,7 @@ else:
     )
 
 # Helper function to extract dialer name from ReadyMode URL
-def check_system_resources():
-    """Check system resources and return detailed usage metrics."""
-    try:
-        import psutil
-
-        # Get CPU usage percentage
-        cpu_percent = psutil.cpu_percent(interval=1)
-
-        # Get memory usage
-        memory = psutil.virtual_memory()
-        memory_percent = memory.percent
-
-        # Get disk usage
-        disk = psutil.disk_usage('/')
-        disk_percent = disk.percent
-
-        # Return detailed metrics
-        return {
-            "cpu": cpu_percent,
-            "memory": memory_percent,
-            "disk": disk_percent,
-            "healthy": cpu_percent < 85 and memory_percent < 85 and disk_percent < 85
-        }
-
-    except Exception as e:
-        logger.warning(f"Resource check failed: {e}")
-        # Return default values if check fails
-        return {
-            "cpu": 0,
-            "memory": 0,
-            "disk": 0,
-            "healthy": True
-        }
+# System resources function imported from frontend.utils.system_resources
 
 def load_custom_css():
     apply_custom_styles()
@@ -2239,22 +2141,7 @@ def show_settings_section():
         # Close the wrapper div
         st.markdown('</div>', unsafe_allow_html=True)
 
-def _maybe_set_ffmpeg_converter() -> bool:
-    """Set FFmpeg path if available."""
-    try:
-        from pydub import AudioSegment
-        # Check for bundled ffmpeg
-        ffmpeg_bin = Path(__file__).parent / "ffmpeg" / "bin" / "ffmpeg.exe"
-        if ffmpeg_bin.exists():
-            AudioSegment.converter = str(ffmpeg_bin)
-            return True
-        # Check system ffmpeg
-        import shutil
-        if shutil.which("ffmpeg"):
-            return True
-    except Exception:
-        return False
-    return False
+# FFmpeg setup function imported from frontend.utils.ffmpeg_setup
 
 # Excel download function removed - Excel downloads removed from entire project per user request
 
@@ -2336,12 +2223,6 @@ def _render_health_widget():
     col3.metric("Disk Usage", f"{health['disk']:.0f}%")
     status = "Healthy" if health.get('healthy', True) else "Under Load"
     col4.metric("Status", status)
-
-def show_batch_results_preview(results, container):
-    ui_show_batch_results_preview(results, container)
-
-def show_final_batch_results(results, total_time, preload_time, save_results):
-    ui_show_final_batch_results(results, total_time, preload_time, save_results)
 
 def show_dashboard_section():
     """Display the main Dashboard section with tabs for different audit types."""

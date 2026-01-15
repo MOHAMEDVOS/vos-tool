@@ -1,25 +1,26 @@
 """
 Phrase Learning System for VOS Tool
 Handles automatic learning and management of rebuttal phrases.
+PHASE 4: PostgreSQL-Only Implementation
 """
 
-import json
-import sqlite3
-import os
 import logging
 import time
+from decimal import Decimal
+from contextlib import contextmanager
+from typing import List, Dict, Any, Optional, Tuple, Set
 from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple, Union
+import re
 from pathlib import Path
 
-# Try to import database manager for PostgreSQL support
+# Import database manager
 try:
     from lib.database import get_db_manager
     DB_AVAILABLE = True
 except ImportError:
     DB_AVAILABLE = False
     get_db_manager = None
-    logging.warning("Database manager not available - will use SQLite only")
+    logging.error("Database manager not available - PhraseLearningManager requires PostgreSQL")
 
 logger = logging.getLogger(__name__)
 
@@ -27,31 +28,25 @@ class PhraseLearningManager:
     """Manages the self-learning phrase system."""
     
     def __init__(self):
-        self.data_dir = Path("dashboard_data")
-        self.data_dir.mkdir(exist_ok=True)
+        """Initialize the phrase learning manager with PostgreSQL connection."""
+        if not DB_AVAILABLE or get_db_manager is None:
+            raise RuntimeError("PhraseLearningManager requires lib.database and PostgreSQL")
+
+        self.db_manager = get_db_manager()
+        if not self.db_manager:
+             raise RuntimeError("Could not initialize database manager")
+
+        logger.info("Using PostgreSQL for phrase management")
         
-        self.db_path = self.data_dir / "phrase_learning.db"
-        self.repository_path = self.data_dir / "rebuttal_repository.json"
-        self.settings_path = self.data_dir / "phrase_learning_settings.json"
+        # Cache for settings and performance stats
+        self._settings_cache = {}
+        self._category_thresholds = {}
+        self._last_threshold_update = None
         
-        # Check if PostgreSQL is available and should be used
-        self.use_postgresql = False
-        self.db_manager = None
-        if DB_AVAILABLE:
-            try:
-                db_type = os.getenv('DB_TYPE', '').lower()
-                if db_type == 'postgresql':
-                    self.db_manager = get_db_manager()
-                    if self.db_manager:
-                        self.use_postgresql = True
-                        logger.info("Using PostgreSQL for phrase management")
-            except Exception as e:
-                logger.warning(f"Could not initialize PostgreSQL, falling back to SQLite: {e}")
+        # Initialize database tables
+        self._init_database()
         
-        if not self.use_postgresql:
-            logger.info("Using SQLite for phrase management")
-        
-        # Load settings from file or use defaults
+        # Load settings from DB
         self._load_settings()
         
         # Cache for performance optimization
@@ -64,57 +59,74 @@ class PhraseLearningManager:
         self._init_repository()
     
     def _load_settings(self):
-        """Load settings from file or use defaults."""
+        """Load settings from database or use defaults."""
         default_settings = {
             'confidence_threshold': 0.85,  # Minimum confidence for auto-learning
             'frequency_threshold': 5,      # Minimum detections before consideration
             'auto_approve_threshold': 0.95 # Auto-approve above this confidence
         }
         
+        # Initialize with defaults first
+        self.confidence_threshold = default_settings['confidence_threshold']
+        self.frequency_threshold = default_settings['frequency_threshold']
+        self.auto_approve_threshold = default_settings['auto_approve_threshold']
+        
         try:
-            if self.settings_path.exists():
-                with open(self.settings_path, 'r') as f:
-                    saved_settings = json.load(f)
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT setting_key, setting_value FROM phrase_learning_settings")
+                rows = cursor.fetchall()
                 
-                # Use saved settings with fallback to defaults
-                self.confidence_threshold = saved_settings.get('confidence_threshold', default_settings['confidence_threshold'])
-                self.frequency_threshold = saved_settings.get('frequency_threshold', default_settings['frequency_threshold'])
-                self.auto_approve_threshold = saved_settings.get('auto_approve_threshold', default_settings['auto_approve_threshold'])
-                
-                logger.info(f"Loaded settings from file: confidence={self.confidence_threshold}, "
-                           f"frequency={self.frequency_threshold}, auto_approve={self.auto_approve_threshold}")
-            else:
-                # Use defaults and save them
-                self.confidence_threshold = default_settings['confidence_threshold']
-                self.frequency_threshold = default_settings['frequency_threshold']
-                self.auto_approve_threshold = default_settings['auto_approve_threshold']
-                
-                self._save_settings()
-                logger.info("Created default settings file")
+                if rows:
+                    settings_map = {row[0]: row[1] for row in rows}
+                    
+                    if 'confidence_threshold' in settings_map:
+                        self.confidence_threshold = float(settings_map['confidence_threshold'])
+                    
+                    if 'frequency_threshold' in settings_map:
+                        self.frequency_threshold = int(float(settings_map['frequency_threshold']))
+                        
+                    if 'auto_approve_threshold' in settings_map:
+                        self.auto_approve_threshold = float(settings_map['auto_approve_threshold'])
+                    
+                    logger.info(f"Loaded settings from DB: confidence={self.confidence_threshold}, "
+                               f"frequency={self.frequency_threshold}, auto_approve={self.auto_approve_threshold}")
+                else:
+                    # Save defaults to DB if empty
+                    self._save_settings()
+                    logger.info("Initialized default settings in database")
+                cursor.close()
                 
         except Exception as e:
-            logger.error(f"Failed to load settings, using defaults: {e}")
-            self.confidence_threshold = default_settings['confidence_threshold']
-            self.frequency_threshold = default_settings['frequency_threshold']
-            self.auto_approve_threshold = default_settings['auto_approve_threshold']
-    
+            logger.error(f"Failed to load settings from DB, using defaults: {e}")
+
     def _save_settings(self):
-        """Save current settings to file."""
+        """Save current settings to database."""
         try:
-            settings = {
-                'confidence_threshold': self.confidence_threshold,
-                'frequency_threshold': self.frequency_threshold,
-                'auto_approve_threshold': self.auto_approve_threshold,
-                'last_updated': datetime.now().isoformat()
-            }
-            
-            with open(self.settings_path, 'w') as f:
-                json.dump(settings, f, indent=2)
-            
-            logger.info(f"Settings saved to file: {self.settings_path}")
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                
+                settings = {
+                    'confidence_threshold': str(self.confidence_threshold),
+                    'frequency_threshold': str(self.frequency_threshold),
+                    'auto_approve_threshold': str(self.auto_approve_threshold)
+                }
+                
+                for key, value in settings.items():
+                    cursor.execute("""
+                        INSERT INTO phrase_learning_settings (setting_key, setting_value, updated_at)
+                        VALUES (%s, %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (setting_key) 
+                        DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = CURRENT_TIMESTAMP
+                    """, (key, value))
+                
+                conn.commit()
+                cursor.close()
+                
+            logger.info("Settings saved to database")
             
         except Exception as e:
-            logger.error(f"Failed to save settings: {e}")
+            logger.error(f"Failed to save settings to DB: {e}")
             
     def auto_approve_high_confidence_phrases(self, min_confidence: float = 0.9) -> dict:
         """
@@ -128,7 +140,7 @@ class PhraseLearningManager:
         }
         
         try:
-            with self._get_db_connection() as conn:
+            with self._db_connection() as conn:
                 # Get all pending phrases with confidence >= min_confidence
                 cursor = conn.cursor()
                 
@@ -136,69 +148,54 @@ class PhraseLearningManager:
                 cursor.execute("""
                     SELECT COUNT(*) 
                     FROM pending_phrases 
-                    WHERE confidence >= ? 
+                    WHERE confidence >= %s 
                     AND status = 'pending'
                 """, (min_confidence,))
                 total_to_approve = cursor.fetchone()[0]
                 
                 if total_to_approve == 0:
+                    cursor.close()
                     return {
                         'success': True,
                         'message': 'No phrases found with confidence >= 90%',
                         'stats': stats
                     }
                 
-                # Check if source column exists
-                cursor.execute("PRAGMA table_info(pending_phrases)")
-                columns = [column[1] for column in cursor.fetchall()]
-                has_source = 'source' in columns
+                # Check if source column exists (just in case schema update failed)
+                # But in pure PG environment created by Init DB, it should exist.
+                # Simplified to just try selecting it, catch error if needed? 
+                # Better: Just select simplified columns for now, assuming standard schema.
                 
-                # Build query based on available columns
-                if has_source:
-                    cursor.execute("""
-                        SELECT id, phrase, confidence, category, source
-                        FROM pending_phrases 
-                        WHERE confidence >= ? 
-                        AND status = 'pending'
-                    """, (min_confidence,))
-                    phrases = [(row[0], row[1], row[2], row[3], row[4]) for row in cursor.fetchall()]
-                else:
-                    cursor.execute("""
-                        SELECT id, phrase, confidence, category
-                        FROM pending_phrases 
-                        WHERE confidence >= ? 
-                        AND status = 'pending'
-                    """, (min_confidence,))
-                    phrases = [(row[0], row[1], row[2], row[3], 'auto_approved') for row in cursor.fetchall()]
+                cursor.execute("""
+                    SELECT id, phrase, confidence, category
+                    FROM pending_phrases 
+                    WHERE confidence >= %s 
+                    AND status = 'pending'
+                """, (min_confidence,))
+                phrases = [(row[0], row[1], row[2], row[3], 'auto_approved') for row in cursor.fetchall()]
                 
                 # Process each phrase
                 for phrase_id, phrase_text, confidence, category, source in phrases:
                     try:
-                        # Check if phrase already exists in repository
-                        already_in_repo = self._phrase_exists_in_repository(phrase_text, category or 'general')
-                        
                         # Add to repository (will skip if already exists, but that's OK)
                         success = self._add_to_repository(
                             phrase=phrase_text,
                             category=category or 'general',
-                            source='auto_approved'  # Using auto_approved as the source for auto-approved phrases
+                            source='auto_approved'
                         )
                         
-                        # Update status to approved regardless of whether it was already in repository
-                        # (if it's already in repo, we still want to mark it as approved in pending)
+                        # Update status to approved
                         cursor.execute("""
                             UPDATE pending_phrases 
                             SET status = 'approved'
-                            WHERE id = ?
+                            WHERE id = %s
                         """, (phrase_id,))
                         
                         if success:
                             stats['total_approved'] += 1
-                        elif already_in_repo:
-                            # Already in repository, but we marked it as approved
-                            stats['total_approved'] += 1
                         else:
-                            stats['total_skipped'] += 1
+                            # It might have been skipped by _add_to_repository, but we still approve it in pending
+                            stats['total_approved'] += 1
                             
                     except Exception as e:
                         error_msg = f"Error processing phrase ID {phrase_id}: {str(e)}"
@@ -206,6 +203,7 @@ class PhraseLearningManager:
                         stats['errors'].append(error_msg)
                 
                 conn.commit()
+                cursor.close()
                 
                 return {
                     'success': True,
@@ -223,9 +221,8 @@ class PhraseLearningManager:
             }
     
     def _get_db_connection(self, timeout: int = 30, retries: int = 3):
-        """Get database connection with retry logic and proper timeout."""
-        if self.use_postgresql and self.db_manager:
-            # Return PostgreSQL connection from pool
+        """Get database connection from pool."""
+        if self.db_manager:
             try:
                 conn = self.db_manager.connection_pool.getconn()
                 if conn:
@@ -234,328 +231,162 @@ class PhraseLearningManager:
                 logger.error(f"Failed to get PostgreSQL connection: {e}")
                 raise
         
-        # Fallback to SQLite
-        for attempt in range(retries):
-            try:
-                conn = sqlite3.connect(
-                    self.db_path, 
-                    timeout=timeout,
-                    isolation_level=None  # Autocommit mode
-                )
-                # Enable WAL mode for better concurrency
-                conn.execute("PRAGMA journal_mode=WAL")
-                conn.execute("PRAGMA synchronous=NORMAL")
-                conn.execute("PRAGMA temp_store=MEMORY")
-                conn.execute("PRAGMA mmap_size=268435456")  # 256MB
-                return conn
-            except sqlite3.OperationalError as e:
-                if "database is locked" in str(e) and attempt < retries - 1:
-                    logger.warning(f"Database locked, retrying in {0.1 * (attempt + 1)}s (attempt {attempt + 1}/{retries})")
-                    time.sleep(0.1 * (attempt + 1))  # Exponential backoff
-                    continue
-                else:
-                    raise
-        raise sqlite3.OperationalError("Failed to acquire database lock after retries")
+        raise RuntimeError("No database manager available for PhraseLearningManager")
     
     def _return_db_connection(self, conn):
-        """Return database connection to pool (PostgreSQL) or close (SQLite)."""
-        if self.use_postgresql and self.db_manager and hasattr(self.db_manager, 'connection_pool'):
-            try:
+        """Return database connection to pool."""
+        try:
+            if self.db_manager:
                 self.db_manager.connection_pool.putconn(conn)
-            except Exception as e:
-                logger.error(f"Error returning PostgreSQL connection: {e}")
-        else:
-            # SQLite - close connection
-            try:
-                conn.close()
-            except Exception as e:
-                logger.error(f"Error closing SQLite connection: {e}")
+        except Exception as e:
+            logger.error(f"Error returning connection to pool: {e}")
+
+    @contextmanager
+    def _db_connection(self, timeout: int = 30, retries: int = 3):
+        conn = None
+        try:
+            conn = self._get_db_connection(timeout=timeout, retries=retries)
+            yield conn
+        except Exception:
+            if conn and self.use_postgresql:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            raise
+        finally:
+            if conn:
+                self._return_db_connection(conn)
     
     def _init_database(self):
-        """Initialize the phrase learning database."""
+        """Initialize the phrase learning database tables."""
+        conn = None
+        cursor = None
         try:
             conn = self._get_db_connection()
-            cursor = conn.cursor() if hasattr(conn, 'cursor') else conn
+            cursor = conn.cursor()
             
-            if self.use_postgresql:
-                # PostgreSQL table creation
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS pending_phrases (
-                        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                        phrase TEXT NOT NULL,
-                        category VARCHAR(100) NOT NULL,
-                        confidence DECIMAL(5,4) NOT NULL,
-                        detection_count INTEGER DEFAULT 1,
-                        first_detected TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        last_detected TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        status VARCHAR(50) DEFAULT 'pending',
-                        sample_contexts TEXT,
-                        similar_to TEXT,
-                        quality_score DECIMAL(5,4),
-                        canonical_form TEXT,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(phrase, category)
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS repository_phrases (
-                        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                        phrase TEXT NOT NULL,
-                        category VARCHAR(100) NOT NULL,
-                        source VARCHAR(50) DEFAULT 'manual',
-                        added_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        usage_count INTEGER DEFAULT 0,
-                        successful_detections INTEGER DEFAULT 0,
-                        effectiveness_score DECIMAL(5,4),
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(phrase, category)
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS phrase_learning_settings (
-                        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                        setting_key VARCHAR(100) UNIQUE NOT NULL,
-                        setting_value TEXT,
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS phrase_blacklist (
-                        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                        phrase TEXT NOT NULL,
-                        category VARCHAR(100) NOT NULL,
-                        rejected_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        reason TEXT,
-                        UNIQUE(phrase, category)
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS category_performance (
-                        category VARCHAR(100) PRIMARY KEY,
-                        approval_rate DECIMAL(5,4),
-                        avg_quality_score DECIMAL(5,4),
-                        total_phrases INTEGER DEFAULT 0,
-                        last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                conn.commit()
-            else:
-                # SQLite table creation (original code)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS pending_phrases (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        phrase TEXT NOT NULL,
-                        category TEXT NOT NULL,
-                        confidence REAL NOT NULL,
-                        detection_count INTEGER DEFAULT 1,
-                        first_detected DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        last_detected DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        status TEXT DEFAULT 'pending',
-                        sample_contexts TEXT,
-                        similar_to TEXT,
-                        UNIQUE(phrase, category)
-                    )
-                """)
-                
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS repository_phrases (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        phrase TEXT NOT NULL,
-                        category TEXT NOT NULL,
-                        source TEXT DEFAULT 'manual',
-                        added_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        usage_count INTEGER DEFAULT 0,
-                        successful_detections INTEGER DEFAULT 0,
-                        effectiveness_score REAL,
-                        UNIQUE(phrase, category)
-                    )
-                """)
-                
-                # Add columns if they don't exist (for existing databases)
-                try:
-                    conn.execute("ALTER TABLE repository_phrases ADD COLUMN successful_detections INTEGER DEFAULT 0")
-                except sqlite3.OperationalError:
-                    pass
-                
-                try:
-                    conn.execute("ALTER TABLE repository_phrases ADD COLUMN effectiveness_score REAL")
-                except sqlite3.OperationalError:
-                    pass
-                
-                # Create category performance cache table
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS category_performance (
-                        category TEXT PRIMARY KEY,
-                        approval_rate REAL,
-                        avg_quality_score REAL,
-                        total_phrases INTEGER DEFAULT 0,
-                        last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS phrase_blacklist (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        phrase TEXT NOT NULL,
-                        category TEXT NOT NULL,
-                        rejected_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        reason TEXT,
-                        UNIQUE(phrase, category)
-                    )
-                """)
-                
-                # Add new columns if they don't exist (for existing databases)
-                try:
-                    conn.execute("ALTER TABLE pending_phrases ADD COLUMN quality_score REAL")
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
-                
-                try:
-                    conn.execute("ALTER TABLE pending_phrases ADD COLUMN canonical_form TEXT")
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
-                
-                try:
-                    conn.execute("ALTER TABLE repository_phrases ADD COLUMN successful_detections INTEGER DEFAULT 0")
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
-                
-                try:
-                    conn.execute("ALTER TABLE repository_phrases ADD COLUMN effectiveness_score REAL")
-                except sqlite3.OperationalError:
-                    pass  # Column already exists
-                
-                # Create indexes for performance
-                try:
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_quality_score ON pending_phrases(quality_score)")
-                except sqlite3.OperationalError:
-                    pass
-                
-                try:
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_canonical_form ON pending_phrases(canonical_form)")
-                except sqlite3.OperationalError:
-                    pass
-                
-                # Create category performance cache table
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS category_performance (
-                        category TEXT PRIMARY KEY,
-                        approval_rate REAL,
-                        avg_quality_score REAL,
-                        total_phrases INTEGER DEFAULT 0,
-                        last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                logger.info("Phrase learning database initialized successfully")
-                
+            # PostgreSQL table creation
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS pending_phrases (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    phrase TEXT NOT NULL,
+                    category VARCHAR(100) NOT NULL,
+                    confidence DECIMAL(5,4) NOT NULL,
+                    detection_count INTEGER DEFAULT 1,
+                    first_detected TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    last_detected TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    status VARCHAR(50) DEFAULT 'pending',
+                    sample_contexts TEXT,
+                    similar_to TEXT,
+                    quality_score DECIMAL(5,4),
+                    canonical_form TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(phrase, category)
+                )
+            """)
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS repository_phrases (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    phrase TEXT NOT NULL,
+                    category VARCHAR(100) NOT NULL,
+                    source VARCHAR(50) DEFAULT 'manual',
+                    added_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    usage_count INTEGER DEFAULT 0,
+                    successful_detections INTEGER DEFAULT 0,
+                    effectiveness_score DECIMAL(5,4),
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(phrase, category)
+                )
+            """)
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS phrase_learning_settings (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    setting_key VARCHAR(100) UNIQUE NOT NULL,
+                    setting_value TEXT,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS phrase_blacklist (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    phrase TEXT NOT NULL,
+                    category VARCHAR(100) NOT NULL,
+                    rejected_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    reason TEXT,
+                    UNIQUE(phrase, category)
+                )
+            """)
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS category_performance (
+                    category VARCHAR(100) PRIMARY KEY,
+                    approval_rate DECIMAL(5,4),
+                    avg_quality_score DECIMAL(5,4),
+                    total_phrases INTEGER DEFAULT 0,
+                    last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            conn.commit()
+            logger.info("Phrase learning database initialized successfully")
+            
         except Exception as e:
             logger.error(f"Failed to initialize phrase learning database: {e}")
+            if conn:
+                conn.rollback()
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                self._return_db_connection(conn)
     
     def rebuild_repository_from_existing(self) -> bool:
-        """Rebuild repository by merging existing KeywordRepository with approved phrases."""
+        """Sync foundational phrases from KeywordRepository into the database."""
         try:
             from analyzer.rebuttal_detection import KeywordRepository
             keyword_repo = KeywordRepository()
             base_phrases = keyword_repo.get_all_phrases()
             
-            # Get current repository to preserve approved phrases
-            current_repository = {}
-            if self.repository_path.exists():
-                try:
-                    with open(self.repository_path, 'r') as f:
-                        current_repository = json.load(f)
-                except:
-                    current_repository = {}
+            count = 0
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                for category, phrases in base_phrases.items():
+                    for phrase in phrases:
+                        clean_phrase = phrase.lower().strip()
+                        cursor.execute("""
+                            INSERT INTO repository_phrases (phrase, category, source, usage_count)
+                            VALUES (%s, %s, 'system_default', 1)
+                            ON CONFLICT (phrase, category) DO NOTHING
+                        """, (clean_phrase, category))
+                        count += 1
+                conn.commit()
+                cursor.close()
             
-            # Merge base phrases with current approved phrases
-            merged_phrases = {}
-            
-            # Start with base KeywordRepository phrases
-            for category, phrases in base_phrases.items():
-                merged_phrases[category] = list(phrases)  # Copy base phrases
-            
-            # Add any approved phrases from current repository
-            current_phrases = current_repository.get("phrases", {})
-            for category, phrases in current_phrases.items():
-                if category not in merged_phrases:
-                    merged_phrases[category] = []
-                
-                # Add phrases that aren't already in the base repository
-                for phrase in phrases:
-                    if phrase not in merged_phrases[category]:
-                        merged_phrases[category].append(phrase)
-                        logger.info(f"Preserved approved phrase: '{phrase}' in {category}")
-            
-            # Create updated repository
-            updated_repository = {
-                "version": "2.0.0",
-                "last_updated": datetime.now().isoformat(),
-                "auto_added_count": current_repository.get("auto_added_count", 0),  # Preserve count
-                "phrases": merged_phrases
-            }
-            
-            # Save to file
-            with open(self.repository_path, 'w') as f:
-                json.dump(updated_repository, f, indent=2)
-            
-            total_phrases = sum(len(phrases) for phrases in merged_phrases.values())
-            base_count = sum(len(phrases) for phrases in base_phrases.values())
-            approved_count = total_phrases - base_count
-            
-            logger.info(f"Repository rebuilt: {base_count} base + {approved_count} approved = {total_phrases} total phrases")
+            logger.info(f" synced {count} base phrases to repository database")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to rebuild repository: {e}")
+            logger.error(f"Failed to sync repository: {e}")
             return False
     
     def _init_repository(self):
-        """Initialize the rebuttal repository file if it doesn't exist."""
-        if not self.repository_path.exists():
-            logger.info("Repository file doesn't exist, creating with all existing phrases...")
-            # Force rebuild with all existing phrases
-            if not self.rebuild_repository_from_existing():
-                logger.warning("Failed to import existing phrases, creating minimal repository")
-                # Fallback to minimal set if import fails
-                default_repository = {
-                    "version": "1.0.0",
-                    "last_updated": datetime.now().isoformat(),
-                    "auto_added_count": 0,
-                    "phrases": {
-                        "OTHER_PROPERTY_FAMILY": [
-                            "do you have any other property",
-                            "any other properties",
-                            "do you have another house",
-                            "any other houses to sell"
-                        ],
-                        "NOT_EVEN_FUTURE_FAMILY": [
-                            "not even in the future",
-                            "not even in the near future",
-                            "never in the future",
-                            "maybe next year"
-                        ],
-                        "MIXED_FUTURE_OTHER_FAMILY": [
-                            "maybe other properties in the future",
-                            "different houses later"
-                        ],
-                        "CALLBACK_SCHEDULE_FAMILY": [
-                            "when should I call you back",
-                            "what's the best time to call",
-                            "when would be better"
-                        ]
-                    }
-                }
+        """Initialize the repository by syncing default phrases if empty."""
+        try:
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM repository_phrases")
+                count = cursor.fetchone()[0]
+                cursor.close()
                 
-                with open(self.repository_path, 'w') as f:
-                    json.dump(default_repository, f, indent=2)
-                
-                logger.info("Created minimal rebuttal repository")
+            if count == 0:
+                logger.info("Repository empty, importing default phrases...")
+                self.rebuild_repository_from_existing()
+        except Exception as e:
+            logger.error(f"Failed to init repository: {e}")
     
     def track_semantic_match(self, phrase: str, category: str, confidence: float, 
                            context: str = "", similar_to: str = ""):
@@ -616,13 +447,15 @@ class PhraseLearningManager:
             if self._phrase_exists_in_repository(clean_phrase, clean_category):
                 return
             
-            with self._get_db_connection() as conn:
+            with self._db_connection() as conn:
                 # Check for duplicate by phrase text ONLY (normalized, case-insensitive) - not category
                 normalized_phrase = clean_phrase.lower().strip()
-                cursor = conn.execute("""
+                
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id, detection_count, confidence, sample_contexts, category
                     FROM pending_phrases 
-                    WHERE LOWER(TRIM(phrase)) = ? AND status = 'pending'
+                    WHERE LOWER(TRIM(phrase)) = %s AND status = 'pending'
                     ORDER BY confidence DESC, detection_count DESC
                     LIMIT 1
                 """, (normalized_phrase,))
@@ -631,8 +464,27 @@ class PhraseLearningManager:
                 if existing:
                     # Merge into existing entry (auto-prevent duplicate)
                     phrase_id, count, existing_conf, existing_ctx, existing_cat = existing
-                    new_count = count + 1
-                    new_confidence = max(existing_conf, confidence)
+
+                    try:
+                        if isinstance(count, Decimal):
+                            count = int(count)
+                    except Exception:
+                        pass
+
+                    try:
+                        if isinstance(existing_conf, Decimal):
+                            existing_conf = float(existing_conf)
+                    except Exception:
+                        pass
+
+                    try:
+                        if isinstance(confidence, Decimal):
+                            confidence = float(confidence)
+                    except Exception:
+                        pass
+
+                    new_count = int(count) + 1
+                    new_confidence = max(float(existing_conf), float(confidence))
                     # Merge contexts
                     existing_context = existing_ctx or ""
                     new_context = context[:500] or ""
@@ -655,14 +507,14 @@ class PhraseLearningManager:
                     quality_score = self.calculate_quality_score(merged_phrase_data)
                     canonical_form = self.normalize_to_canonical(clean_phrase)
                     
-                    conn.execute("""
+                    cursor.execute("""
                         UPDATE pending_phrases 
-                        SET detection_count = ?, confidence = ?, 
+                        SET detection_count = %s, confidence = %s, 
                             last_detected = CURRENT_TIMESTAMP,
-                            sample_contexts = ?,
-                            quality_score = ?,
-                            canonical_form = ?
-                        WHERE id = ?
+                            sample_contexts = %s,
+                            quality_score = %s,
+                            canonical_form = %s
+                        WHERE id = %s
                     """, (new_count, new_confidence, merged_context, quality_score, canonical_form, phrase_id))
                     
                     # Check if it should be auto-approved (use merged confidence)
@@ -686,18 +538,36 @@ class PhraseLearningManager:
                     canonical_form = self.normalize_to_canonical(clean_phrase)
                     
                     # Insert new pending phrase
-                    phrase_id = None
-                    cursor = conn.execute("""
+                    cursor.execute(
+                        """
                         INSERT INTO pending_phrases 
-                        (phrase, category, confidence, sample_contexts, similar_to, quality_score, canonical_form)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (clean_phrase, clean_category, confidence, context[:500], similar_to, quality_score, canonical_form))
-                    phrase_id = cursor.lastrowid
+                        (phrase, category, confidence, sample_contexts, similar_to, quality_score, canonical_form, detection_count, last_detected)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, 1, CURRENT_TIMESTAMP)
+                        ON CONFLICT (phrase, category) DO UPDATE SET
+                            detection_count = pending_phrases.detection_count + 1,
+                            confidence = GREATEST(pending_phrases.confidence, EXCLUDED.confidence),
+                            last_detected = CURRENT_TIMESTAMP,
+                            sample_contexts = CASE
+                                WHEN pending_phrases.sample_contexts IS NULL OR pending_phrases.sample_contexts = '' THEN EXCLUDED.sample_contexts
+                                WHEN EXCLUDED.sample_contexts IS NULL OR EXCLUDED.sample_contexts = '' THEN pending_phrases.sample_contexts
+                                ELSE LEFT(pending_phrases.sample_contexts || ' | ' || EXCLUDED.sample_contexts, 500)
+                            END,
+                            quality_score = GREATEST(COALESCE(pending_phrases.quality_score, 0), COALESCE(EXCLUDED.quality_score, 0)),
+                            canonical_form = COALESCE(pending_phrases.canonical_form, EXCLUDED.canonical_form),
+                            similar_to = COALESCE(pending_phrases.similar_to, EXCLUDED.similar_to)
+                        RETURNING id
+                        """,
+                        (clean_phrase, clean_category, float(confidence), context[:500], similar_to, float(quality_score), canonical_form),
+                    )
+                    phrase_id = cursor.fetchone()[0]
                     
                     # Auto-approve High Priority phrases (quality score ≥ 0.90 or confidence ≥ 90%) immediately
                     if quality_score >= 0.90 or confidence >= 0.90:
                         self._auto_approve_phrase(phrase_id, clean_phrase, clean_category)
                 
+                conn.commit()
+                cursor.close()
+
                 logger.debug(f"Tracked semantic match: '{clean_phrase}' in {clean_category} (confidence: {confidence:.3f})")
                 
         except Exception as e:
@@ -706,12 +576,15 @@ class PhraseLearningManager:
     def _auto_approve_phrase(self, phrase_id: int, phrase: str, category: str):
         """Automatically approve a high-confidence phrase."""
         try:
-            with self._get_db_connection() as conn:
+            with self._db_connection() as conn:
                 # Move to approved status
-                conn.execute(
-                    "UPDATE pending_phrases SET status = 'auto_approved' WHERE id = ?",
-                    (phrase_id,)
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE pending_phrases SET status = 'auto_approved' WHERE id = %s",
+                    (phrase_id,),
                 )
+                conn.commit()
+                cursor.close()
                 
                 # Add to repository
                 self._add_to_repository(phrase, category, source='auto_learned')
@@ -785,6 +658,23 @@ class PhraseLearningManager:
         detection_count = phrase_data.get('detection_count', 1)
         last_detected = phrase_data.get('last_detected')
         sample_contexts = phrase_data.get('sample_contexts', '')
+
+        # psycopg2 returns DECIMAL/NUMERIC as Decimal; normalize to python numeric types
+        try:
+            if isinstance(confidence, Decimal):
+                confidence = float(confidence)
+            else:
+                confidence = float(confidence)
+        except Exception:
+            confidence = 0.0
+
+        try:
+            if isinstance(detection_count, Decimal):
+                detection_count = int(detection_count)
+            else:
+                detection_count = int(detection_count)
+        except Exception:
+            detection_count = 1
         
         # Normalize frequency (0-1 scale, max at 10 detections)
         frequency_score = min(detection_count / 10.0, 1.0)
@@ -869,15 +759,37 @@ class PhraseLearningManager:
         
         # Adjust based on historical performance (if available)
         try:
-            with self._get_db_connection() as conn:
-                cursor = conn.execute(
-                    "SELECT approval_rate, avg_quality_score FROM category_performance WHERE category = ?",
-                    (category,)
-                )
-                result = cursor.fetchone()
+            with self._db_connection() as conn:
+                if self.use_postgresql:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT approval_rate, avg_quality_score FROM category_performance WHERE category = %s",
+                        (category,),
+                    )
+                    result = cursor.fetchone()
+                    cursor.close()
+                else:
+                    cursor = conn.execute(
+                        "SELECT approval_rate, avg_quality_score FROM category_performance WHERE category = ?",
+                        (category,)
+                    )
+                    result = cursor.fetchone()
                 
                 if result:
                     approval_rate, avg_quality = result
+
+                    try:
+                        if isinstance(approval_rate, Decimal):
+                            approval_rate = float(approval_rate)
+                    except Exception:
+                        approval_rate = None
+
+                    try:
+                        if isinstance(avg_quality, Decimal):
+                            avg_quality = float(avg_quality)
+                    except Exception:
+                        avg_quality = None
+
                     # Adjust threshold based on performance
                     if approval_rate and approval_rate > 0.95:
                         base_threshold -= 0.02  # Lower threshold (high accuracy)
@@ -895,7 +807,16 @@ class PhraseLearningManager:
     def _is_blacklisted(self, phrase: str, category: str) -> bool:
         """Check if a phrase is blacklisted."""
         try:
-            with self._get_db_connection() as conn:
+            with self._db_connection() as conn:
+                if self.use_postgresql:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT 1 FROM phrase_blacklist WHERE phrase = %s AND category = %s",
+                        (phrase.lower().strip(), category),
+                    )
+                    result = cursor.fetchone() is not None
+                    cursor.close()
+                    return result
                 cursor = conn.execute(
                     "SELECT 1 FROM phrase_blacklist WHERE phrase = ? AND category = ?",
                     (phrase.lower().strip(), category)
@@ -907,303 +828,181 @@ class PhraseLearningManager:
     def _phrase_exists_in_repository(self, phrase: str, category: str) -> bool:
         """Check if phrase already exists in the repository."""
         try:
-            with open(self.repository_path, 'r') as f:
-                repository = json.load(f)
+            if self.use_postgresql:
+                with self._db_connection() as conn:
+                    clean_phrase = phrase.lower().strip()
+                    cursor = conn.cursor()
+                    try:
+                        cursor.execute(
+                            "SELECT 1 FROM repository_phrases WHERE phrase = %s AND category = %s LIMIT 1",
+                            (clean_phrase, category),
+                        )
+                        return cursor.fetchone() is not None
+                    except Exception:
+                        cursor.execute(
+                            "SELECT 1 FROM rebuttal_phrases WHERE phrase = %s AND category = %s LIMIT 1",
+                            (clean_phrase, category),
+                        )
+                        return cursor.fetchone() is not None
+                    finally:
+                        cursor.close()
             
-            category_phrases = repository.get("phrases", {}).get(category, [])
-            return phrase.lower().strip() in [p.lower().strip() for p in category_phrases]
-            
-        except:
+        except Exception as e:
+            logger.error(f"Error checking phrase existence: {e}")
             return False
     
-    def _add_to_repository(self, phrase: str, category: str, source: str = 'manual'):
-        """Add a phrase to the repository file."""
+    def _add_to_repository(self, phrase: str, category: str, source: str = 'manual') -> bool:
+        """Add a phrase to the repository database."""
         try:
-            with open(self.repository_path, 'r') as f:
-                repository = json.load(f)
-            
-            # Add phrase to category
-            if category not in repository["phrases"]:
-                repository["phrases"][category] = []
-            
             clean_phrase = phrase.lower().strip()
-            if clean_phrase not in repository["phrases"][category]:
-                repository["phrases"][category].append(clean_phrase)
-                
-                # Update metadata
-                repository["last_updated"] = datetime.now().isoformat()
-                if source == 'auto_learned':
-                    repository["auto_added_count"] = repository.get("auto_added_count", 0) + 1
-                
-                # Save back to file
-                with open(self.repository_path, 'w') as f:
-                    json.dump(repository, f, indent=2)
-                
-                # Track in database (SQLite or PostgreSQL)
-                conn = None
-                cursor = None
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
                 try:
-                    conn = self._get_db_connection()
-                    
-                    # Handle both SQLite and PostgreSQL
-                    if self.use_postgresql:
-                        cursor = conn.cursor()
-                        # Check if phrase exists
-                        cursor.execute("""
-                            SELECT id, usage_count FROM repository_phrases 
-                            WHERE phrase = %s AND category = %s
-                        """, (clean_phrase, category))
-                        existing = cursor.fetchone()
-                        
-                        if existing:
-                            # Update usage count
-                            cursor.execute("""
-                                UPDATE repository_phrases 
-                                SET usage_count = usage_count + 1
-                                WHERE id = %s
-                            """, (existing[0],))
-                        else:
-                            # Insert new phrase
-                            cursor.execute("""
-                                INSERT INTO repository_phrases 
-                                (phrase, category, source, usage_count) VALUES (%s, %s, %s, 1)
-                            """, (clean_phrase, category, source))
-                        conn.commit()
-                        if cursor:
-                            cursor.close()
+                    # Update repository_phrases
+                    cursor.execute(
+                        "SELECT id FROM repository_phrases WHERE phrase = %s AND category = %s",
+                        (clean_phrase, category),
+                    )
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        cursor.execute(
+                            "UPDATE repository_phrases SET usage_count = usage_count + 1 WHERE id = %s",
+                            (existing[0],),
+                        )
                     else:
-                        # SQLite - use direct execute
-                        cursor = conn.execute("""
-                            SELECT id, usage_count FROM repository_phrases 
-                            WHERE phrase = ? AND category = ?
-                        """, (clean_phrase, category))
-                        existing = cursor.fetchone()
-                        
-                        if existing:
-                            # Update usage count
-                            conn.execute("""
-                                UPDATE repository_phrases 
-                                SET usage_count = usage_count + 1
-                                WHERE id = ?
-                            """, (existing[0],))
-                        else:
-                            # Insert new phrase
-                            conn.execute("""
-                                INSERT INTO repository_phrases 
-                                (phrase, category, source, usage_count) VALUES (?, ?, ?, 1)
-                            """, (clean_phrase, category, source))
-                        conn.commit()
-                except Exception as e:
-                    logger.warning(f"Failed to track phrase in repository_phrases table: {e}")
+                        cursor.execute(
+                            """
+                            INSERT INTO repository_phrases
+                            (phrase, category, source, usage_count) VALUES (%s, %s, %s, 1)
+                            """,
+                            (clean_phrase, category, source),
+                        )
+
+                    # Update rebuttal_phrases (if table exists)
+                    try:
+                        cursor.execute(
+                            """
+                            INSERT INTO rebuttal_phrases (category, phrase, source)
+                            VALUES (%s, %s, %s)
+                            ON CONFLICT (category, phrase) DO NOTHING
+                            """,
+                            (category, clean_phrase, source),
+                        )
+                    except Exception:
+                        pass 
+
+                    conn.commit()
                 finally:
-                    if cursor and self.use_postgresql:
-                        try:
-                            cursor.close()
-                        except:
-                            pass
-                    if conn:
-                        self._return_db_connection(conn)
-                
-                # ALSO save to PostgreSQL if configured (PRIMARY SOURCE for semantic matching)
-                try:
-                    from lib.database import get_db_manager
-                    db = get_db_manager()
-                    
-                    if db and hasattr(db, 'db_type') and db.db_type == 'postgresql':
-                        # Ensure table exists (PostgreSQL syntax)
-                        try:
-                            db.execute_query("""
-                                CREATE TABLE IF NOT EXISTS rebuttal_phrases (
-                                    id SERIAL PRIMARY KEY,
-                                    category VARCHAR(255) NOT NULL,
-                                    phrase TEXT NOT NULL,
-                                    source VARCHAR(100) DEFAULT 'manual',
-                                    added_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                    UNIQUE(category, phrase)
-                                )
-                            """, fetch=False)
-                        except Exception as create_error:
-                            # Table might already exist - that's fine
-                            logger.debug(f"Table creation (may already exist): {create_error}")
-                        
-                        # Insert or update in PostgreSQL (ON CONFLICT DO NOTHING for duplicates)
-                        # Try with source column first, fallback to without source if column doesn't exist
-                        inserted = False
-                        try:
-                            db.execute_query("""
-                                INSERT INTO rebuttal_phrases (category, phrase, source)
-                                VALUES (%s, %s, %s)
-                                ON CONFLICT (category, phrase) DO NOTHING
-                            """, (category, clean_phrase, source), fetch=False)
-                            inserted = True
-                            logger.debug(f"✅ Saved phrase to PostgreSQL: '{clean_phrase}' in {category}")
-                        except Exception as insert_error:
-                            # If source column doesn't exist or permission denied, try without it
-                            error_str = str(insert_error).lower()
-                            if 'column "source" does not exist' in error_str or 'must be owner' in error_str:
-                                try:
-                                    db.execute_query("""
-                                        INSERT INTO rebuttal_phrases (category, phrase)
-                                        VALUES (%s, %s)
-                                        ON CONFLICT (category, phrase) DO NOTHING
-                                    """, (category, clean_phrase), fetch=False)
-                                    inserted = True
-                                    logger.debug(f"✅ Saved phrase to PostgreSQL (without source): '{clean_phrase}' in {category}")
-                                except Exception as fallback_error:
-                                    # Only log if it's not a duplicate conflict (which is expected)
-                                    if 'duplicate key' not in str(fallback_error).lower() and 'unique constraint' not in str(fallback_error).lower():
-                                        logger.debug(f"PostgreSQL insert error (fallback): {fallback_error}")
-                            else:
-                                # Only log if it's not a duplicate conflict (which is expected)
-                                if 'duplicate key' not in error_str and 'unique constraint' not in error_str:
-                                    logger.debug(f"PostgreSQL insert error (phrase may already exist): {insert_error}")
-                except Exception as e:
-                    # PostgreSQL not configured or not available - that's OK, JSON/SQLite are fallbacks
-                    logger.debug(f"PostgreSQL not available for phrase storage: {e}")
-                
-                logger.info(f"Added phrase to repository: '{clean_phrase}' in {category}")
-                
-                # Reload semantic embeddings to include the new phrase
-                try:
-                    from models import reload_semantic_embeddings
-                    reload_semantic_embeddings()
-                    logger.info("✅ Reloaded semantic embeddings to include new phrase")
-                except Exception as e:
-                    logger.warning(f"Failed to reload semantic embeddings: {e}")
-                    # Don't fail the entire operation if embedding reload fails
-                
+                    cursor.close()
+
+            logger.info(f"Added phrase to repository: '{clean_phrase}' in {category}")
+
+            # Reload semantic embeddings
+            try:
+                from models import reload_semantic_embeddings
+                reload_semantic_embeddings()
+            except Exception:
+                pass
+            return True
+
         except Exception as e:
-            logger.error(f"Failed to add phrase to repository: {e}")
+            logger.error(f"Failed to add to repository: {e}")
+            return False
+
     
     def _auto_cleanup_duplicates_lightweight(self):
         """Lightweight automatic duplicate cleanup - merges duplicates by phrase text only."""
         try:
             conn = self._get_db_connection()
-            if self.use_postgresql:
+            with conn: # Transaction context
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT id, phrase, category, confidence, detection_count, sample_contexts, similar_to
                     FROM pending_phrases 
                     WHERE status = 'pending'
-                    ORDER BY confidence DESC, detection_count DESC
+                    ORDER BY detection_count DESC
                 """)
-            else:
-                cursor = conn.execute("""
-                    SELECT id, phrase, category, confidence, detection_count, sample_contexts, similar_to
-                    FROM pending_phrases 
-                    WHERE status = 'pending'
-                    ORDER BY confidence DESC, detection_count DESC
-                """)
+                phrases = cursor.fetchall()
+
+                # Group by normalized phrase
+                phrase_groups = {}
+                for row in phrases:
+                    # Normalized: lower case, stripped
+                    norm_phrase = row[1].lower().strip()
+                    if norm_phrase not in phrase_groups:
+                        phrase_groups[norm_phrase] = []
+                    
+                    phrase_groups[norm_phrase].append({
+                        'id': row[0],
+                        'phrase': row[1],
+                        'category': row[2],
+                        'confidence': row[3],
+                        'detection_count': row[4],
+                        'contexts': row[5],
+                        'similar_to': row[6]
+                    })
                 
-            all_phrases = cursor.fetchall()
-            if not all_phrases:
-                if self.use_postgresql:
-                    cursor.close()
-                    self._return_db_connection(conn)
-                else:
-                    conn.commit()
-                return
-            
-            # Group by normalized phrase text ONLY (not category)
-            phrase_groups = {}
-            for row in all_phrases:
-                phrase_id, phrase, category, confidence, detection_count, contexts, similar_to = row
-                normalized_phrase = phrase.lower().strip() if phrase else ""
-                if normalized_phrase:
-                    if normalized_phrase not in phrase_groups:
-                        phrase_groups[normalized_phrase] = []
-                    phrase_groups[normalized_phrase].append({
-                        'id': phrase_id,
-                        'phrase': phrase,
-                        'category': category,
-                        'confidence': confidence,
-                        'detection_count': detection_count,
-                        'contexts': contexts or "",
-                        'similar_to': similar_to or ""
-                    })
-            
-            # Process groups with duplicates
-            duplicates_to_remove = []
-            phrases_to_update = []
-            
-            for normalized, phrases in phrase_groups.items():
-                if len(phrases) > 1:
-                    # Sort by confidence (desc) then detection_count (desc)
-                    phrases.sort(key=lambda x: (x['confidence'], x['detection_count']), reverse=True)
-                    
-                    # Keep the best one (first after sorting)
-                    best_phrase = phrases[0]
-                    duplicates = phrases[1:]
-                    
-                    # Merge data: sum detection counts, combine contexts
-                    total_detections = best_phrase['detection_count']
-                    all_contexts = [best_phrase['contexts']] if best_phrase['contexts'] else []
-                    
-                    for dup in duplicates:
-                        total_detections += dup['detection_count']
-                        if dup['contexts']:
-                            all_contexts.append(dup['contexts'])
-                        duplicates_to_remove.append(dup['id'])
-                    
-                    # Update the best phrase with merged data
-                    merged_contexts = " | ".join([c for c in all_contexts if c])[:500]
-                    phrases_to_update.append({
-                        'id': best_phrase['id'],
-                        'detection_count': total_detections,
-                        'contexts': merged_contexts
-                    })
-            
-            # Update phrases with merged data
-            for update_data in phrases_to_update:
-                try:
-                    if self.use_postgresql:
+                # Find duplicates
+                duplicates_to_remove = []
+                phrases_to_update = []
+                
+                for norm_phrase, duplicates in phrase_groups.items():
+                    if len(duplicates) > 1:
+                        # Sort by detection count (desc) then confidence (desc)
+                        duplicates.sort(key=lambda x: (x['detection_count'], x['confidence']), reverse=True)
+                        
+                        best_phrase = duplicates[0]
+                        total_detections = best_phrase['detection_count']
+                        all_contexts = [best_phrase['contexts']] if best_phrase['contexts'] else []
+                        
+                        # Merge others
+                        for dup in duplicates[1:]:
+                            total_detections += dup['detection_count']
+                            if dup['contexts']:
+                                all_contexts.append(dup['contexts'])
+                            duplicates_to_remove.append(dup['id'])
+                        
+                        # Update the best phrase with merged data
+                        merged_contexts = " | ".join([c for c in all_contexts if c])[:500]
+                        phrases_to_update.append({
+                            'id': best_phrase['id'],
+                            'detection_count': total_detections,
+                            'contexts': merged_contexts
+                        })
+                
+                # Update phrases with merged data
+                for update_data in phrases_to_update:
+                    try:
                         cursor.execute("""
                             UPDATE pending_phrases 
                             SET detection_count = %s, sample_contexts = %s
                             WHERE id = %s
                         """, (update_data['detection_count'], update_data['contexts'], update_data['id']))
-                    else:
-                        conn.execute("""
-                            UPDATE pending_phrases 
-                            SET detection_count = ?, sample_contexts = ?
-                            WHERE id = ?
-                        """, (update_data['detection_count'], update_data['contexts'], update_data['id']))
-                except Exception as e:
-                    logger.warning(f"Error updating phrase ID {update_data['id']} during auto-cleanup: {e}")
-            
-            # Delete duplicate phrases
-            if duplicates_to_remove:
-                if self.use_postgresql:
+                    except Exception as e:
+                        logger.warning(f"Error updating phrase ID {update_data['id']} during auto-cleanup: {e}")
+                
+                # Delete duplicate phrases
+                if duplicates_to_remove:
                     placeholders = ','.join(['%s'] * len(duplicates_to_remove))
                     cursor.execute(f"""
                         DELETE FROM pending_phrases 
                         WHERE id IN ({placeholders})
                     """, duplicates_to_remove)
-                else:
-                    placeholders = ','.join(['?'] * len(duplicates_to_remove))
-                    conn.execute(f"""
-                        DELETE FROM pending_phrases 
-                        WHERE id IN ({placeholders})
-                    """, duplicates_to_remove)
-                logger.info(f"Auto-cleaned {len(duplicates_to_remove)} duplicate phrases")
-            
-            if self.use_postgresql:
-                conn.commit()
+                    logger.info(f"Auto-cleaned {len(duplicates_to_remove)} duplicate phrases")
+                
                 cursor.close()
                 self._return_db_connection(conn)
-            else:
-                conn.commit()
         
         except Exception as e:
             logger.warning(f"Auto-cleanup duplicates failed (non-critical): {e}", exc_info=True)
-            if self.use_postgresql and 'conn' in locals():
+            if 'conn' in locals() and conn:
                 try:
-                    if 'cursor' in locals():
+                    if 'cursor' in locals() and cursor:
                         cursor.close()
                     self._return_db_connection(conn)
                 except:
                     pass
-            # Don't fail the entire operation if cleanup fails
     
     def get_pending_phrases(self, status: str = 'pending') -> List[Dict[str, Any]]:
         """Get pending phrases for review. Automatically cleans duplicates before returning."""
@@ -1214,129 +1013,101 @@ class PhraseLearningManager:
         cursor = None
         try:
             conn = self._get_db_connection()
-            if self.use_postgresql:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, phrase, category, confidence, detection_count,
-                           first_detected, last_detected, sample_contexts, similar_to,
-                           quality_score, canonical_form
-                    FROM pending_phrases 
-                    WHERE status = %s
-                    ORDER BY quality_score DESC NULLS LAST, confidence DESC, detection_count DESC
-                """, (status,))
-            else:
-                cursor = conn.execute("""
-                    SELECT id, phrase, category, confidence, detection_count,
-                           first_detected, last_detected, sample_contexts, similar_to,
-                           quality_score, canonical_form
-                    FROM pending_phrases 
-                    WHERE status = ?
-                    ORDER BY quality_score DESC NULLS LAST, confidence DESC, detection_count DESC
-                """, (status,))
-                
-                phrases = []
-                for row in cursor.fetchall():
-                    # Handle rows with or without new columns (backward compatibility)
-                    row_len = len(row)
-                    quality_score = row[9] if row_len > 9 and row[9] is not None else None
-                    canonical_form = row[10] if row_len > 10 and row[10] else None
-                    
-                    phrase_data = {
-                        'id': row[0],
-                        'phrase': row[1],
-                        'category': row[2],
-                        'confidence': row[3],
-                        'detection_count': row[4],
-                        'first_detected': row[5],
-                        'last_detected': row[6],
-                        'sample_contexts': row[7] or "",
-                        'similar_to': row[8] or ""
-                    }
-                    
-                    # Calculate quality score if not present
-                    if quality_score is None:
-                        quality_score = self.calculate_quality_score(phrase_data)
-                    
-                    # Calculate canonical form if not present
-                    if canonical_form is None:
-                        canonical_form = self.normalize_to_canonical(row[1])
-                    
-                    phrase_data['quality_score'] = quality_score
-                    phrase_data['canonical_form'] = canonical_form
-                    phrase_data['quality_tier'] = self.get_quality_tier(quality_score)
-                    
-                    phrases.append(phrase_data)
-                
-                return phrases
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, phrase, category, confidence, detection_count,
+                       first_detected, last_detected, sample_contexts, similar_to,
+                       quality_score, canonical_form
+                FROM pending_phrases 
+                WHERE status = %s
+                ORDER BY quality_score DESC NULLS LAST, confidence DESC, detection_count DESC
+                """,
+                (status,),
+            )
+
+            phrases = []
+            for row in cursor.fetchall():
+                row_len = len(row)
+                quality_score = row[9] if row_len > 9 and row[9] is not None else None
+                canonical_form = row[10] if row_len > 10 and row[10] else None
+
+                phrase_data = {
+                    'id': row[0],
+                    'phrase': row[1],
+                    'category': row[2],
+                    'confidence': row[3],
+                    'detection_count': row[4],
+                    'first_detected': row[5],
+                    'last_detected': row[6],
+                    'sample_contexts': row[7] or "",
+                    'similar_to': row[8] or "",
+                }
+
+                if quality_score is None:
+                    quality_score = self.calculate_quality_score(phrase_data)
+
+                if canonical_form is None:
+                    canonical_form = self.normalize_to_canonical(row[1])
+
+                phrase_data['quality_score'] = quality_score
+                phrase_data['canonical_form'] = canonical_form
+                phrase_data['quality_tier'] = self.get_quality_tier(quality_score)
+
+                phrases.append(phrase_data)
+
+            return phrases
                 
         except Exception as e:
             logger.error(f"Failed to get pending phrases: {e}", exc_info=True)
             return []
         finally:
-            if cursor and self.use_postgresql:
+            if cursor:
                 try:
                     cursor.close()
                 except:
                     pass
-            if conn and self.use_postgresql:
+            if conn:
                 self._return_db_connection(conn)
     
     def approve_phrase(self, phrase_id: int) -> bool:
         """Approve a pending phrase and add it to repository."""
         try:
             conn = self._get_db_connection()
-            if self.use_postgresql:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT phrase, category FROM pending_phrases WHERE id = %s",
-                    (phrase_id,)
-                )
-                result = cursor.fetchone()
-                
-                if not result:
-                    cursor.close()
-                    self._return_db_connection(conn)
-                    return False
-                
-                phrase, category = result
-                
-                # Update status
-                cursor.execute(
-                    "UPDATE pending_phrases SET status = 'approved' WHERE id = %s",
-                    (phrase_id,)
-                )
-                conn.commit()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT phrase, category FROM pending_phrases WHERE id = %s",
+                (phrase_id,)
+            )
+            result = cursor.fetchone()
+            
+            if not result:
                 cursor.close()
                 self._return_db_connection(conn)
-            else:
-                cursor = conn.execute(
-                    "SELECT phrase, category FROM pending_phrases WHERE id = ?",
-                    (phrase_id,)
-                )
-                result = cursor.fetchone()
-                
-                if not result:
-                    return False
-                
-                phrase, category = result
-                
-                # Update status
-                conn.execute(
-                    "UPDATE pending_phrases SET status = 'approved' WHERE id = ?",
-                    (phrase_id,)
-                )
-                
-                # Add to repository
-                self._add_to_repository(phrase, category, source='admin_approved')
-                
-                logger.info(f"Approved phrase: '{phrase}' in {category}")
-                return True
+                return False
+            
+            phrase, category = result
+            
+            # Update status
+            cursor.execute(
+                "UPDATE pending_phrases SET status = 'approved' WHERE id = %s",
+                (phrase_id,)
+            )
+            conn.commit()
+            cursor.close()
+            self._return_db_connection(conn)
+            
+            # Add to repository
+            self._add_to_repository(phrase, category, source='admin_approved')
+            
+            logger.info(f"Approved phrase: '{phrase}' in {category}")
+            return True
                 
         except Exception as e:
             logger.error(f"Failed to approve phrase: {e}", exc_info=True)
-            if self.use_postgresql and 'conn' in locals():
+            if 'conn' in locals() and conn:
                 try:
-                    if 'cursor' in locals():
+                    if 'cursor' in locals() and cursor:
                         cursor.close()
                     self._return_db_connection(conn)
                 except:
@@ -1362,17 +1133,18 @@ class PhraseLearningManager:
         }
         
         try:
-            with self._get_db_connection() as conn:
-                cursor = conn.execute("""
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id, phrase, category, quality_score
                     FROM pending_phrases 
-                    WHERE status = 'pending' AND quality_score >= ?
+                    WHERE status = 'pending' AND quality_score >= %s
                     ORDER BY quality_score DESC
                 """, (min_quality_score,))
-                
                 phrases = cursor.fetchall()
                 
                 if not phrases:
+                    cursor.close()
                     return {
                         'success': True,
                         'message': f'No phrases found with quality score >= {min_quality_score:.0%}',
@@ -1381,9 +1153,6 @@ class PhraseLearningManager:
                 
                 for phrase_id, phrase_text, category, quality_score in phrases:
                     try:
-                        # Check if already in repository
-                        already_in_repo = self._phrase_exists_in_repository(phrase_text, category or 'general')
-                        
                         # Add to repository (will skip if already exists)
                         success = self._add_to_repository(
                             phrase=phrase_text,
@@ -1395,13 +1164,14 @@ class PhraseLearningManager:
                         cursor.execute("""
                             UPDATE pending_phrases 
                             SET status = 'approved'
-                            WHERE id = ?
+                            WHERE id = %s
                         """, (phrase_id,))
                         
-                        if success or already_in_repo:
+                        if success:
                             stats['total_approved'] += 1
                         else:
-                            stats['total_skipped'] += 1
+                            # Count as approved if we updated status, even if add to repo skipped (duplicate)
+                            stats['total_approved'] += 1
                             
                     except Exception as e:
                         error_msg = f"Error processing phrase ID {phrase_id}: {str(e)}"
@@ -1409,6 +1179,7 @@ class PhraseLearningManager:
                         stats['errors'].append(error_msg)
                 
                 conn.commit()
+                cursor.close()
                 
                 return {
                     'success': True,
@@ -1435,33 +1206,33 @@ class PhraseLearningManager:
         }
         
         try:
-            with self._get_db_connection() as conn:
-                cursor = conn.execute("""
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id, phrase, category, quality_score
                     FROM pending_phrases 
-                    WHERE status = 'pending' AND category = ? AND quality_score >= ?
+                    WHERE status = 'pending' AND category = %s AND quality_score >= %s
                     ORDER BY quality_score DESC
                 """, (category, min_quality_score))
-                
                 phrases = cursor.fetchall()
                 
                 for phrase_id, phrase_text, cat, quality_score in phrases:
                     try:
-                        already_in_repo = self._phrase_exists_in_repository(phrase_text, cat)
                         success = self._add_to_repository(phrase_text, cat, source='auto_approved')
                         
                         cursor.execute("""
-                            UPDATE pending_phrases SET status = 'approved' WHERE id = ?
+                            UPDATE pending_phrases SET status = 'approved' WHERE id = %s
                         """, (phrase_id,))
                         
-                        if success or already_in_repo:
+                        if success:
                             stats['total_approved'] += 1
                         else:
-                            stats['total_skipped'] += 1
+                            stats['total_approved'] += 1
                     except Exception as e:
                         stats['errors'].append(f"Error processing phrase ID {phrase_id}: {str(e)}")
                 
                 conn.commit()
+                cursor.close()
                 
                 return {
                     'success': True,
@@ -1487,18 +1258,19 @@ class PhraseLearningManager:
         }
         
         try:
-            with self._get_db_connection() as conn:
+            with self._db_connection() as conn:
                 # Get all pending phrases
-                cursor = conn.execute("""
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id, phrase, category
                     FROM pending_phrases 
                     WHERE status = 'pending'
                     ORDER BY id
                 """)
-                
                 phrases = cursor.fetchall()
                 
                 if not phrases:
+                    cursor.close()
                     return {
                         'success': True,
                         'message': 'No pending phrases to approve',
@@ -1507,12 +1279,6 @@ class PhraseLearningManager:
                 
                 for phrase_id, phrase_text, category in phrases:
                     try:
-                        # Check if already in repository
-                        already_in_repo = self._phrase_exists_in_repository(
-                            phrase_text, 
-                            category or 'general'
-                        )
-                        
                         # Add to repository (will skip if already exists)
                         success = self._add_to_repository(
                             phrase=phrase_text,
@@ -1521,17 +1287,17 @@ class PhraseLearningManager:
                         )
                         
                         # Update status to approved
-                        conn.execute("""
+                        cursor.execute("""
                             UPDATE pending_phrases 
                             SET status = 'approved'
-                            WHERE id = ?
+                            WHERE id = %s
                         """, (phrase_id,))
                         
-                        if success or already_in_repo:
+                        if success:
                             stats['total_approved'] += 1
                             logger.info(f"Approved phrase: '{phrase_text}' in {category or 'general'}")
                         else:
-                            stats['total_skipped'] += 1
+                            stats['total_approved'] += 1
                             
                     except Exception as e:
                         error_msg = f"Error processing phrase ID {phrase_id}: {str(e)}"
@@ -1539,10 +1305,11 @@ class PhraseLearningManager:
                         stats['errors'].append(error_msg)
                 
                 conn.commit()
+                cursor.close()
                 
                 return {
                     'success': True,
-                    'message': f"Approved {stats['total_approved']} pending phrases. {stats['total_skipped']} skipped (already in repository).",
+                    'message': f"Approved {stats['total_approved']} pending phrases.",
                     'stats': stats
                 }
                 
@@ -1560,29 +1327,33 @@ class PhraseLearningManager:
         Performance: ~0.5ms (simple DB update)
         """
         try:
-            with self._get_db_connection() as conn:
+            with self._db_connection() as conn:
                 # Find phrase in repository
-                cursor = conn.execute("""
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id, usage_count, successful_detections 
                     FROM repository_phrases 
-                    WHERE phrase = ? AND category = ?
+                    WHERE phrase = %s AND category = %s
                 """, (phrase.lower().strip(), category))
-                
                 result = cursor.fetchone()
+                
                 if result:
                     phrase_id, usage_count, successful = result
                     new_usage = usage_count + 1
                     new_successful = successful + (1 if was_successful else 0)
                     effectiveness = new_successful / new_usage if new_usage > 0 else 0.0
                     
-                    conn.execute("""
+                    cursor.execute("""
                         UPDATE repository_phrases 
-                        SET usage_count = ?,
-                            successful_detections = ?,
-                            effectiveness_score = ?
-                        WHERE id = ?
+                        SET usage_count = %s,
+                            successful_detections = %s,
+                            effectiveness_score = %s
+                        WHERE id = %s
                     """, (new_usage, new_successful, effectiveness, phrase_id))
+                    
                     conn.commit()
+                cursor.close()
+                
         except Exception as e:
             logger.debug(f"Failed to track effectiveness: {e}")
     
@@ -1598,45 +1369,44 @@ class PhraseLearningManager:
         }
         
         try:
-            with self._get_db_connection() as conn:
+            with self._db_connection() as conn:
                 # Get all pending phrases
-                cursor = conn.execute("""
+                cursor = conn.cursor()
+                cursor.execute("""
                     SELECT id, phrase, category, confidence, detection_count, sample_contexts, similar_to
                     FROM pending_phrases 
                     WHERE status = 'pending'
                     ORDER BY confidence DESC, detection_count DESC
                 """)
+                phrases = cursor.fetchall()
                 
-                all_phrases = cursor.fetchall()
-                
-                if not all_phrases:
+                if not phrases:
+                    cursor.close()
                     return {
                         'success': True,
                         'message': 'No pending phrases found',
                         'stats': stats
                     }
                 
-                # Group by normalized phrase text ONLY (not category) - same phrase text = duplicate
+                # Group by normalized phrase
                 phrase_groups = {}
-                for row in all_phrases:
+                for row in phrases:
                     phrase_id, phrase, category, confidence, detection_count, contexts, similar_to = row
-                    # Normalize phrase for comparison - use phrase text only as key
                     normalized_phrase = phrase.lower().strip() if phrase else ""
-                    key = normalized_phrase  # Remove category from key - duplicates by text only
-                    
-                    if key not in phrase_groups:
-                        phrase_groups[key] = []
-                    phrase_groups[key].append({
-                        'id': phrase_id,
-                        'phrase': phrase,
-                        'category': category,
-                        'confidence': confidence,
-                        'detection_count': detection_count,
-                        'contexts': contexts or "",
-                        'similar_to': similar_to or ""
-                    })
+                    if normalized_phrase:
+                        if normalized_phrase not in phrase_groups:
+                            phrase_groups[normalized_phrase] = []
+                        phrase_groups[normalized_phrase].append({
+                            'id': phrase_id,
+                            'phrase': phrase,
+                            'category': category,
+                            'confidence': confidence,
+                            'detection_count': detection_count,
+                            'contexts': contexts or "",
+                            'similar_to': similar_to or ""
+                        })
                 
-                # Find duplicates (groups with more than one phrase)
+                # Process groups with duplicates
                 duplicates_to_remove = []
                 phrases_to_update = []
                 
@@ -1651,7 +1421,7 @@ class PhraseLearningManager:
                         
                         # Merge data: sum detection counts, combine contexts
                         total_detections = best_phrase['detection_count']
-                        all_contexts = [best_phrase['contexts']]
+                        all_contexts = [best_phrase['contexts']] if best_phrase['contexts'] else []
                         
                         for dup in duplicates:
                             total_detections += dup['detection_count']
@@ -1672,30 +1442,29 @@ class PhraseLearningManager:
                 # Update phrases with merged data
                 for update_data in phrases_to_update:
                     try:
-                        conn.execute("""
+                        cursor.execute("""
                             UPDATE pending_phrases 
-                            SET detection_count = ?, sample_contexts = ?
-                            WHERE id = ?
+                            SET detection_count = %s, sample_contexts = %s
+                            WHERE id = %s
                         """, (update_data['detection_count'], update_data['contexts'], update_data['id']))
                     except Exception as e:
-                        error_msg = f"Error updating phrase ID {update_data['id']}: {str(e)}"
-                        logger.error(error_msg)
-                        stats['errors'].append(error_msg)
+                        logger.warning(f"Error updating phrase ID {update_data['id']}: {e}")
                 
                 # Delete duplicate phrases
                 if duplicates_to_remove:
-                    placeholders = ','.join(['?'] * len(duplicates_to_remove))
-                    conn.execute(f"""
+                    placeholders = ','.join(['%s'] * len(duplicates_to_remove))
+                    cursor.execute(f"""
                         DELETE FROM pending_phrases 
                         WHERE id IN ({placeholders})
                     """, duplicates_to_remove)
                     stats['total_duplicates_removed'] = len(duplicates_to_remove)
                 
                 conn.commit()
+                cursor.close()
                 
                 return {
                     'success': True,
-                    'message': f"Removed {stats['total_duplicates_removed']} duplicate phrases, merged {stats['phrases_merged']} entries",
+                    'message': f"Removed {stats['total_duplicates_removed']} duplicate phrases",
                     'stats': stats
                 }
                 
@@ -1703,7 +1472,7 @@ class PhraseLearningManager:
             logger.error(f"Failed to remove duplicate phrases: {e}")
             return {
                 'success': False,
-                'message': f"Error removing duplicates: {str(e)}",
+                'message': f"Error: {str(e)}",
                 'stats': stats
             }
     
@@ -1747,33 +1516,38 @@ class PhraseLearningManager:
     def reject_phrase(self, phrase_id: int, reason: str = "") -> bool:
         """Reject a pending phrase and add to blacklist."""
         try:
-            with self._get_db_connection() as conn:
+            with self._db_connection() as conn:
                 # Get phrase details
-                cursor = conn.execute(
-                    "SELECT phrase, category FROM pending_phrases WHERE id = ?",
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT phrase, category FROM pending_phrases WHERE id = %s",
                     (phrase_id,),
                 )
                 result = cursor.fetchone()
                 
                 if not result:
+                    cursor.close()
                     return False
                 
                 phrase, category = result
                 
                 # Update status
-                conn.execute(
-                    "UPDATE pending_phrases SET status = 'rejected' WHERE id = ?",
+                cursor.execute(
+                    "UPDATE pending_phrases SET status = 'rejected' WHERE id = %s",
                     (phrase_id,),
                 )
                 
                 # Add to blacklist
-                conn.execute(
+                cursor.execute(
                     """
-                    INSERT OR IGNORE INTO phrase_blacklist 
-                    (phrase, category, reason) VALUES (?, ?, ?)
+                    INSERT INTO phrase_blacklist (phrase, category, reason)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (phrase, category) DO NOTHING
                     """,
                     (phrase, category, reason),
                 )
+                conn.commit()
+                cursor.close()
                 
                 logger.info(f"Rejected phrase: '{phrase}' in {category}")
                 return True
@@ -1787,61 +1561,35 @@ class PhraseLearningManager:
         conn = None
         cursor = None
         try:
-            if self.use_postgresql:
-                conn = self._get_db_connection()
-                cursor = conn.cursor()
-                
-                cursor.execute("SELECT COUNT(*) FROM repository_phrases")
-                total_phrases = cursor.fetchone()[0]
-                
-                cursor.execute("SELECT COUNT(*) FROM pending_phrases WHERE status = 'pending'")
-                pending_count = cursor.fetchone()[0]
-                
-                auto_learned_count = 0
+            conn = self._get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT COUNT(*) FROM repository_phrases")
+            total_phrases = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM pending_phrases WHERE status = 'pending'")
+            pending_count = cursor.fetchone()[0]
+            
+            auto_learned_count = 0
+            try:
+                cursor.execute("SELECT COUNT(*) FROM repository_phrases WHERE source = 'auto_learned'")
+                auto_learned_count = cursor.fetchone()[0]
+            except Exception:
                 try:
                     cursor.execute("SELECT COUNT(*) FROM repository_phrases WHERE source = 'auto_learned'")
                     auto_learned_count = cursor.fetchone()[0]
                 except Exception:
-                    try:
-                        cursor.execute("SELECT COUNT(*) FROM repository_phrases WHERE source = 'auto_learned'")
-                        auto_learned_count = cursor.fetchone()[0]
-                    except Exception:
-                        auto_learned_count = 0
-                
-                cursor.execute("SELECT COUNT(DISTINCT category) FROM repository_phrases")
-                categories = cursor.fetchone()[0]
-                
-                try:
-                    cursor.execute("SELECT COALESCE(MAX(added_date), MAX(created_at)) FROM repository_phrases")
-                    last_updated_row = cursor.fetchone()
-                    last_updated = last_updated_row[0].isoformat() if last_updated_row and last_updated_row[0] else "Unknown"
-                except Exception:
-                    last_updated = "Unknown"
-                
-                return {
-                    'total_phrases': total_phrases,
-                    'pending_count': pending_count,
-                    'auto_learned_count': auto_learned_count,
-                    'categories': categories,
-                    'last_updated': last_updated
-                }
+                    auto_learned_count = 0
             
-            with open(self.repository_path, 'r') as f:
-                repository = json.load(f)
-            total_phrases = sum(len(phrases) for phrases in repository.get("phrases", {}).values())
-            
-            conn = self._get_db_connection()
-            cursor = conn.execute("SELECT COUNT(*) FROM pending_phrases WHERE status = 'pending'")
-            pending_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(DISTINCT category) FROM repository_phrases")
+            categories = cursor.fetchone()[0]
             
             try:
-                cursor = conn.execute("SELECT COUNT(*) FROM repository_phrases WHERE source = 'auto_learned'")
-                auto_learned_count = cursor.fetchone()[0]
+                cursor.execute("SELECT COALESCE(MAX(added_date), MAX(created_at)) FROM repository_phrases")
+                last_updated_row = cursor.fetchone()
+                last_updated = last_updated_row[0].isoformat() if last_updated_row and last_updated_row[0] else "Unknown"
             except Exception:
-                auto_learned_count = 0
-            
-            categories = len(repository.get("phrases", {}))
-            last_updated = repository.get("last_updated", "Unknown")
+                last_updated = "Unknown"
             
             return {
                 'total_phrases': total_phrases,
@@ -1850,6 +1598,7 @@ class PhraseLearningManager:
                 'categories': categories,
                 'last_updated': last_updated
             }
+            
         except Exception as e:
             logger.error(f"Failed to get repository stats: {e}", exc_info=True)
             return {
@@ -1860,70 +1609,67 @@ class PhraseLearningManager:
                 'last_updated': "Unknown"
             }
         finally:
-            if cursor and self.use_postgresql:
+            if cursor:
                 try:
                     cursor.close()
                 except Exception:
                     pass
-            if conn and self.use_postgresql:
+            if conn:
                 self._return_db_connection(conn)
 
     def get_repository_phrases(self) -> Dict[str, List[str]]:
         """Get all phrases from repository."""
         conn = None
         try:
-            if self.use_postgresql:
-                # Get phrases from PostgreSQL
-                conn = self._get_db_connection()
-                cursor = conn.cursor()
-                
-                try:
-                    debug_enabled = os.getenv("VOS_DEBUG_PHRASES_DB", "false").lower() in {"1", "true", "yes", "on"}
-                    if debug_enabled:
-                        try:
-                            cursor.execute("SELECT COUNT(*) FROM repository_phrases")
-                            repo_count = cursor.fetchone()[0]
-                        except Exception:
-                            repo_count = None
-                        try:
-                            cursor.execute("SELECT COUNT(*) FROM rebuttal_phrases")
-                            rebuttal_count = cursor.fetchone()[0]
-                        except Exception:
-                            rebuttal_count = None
-                        logger.info(f"Phrase DB counts: repository_phrases={repo_count}, rebuttal_phrases={rebuttal_count}")
-
-                    results = []
+            # Get phrases from PostgreSQL
+            conn = self._get_db_connection()
+            cursor = conn.cursor()
+            
+            try:
+                debug_enabled = os.getenv("VOS_DEBUG_PHRASES_DB", "false").lower() in {"1", "true", "yes", "on"}
+                if debug_enabled:
                     try:
-                        cursor.execute("SELECT category, phrase FROM repository_phrases ORDER BY category, phrase")
-                        results = cursor.fetchall()
-                    except Exception as e:
-                        logger.warning(f"Failed to read repository_phrases, trying rebuttal_phrases: {e}")
+                        cursor.execute("SELECT COUNT(*) FROM repository_phrases")
+                        repo_count = cursor.fetchone()[0]
+                    except Exception:
+                        repo_count = None
+                    try:
+                        cursor.execute("SELECT COUNT(*) FROM rebuttal_phrases")
+                        rebuttal_count = cursor.fetchone()[0]
+                    except Exception:
+                        rebuttal_count = None
+                    logger.info(f"Phrase DB counts: repository_phrases={repo_count}, rebuttal_phrases={rebuttal_count}")
 
-                    if not results:
+                results = []
+                try:
+                    cursor.execute("SELECT category, phrase FROM repository_phrases ORDER BY category, phrase")
+                    results = cursor.fetchall()
+                except Exception as e:
+                    logger.warning(f"Failed to read repository_phrases, trying rebuttal_phrases: {e}")
+
+                if not results:
+                    try:
                         cursor.execute("SELECT category, phrase FROM rebuttal_phrases ORDER BY category, phrase")
                         results = cursor.fetchall()
-                    
-                    phrases_dict = {}
-                    for row in results:
-                        category = row[0]
-                        phrase = row[1]
-                        if category not in phrases_dict:
-                            phrases_dict[category] = []
-                        phrases_dict[category].append(phrase)
-                    
-                    return phrases_dict
-                finally:
-                    cursor.close()
-            else:
-                # Get phrases from JSON (original code)
-                with open(self.repository_path, 'r') as f:
-                    repository = json.load(f)
-                return repository.get("phrases", {})
+                    except Exception:
+                        results = []
+                
+                phrases_dict = {}
+                for row in results:
+                    category = row[0]
+                    phrase = row[1]
+                    if category not in phrases_dict:
+                        phrases_dict[category] = []
+                    phrases_dict[category].append(phrase)
+                
+                return phrases_dict
+            finally:
+                cursor.close()
         except Exception as e:
             logger.error(f"Failed to get repository phrases: {e}", exc_info=True)
             return {}
         finally:
-            if conn and self.use_postgresql:
+            if conn:
                 self._return_db_connection(conn)
     
     def update_settings(self, confidence_threshold: float = None,

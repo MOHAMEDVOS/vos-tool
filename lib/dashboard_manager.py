@@ -174,6 +174,11 @@ def convert_detection_to_string(value: Any, default: str = "No") -> str:
 
 def safe_json_write(file_path: Path, data: Any, max_retries: int = 3, retry_delay: float = 0.1) -> bool:
     """
+    ⚠️  DEPRECATED: This function is for migration/backward compatibility ONLY.
+    
+    NEW CODE SHOULD USE DATABASE OPERATIONS EXCLUSIVELY.
+    This function will be removed in a future version after migration is complete.
+    
     Safely write JSON data to file with file locking and atomic writes.
     
     This function prevents race conditions when multiple processes try to write
@@ -182,12 +187,6 @@ def safe_json_write(file_path: Path, data: Any, max_retries: int = 3, retry_dela
     2. Atomic writes (write to temp file, then rename) to prevent corruption
     3. Retry logic for transient lock failures
     4. Migration read-only mode check
-    
-    Why this is important:
-    - Without locking, two users saving data at the same time can corrupt the file
-    - Atomic writes ensure the file is never in a partially-written state
-    - Prevents data loss and audit record corruption
-    - Prevents writes during migration to avoid conflicts
     
     Args:
         file_path: Path to the JSON file to write
@@ -198,6 +197,11 @@ def safe_json_write(file_path: Path, data: Any, max_retries: int = 3, retry_dela
     Returns:
         True if write succeeded, False otherwise
     """
+    # Log deprecation warning
+    logger.warning(
+        f"⚠️  DEPRECATED: safe_json_write() called for {file_path}. "
+        "Use database operations instead. This function is for migration compatibility only."
+    )
     # Check if migration is in progress (read-only mode)
     try:
         from lib.migration_lock import is_application_read_only
@@ -303,6 +307,11 @@ def safe_json_write(file_path: Path, data: Any, max_retries: int = 3, retry_dela
 
 def safe_json_read(file_path: Path, default: Any = None, max_retries: int = 3) -> Any:
     """
+    ⚠️  DEPRECATED: This function is for migration/backward compatibility ONLY.
+    
+    NEW CODE SHOULD USE DATABASE OPERATIONS EXCLUSIVELY.
+    This function will be removed in a future version after migration is complete.
+    
     Safely read JSON file with file locking.
     
     This function prevents reading a file while it's being written,
@@ -316,6 +325,11 @@ def safe_json_read(file_path: Path, default: Any = None, max_retries: int = 3) -
     Returns:
         Parsed JSON data, or default value if read fails
     """
+    # Log deprecation warning
+    logger.warning(
+        f"⚠️  DEPRECATED: safe_json_read() called for {file_path}. "
+        "Use database operations instead. This function is for migration compatibility only."
+    )
     if not file_path.exists():
         return default if default is not None else {}
     
@@ -477,65 +491,58 @@ class SessionManager:
     """Manages user sessions to enforce single concurrent session per user."""
 
     def __init__(self):
-        self.base_dir = Path("dashboard_data")
-        self.sessions_dir = self.base_dir / "sessions"
-        self.sessions_file = self.sessions_dir / "active_sessions.json"
+        """Initialize session manager with database connection.
+        
+        PHASE 3 REFACTOR: Database-only session management (NO JSON fallback)
+        
+        Raises:
+            DatabaseUnavailableError: If database connection is not available
+        """
         self.session_timeout_hours = 24  # Sessions expire after 24 hours of inactivity
-        self._ensure_directories()
+        
+        if not DB_AVAILABLE or not get_db_manager:
+            raise Exception(
+                "SessionManager requires database connection. "
+                "Ensure DATABASE_URL is set and lib.database is available."
+            )
+        
         try:
-            self._db_manager = get_db_manager() if DB_AVAILABLE and get_db_manager else None
+            self._db_manager = get_db_manager()
         except Exception as e:
-            logger.warning(f"Could not initialize database manager: {e}. Using JSON fallback.")
-            self._db_manager = None
+            logger.error(f"Could not initialize database manager: {e}")
+            raise Exception(f"SessionManager database initialization failed: {e}")
+        
+        if not self._db_manager:
+            raise Exception("SessionManager: Database manager returned None")
+        
+        # Cleanup expired sessions on initialization
         self._cleanup_expired_sessions()
-
-    def _ensure_directories(self):
-        """Create necessary directories."""
-        os.makedirs(os.path.dirname(self.sessions_file), exist_ok=True)
+        logger.info("✓ Session manager initialized with database connection")
 
     def _cleanup_expired_sessions(self):
-        """Remove expired sessions from storage."""
+        """Remove expired sessions from database (DATABASE ONLY)."""
         try:
-            if self._db_manager:
-                # Mark expired sessions as inactive in database
-                query = """
-                    UPDATE user_sessions 
-                    SET is_active = FALSE 
-                    WHERE expires_at < CURRENT_TIMESTAMP AND is_active = TRUE
-                """
-                try:
-                    self._db_manager.execute_query(query, fetch=False)
-                    return
-                except Exception as e:
-                    logger.warning(f"Error cleaning up expired sessions in database: {e}")
-                    # Fall back to JSON cleanup
-
-            # Fallback to JSON
-            if not self.sessions_file.exists():
-                return
-
-            sessions = safe_json_read(self.sessions_file, default={})
-            if not sessions:
-                return
-
-            # Filter out expired sessions
-            current_time = datetime.now()
-            active_sessions = {}
-
-            for user, session_data in sessions.items():
-                session_time = datetime.fromisoformat(session_data['last_activity'])
-                if current_time - session_time < timedelta(hours=self.session_timeout_hours):
-                    active_sessions[user] = session_data
-                else:
-                    logger.info(f"Cleaned up expired session for user: {user}")
-
-            # Save cleaned sessions with file locking
-            safe_json_write(self.sessions_file, active_sessions)
-
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            logger.warning(f"Error cleaning up expired sessions: {e}")
+            # Mark expired sessions as inactive in database
+            query = """
+                UPDATE user_sessions 
+                SET is_active = FALSE 
+                WHERE expires_at < CURRENT_TIMESTAMP AND is_active = TRUE
+            """
+            self._db_manager.execute_query(query, fetch=False)
+            logger.debug("Cleaned up expired sessions")
+        except Exception as e:
+            logger.error(f"Error cleaning up expired sessions: {e}")
 
     def create_session(self, username: str, session_id: str) -> bool:
+        """Create a new session for user, invalidating any existing session (DATABASE ONLY).
+        
+        Args:
+            username: Username for the session
+            session_id: Unique session identifier
+            
+        Returns:
+            True if session created successfully
+        """
         # Check if migration is in progress (read-only mode)
         try:
             from lib.migration_lock import is_application_read_only
@@ -544,220 +551,113 @@ class SessionManager:
                 return False
         except ImportError:
             pass
-        """
-        Create a new session for user, invalidating any existing session.
-
-        Args:
-            username: Username for the session
-            session_id: Unique session identifier
-
-        Returns:
-            True if session created successfully
-        """
+        
         try:
             # Get IP address and user agent
-            # For INET type, use None instead of 'unknown' (NULL is valid for INET)
             if STREAMLIT_AVAILABLE and st:
                 raw_ip = getattr(st, 'request', {}).get('remote_ip', None)
                 ip_address = raw_ip if raw_ip and raw_ip != 'unknown' else None
                 user_agent = getattr(st, 'request', {}).get('headers', {}).get('user-agent', 'unknown')
             else:
-                # Backend context - no Streamlit request object available
                 ip_address = None
                 user_agent = 'backend-api'
             
-            if self._db_manager:
-                try:
-                    # Invalidate any existing active sessions for this user
-                    invalidate_query = """
-                        UPDATE user_sessions 
-                        SET is_active = FALSE 
-                        WHERE username = %s AND is_active = TRUE
-                    """
-                    self._db_manager.execute_query(invalidate_query, (username,), fetch=False)
-                    
-                    # Create new session
-                    expires_at = datetime.now() + timedelta(hours=self.session_timeout_hours)
-                    insert_query = """
-                        INSERT INTO user_sessions (username, session_id, created_at, last_activity, 
-                                                  expires_at, ip_address, user_agent, is_active)
-                        VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, %s, %s, TRUE)
-                    """
-                    params = (username, session_id, expires_at, ip_address, user_agent)
-                    self._db_manager.execute_query(insert_query, params, fetch=False)
-                    logger.info(f"Created new session for user {username}: {session_id}")
-                    return True
-                except Exception as e:
-                    logger.error(f"Error creating session in database: {e}")
-                    # Fallback to JSON
-                    pass
-
-            # Fallback to JSON
-            sessions = safe_json_read(self.sessions_file, default={})
-
-            # Create new session data
-            session_data = {
-                'session_id': session_id,
-                'username': username,
-                'created_at': datetime.now().isoformat(),
-                'last_activity': datetime.now().isoformat(),
-                'ip_address': ip_address,
-                'user_agent': user_agent
-            }
-
-            # Replace any existing session for this user
-            old_session = sessions.get(username)
-            if old_session:
-                logger.info(f"Invalidating existing session for user {username}: {old_session['session_id']}")
-
-            sessions[username] = session_data
-
-            # Save sessions with file locking
-            safe_json_write(self.sessions_file, sessions)
-
+            # Invalidate any existing active sessions for this user
+            invalidate_query = """
+                UPDATE user_sessions 
+                SET is_active = FALSE 
+                WHERE username = %s AND is_active = TRUE
+            """
+            self._db_manager.execute_query(invalidate_query, (username,), fetch=False)
+            
+            # Create new session
+            expires_at = datetime.now() + timedelta(hours=self.session_timeout_hours)
+            insert_query = """
+                INSERT INTO user_sessions (username, session_id, created_at, last_activity, 
+                                          expires_at, ip_address, user_agent, is_active)
+                VALUES (%s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, %s, %s, TRUE)
+            """
+            params = (username, session_id, expires_at, ip_address, user_agent)
+            self._db_manager.execute_query(insert_query, params, fetch=False)
+            
             logger.info(f"Created new session for user {username}: {session_id}")
             return True
-
+            
         except Exception as e:
             logger.error(f"Error creating session for {username}: {e}")
-            return False
+            raise Exception(f"Cannot create session: {e}")
 
     def validate_session(self, username: str, session_id: str) -> bool:
-        """
-        Validate if a session is active and belongs to the user.
-
+        """Validate if a session is active and belongs to the user (DATABASE ONLY).
+        
         Args:
             username: Username to validate
             session_id: Session ID to validate
-
+            
         Returns:
             True if session is valid and active
         """
         try:
-            if self._db_manager:
-                try:
-                    # Check if session exists and is active
-                    query = """
-                        SELECT * FROM user_sessions 
-                        WHERE username = %s AND session_id = %s AND is_active = TRUE
-                        AND expires_at > CURRENT_TIMESTAMP
-                    """
-                    session = self._db_manager.execute_query(query, (username, session_id), fetchone=True)
-                    if session:
-                        # Update last activity
-                        # Use INTERVAL with multiplication for PostgreSQL
-                        update_query = """
-                            UPDATE user_sessions 
-                            SET last_activity = CURRENT_TIMESTAMP,
-                                expires_at = CURRENT_TIMESTAMP + (INTERVAL '1 hour' * %s)
-                            WHERE username = %s AND session_id = %s
-                        """
-                        self._db_manager.execute_query(update_query, (self.session_timeout_hours, username, session_id), fetch=False)
-                        return True
-                    return False
-                except Exception as e:
-                    logger.error(f"Error validating session in database: {e}")
-                    # Fallback to JSON
-                    pass
-
-            # Fallback to JSON
-            if not self.sessions_file.exists():
-                return False
-
-            sessions = safe_json_read(self.sessions_file, default={})
-            if not sessions:
-                # File might be corrupted or empty, reset it
-                safe_json_write(self.sessions_file, {})
-                sessions = {}
-
-            user_session = sessions.get(username)
-            if not user_session:
-                return False
-
-            # Check if session matches and is not expired
-            if user_session['session_id'] != session_id:
-                return False
-
-            session_time = datetime.fromisoformat(user_session['last_activity'])
-            if datetime.now() - session_time > timedelta(hours=self.session_timeout_hours):
-                # Session expired, remove it
-                del sessions[username]
-                safe_json_write(self.sessions_file, sessions)
-                return False
-
-            # Update last activity
-            user_session['last_activity'] = datetime.now().isoformat()
-            sessions[username] = user_session
-            safe_json_write(self.sessions_file, sessions)
-
-            return True
-
+            # Check if session exists and is active
+            query = """
+                SELECT * FROM user_sessions 
+                WHERE username = %s AND session_id = %s AND is_active = TRUE
+                AND expires_at > CURRENT_TIMESTAMP
+            """
+            session = self._db_manager.execute_query(query, (username, session_id), fetchone=True)
+            
+            if session:
+                # Update last activity and extend expiration
+                update_query = """
+                    UPDATE user_sessions 
+                    SET last_activity = CURRENT_TIMESTAMP,
+                        expires_at = CURRENT_TIMESTAMP + (INTERVAL '1 hour' * %s)
+                    WHERE username = %s AND session_id = %s
+                """
+                self._db_manager.execute_query(
+                    update_query, 
+                    (self.session_timeout_hours, username, session_id), 
+                    fetch=False
+                )
+                return True
+            
+            return False
+            
         except Exception as e:
             logger.error(f"Error validating session for {username}: {e}")
             return False
 
     def invalidate_session(self, username: str, session_id: str = None) -> bool:
-        """
-        Invalidate a user's session.
-
+        """Invalidate a user's session (DATABASE ONLY).
+        
         Args:
             username: Username whose session to invalidate
             session_id: Optional session ID to match (for security)
-
+            
         Returns:
             True if session was invalidated
         """
         try:
-            if self._db_manager:
-                try:
-                    if session_id:
-                        # Invalidate specific session
-                        query = """
-                            UPDATE user_sessions 
-                            SET is_active = FALSE 
-                            WHERE username = %s AND session_id = %s AND is_active = TRUE
-                        """
-                        self._db_manager.execute_query(query, (username, session_id), fetch=False)
-                    else:
-                        # Invalidate all sessions for user
-                        query = """
-                            UPDATE user_sessions 
-                            SET is_active = FALSE 
-                            WHERE username = %s AND is_active = TRUE
-                        """
-                        self._db_manager.execute_query(query, (username,), fetch=False)
-                    logger.info(f"Invalidated session for user {username}")
-                    return True
-                except Exception as e:
-                    logger.error(f"Error invalidating session in database: {e}")
-                    # Fallback to JSON
-                    pass
-
-            # Fallback to JSON
-            if not self.sessions_file.exists():
-                return False
-
-            sessions = safe_json_read(self.sessions_file, default={})
-            if not sessions:
-                safe_json_write(self.sessions_file, {})
-                sessions = {}
-
-            user_session = sessions.get(username)
-            if not user_session:
-                return False
-
-            # If session_id provided, verify it matches
-            if session_id and user_session['session_id'] != session_id:
-                logger.warning(f"Session ID mismatch for user {username}")
-                return False
-
-            # Remove the session
-            del sessions[username]
-            safe_json_write(self.sessions_file, sessions)
-
+            if session_id:
+                # Invalidate specific session
+                query = """
+                    UPDATE user_sessions 
+                    SET is_active = FALSE 
+                    WHERE username = %s AND session_id = %s AND is_active = TRUE
+                """
+                self._db_manager.execute_query(query, (username, session_id), fetch=False)
+            else:
+                # Invalidate all sessions for user
+                query = """
+                    UPDATE user_sessions 
+                    SET is_active = FALSE 
+                    WHERE username = %s AND is_active = TRUE
+                """
+                self._db_manager.execute_query(query, (username,), fetch=False)
+            
             logger.info(f"Invalidated session for user {username}")
             return True
-
+            
         except Exception as e:
             logger.error(f"Error invalidating session for {username}: {e}")
             return False
@@ -788,31 +688,7 @@ class SessionManager:
                     return None
                 except Exception as e:
                     logger.error(f"Error checking existing session in database: {e}")
-                    # Fallback to JSON
-                    pass
-
-            # Fallback to JSON
-            if not self.sessions_file.exists():
-                return None
-
-            sessions = safe_json_read(self.sessions_file, default={})
-            if not sessions:
-                safe_json_write(self.sessions_file, {})
-                sessions = {}
-
-            user_session = sessions.get(username)
-            if not user_session:
-                return None
-
-            # Check if session is not expired
-            session_time = datetime.fromisoformat(user_session['last_activity'])
-            if datetime.now() - session_time > timedelta(hours=self.session_timeout_hours):
-                # Session expired, remove it
-                del sessions[username]
-                safe_json_write(self.sessions_file, sessions)
-                return None
-
-            return user_session['session_id']
+                    return None
 
         except Exception as e:
             logger.error(f"Error checking existing session for {username}: {e}")
@@ -851,28 +727,8 @@ class SessionManager:
                     return None
                 except Exception as e:
                     logger.error(f"Error getting session info from database: {e}")
-                    # Fallback to JSON
-                    pass
+                    return None
 
-            # Fallback to JSON
-            if not self.sessions_file.exists():
-                return None
-
-            sessions = safe_json_read(self.sessions_file, default={})
-            if not sessions:
-                safe_json_write(self.sessions_file, {})
-                sessions = {}
-
-            user_session = sessions.get(username)
-            if not user_session:
-                return None
-
-            # Check if session is not expired
-            session_time = datetime.fromisoformat(user_session['last_activity'])
-            if datetime.now() - session_time > timedelta(hours=self.session_timeout_hours):
-                return None
-
-            return user_session
 
         except Exception as e:
             logger.error(f"Error getting session info for {username}: {e}")
@@ -908,28 +764,7 @@ class SessionManager:
                     return active_sessions
                 except Exception as e:
                     logger.error(f"Error getting active sessions from database: {e}")
-                    # Fallback to JSON
-                    pass
-
-            # Fallback to JSON
-            if not self.sessions_file.exists():
-                return {}
-
-            sessions = safe_json_read(self.sessions_file, default={})
-            if not sessions:
-                safe_json_write(self.sessions_file, {})
-                sessions = {}
-
-            # Filter out expired sessions and return active ones
-            current_time = datetime.now()
-            active_sessions = {}
-
-            for user, session_data in sessions.items():
-                session_time = datetime.fromisoformat(session_data['last_activity'])
-                if current_time - session_time < timedelta(hours=self.session_timeout_hours):
-                    active_sessions[user] = session_data
-
-            return active_sessions
+                    return {}
 
         except Exception as e:
             logger.error(f"Error getting active sessions: {e}")
@@ -1096,9 +931,8 @@ class UserManager:
                 return users_dict
             except Exception as e:
                 logger.error(f"Error loading users from database: {e}")
-                # Fallback to JSON
-                return safe_json_read(self.users_file, default={})
-        return safe_json_read(self.users_file, default={})
+                return {}
+        return {}
 
     def save_all_users(self, users: Dict[str, Dict[str, Any]]) -> bool:
         # Check if migration is in progress (read-only mode)
@@ -1128,9 +962,8 @@ class UserManager:
                 return success
             except Exception as e:
                 logger.error(f"Error saving users to database: {e}")
-                # Fallback to JSON
-                return safe_json_write(self.users_file, users)
-        return safe_json_write(self.users_file, users)
+                return False
+        return False
 
     def add_user(self, username: str, user_data: Dict[str, Any], created_by: str = None) -> bool:
         """Add a new user with secure password handling and role assignment."""
@@ -1241,32 +1074,9 @@ class UserManager:
                     elif "not null" in error_msg.lower():
                         logger.error(f"NOT NULL constraint violation. Missing required field. Error: {error_msg}")
                         logger.error(f"Params were: username={username}, app_pass_hash={'***' if app_pass_hash else 'None'}, app_pass_salt={'***' if app_pass_salt else 'None'}, created_by={created_by}")
-                    # Fallback to JSON only if it's not a constraint violation
-                    try:
-                        users = self.get_all_users()
-                        user_data['role'] = role
-                        user_data['app_pass_hash'] = app_pass_hash
-                        user_data['app_pass_salt'] = app_pass_salt
-                        if readymode_pass_encrypted:
-                            user_data['readymode_pass_encrypted'] = readymode_pass_encrypted
-                        users[username] = user_data
-                        json_result = safe_json_write(self.users_file, users)
-                        if json_result:
-                            logger.warning(f"User {username} saved to JSON fallback (database insert failed)")
-                        return json_result
-                    except Exception as json_error:
-                        logger.error(f"JSON fallback also failed: {json_error}")
-                        return False
+                    return False
             
-            # Fallback to JSON
-            users = self.get_all_users()
-            user_data['role'] = role
-            user_data['app_pass_hash'] = app_pass_hash
-            user_data['app_pass_salt'] = app_pass_salt
-            if readymode_pass_encrypted:
-                user_data['readymode_pass_encrypted'] = readymode_pass_encrypted
-            users[username] = user_data
-            return safe_json_write(self.users_file, users)
+            return False
         except Exception as e:
             logger.error(f"Error adding user {username}: {e}")
             return False
@@ -1337,18 +1147,8 @@ class UserManager:
                     return True
                 except Exception as e:
                     logger.error(f"Error removing user {username} from database: {e}")
-                    # Fallback to JSON
-                    users = self.get_all_users()
-                    if username in users:
-                        del users[username]
-                        return safe_json_write(self.users_file, users)
                     return False
             
-            # Fallback to JSON
-            users = self.get_all_users()
-            if username in users:
-                del users[username]
-                return safe_json_write(self.users_file, users)
             return False
         except Exception as e:
             logger.error(f"Error removing user {username}: {e}")
@@ -1387,9 +1187,9 @@ class UserManager:
                     self._log_security_incident("MODIFICATION_ATTEMPT", username, updated_by)
                     return False
                 else:
-                    # Even when updated by the Owner, only allow ReadyMode credentials to be changed
+                    # Even when updated by the Owner, only allow ReadyMode credentials and AssemblyAI API key to be changed
                     if user_data:
-                        allowed_fields = {"readymode_user", "readymode_pass"}
+                        allowed_fields = {"readymode_user", "readymode_pass", "assemblyai_api_key"}
                         user_data = {k: v for k, v in user_data.items() if k in allowed_fields}
             
             # Additional check for any variation of the protected name
@@ -1493,27 +1293,9 @@ class UserManager:
                         return True
                 except Exception as e:
                     logger.error(f"Error updating user {username} in database: {e}")
-                    # Fallback to JSON
-                    users = self.get_all_users()
-                    updated_data = current_user.copy()
-                    updated_data.update(user_data)
-                    if readymode_pass_encrypted:
-                        updated_data['readymode_pass_encrypted'] = readymode_pass_encrypted
-                    if assemblyai_api_key_encrypted is not None:
-                        updated_data['assemblyai_api_key_encrypted'] = assemblyai_api_key_encrypted
-                    users[username] = updated_data
-                    return safe_json_write(self.users_file, users)
+                    return False
             
-            # Fallback to JSON
-            users = self.get_all_users()
-            updated_data = current_user.copy()
-            updated_data.update(user_data)
-            if readymode_pass_encrypted:
-                updated_data['readymode_pass_encrypted'] = readymode_pass_encrypted
-            if assemblyai_api_key_encrypted is not None:
-                updated_data['assemblyai_api_key_encrypted'] = assemblyai_api_key_encrypted
-            users[username] = updated_data
-            return safe_json_write(self.users_file, users)
+            return False
         except Exception as e:
             logger.error(f"Error updating user {username}: {e}")
             return False
@@ -1541,11 +1323,8 @@ class UserManager:
                 return None
             except Exception as e:
                 logger.error(f"Error getting user {username} from database: {e}")
-                # Fallback to JSON
-                users = self.get_all_users()
-                return users.get(username)
-        users = self.get_all_users()
-        return users.get(username)
+                return None
+        return None
 
     def user_exists(self, username: str) -> bool:
         """Check if user exists."""
@@ -1556,9 +1335,8 @@ class UserManager:
                 return result and result['count'] > 0
             except Exception as e:
                 logger.error(f"Error checking if user {username} exists in database: {e}")
-                # Fallback to JSON
-                return username in self.get_all_users()
-        return username in self.get_all_users()
+                return False
+        return False
     
     def verify_user_password(self, username: str, password: str) -> bool:
         """
@@ -2156,12 +1934,9 @@ class DashboardManager:
                 return
             except Exception as e:
                 logger.error(f"Error initializing sharing config in database: {e}")
-                # Fallback to JSON
-                pass
+                return
         
-        # Fallback to JSON
-        if not self.sharing_config_file.exists():
-            safe_json_write(self.sharing_config_file, initial_config)
+        return
     
     def _load_sharing_config(self) -> Dict:
         """Load sharing configuration from database or JSON."""
@@ -2182,21 +1957,12 @@ class DashboardManager:
                         }
                 except Exception as e:
                     logger.error(f"Error loading sharing config from database: {e}")
-                    # Fallback to JSON
-                    pass
+                    return {"sharing_groups": {}, "user_dashboard_mode": {}}
             
-            # Fallback to JSON
-            if self.sharing_config_file.exists():
-                with open(self.sharing_config_file, 'r') as f:
-                    return json.load(f)
-            else:
-                # Initialize if file doesn't exist
-                self._initialize_sharing_config()
-                return self._load_sharing_config()
+            return {"sharing_groups": {}, "user_dashboard_mode": {}}
         except Exception as e:
             logger.error(f"Error loading sharing config: {e}")
-            self._initialize_sharing_config()
-            return self._load_sharing_config()
+            return {"sharing_groups": {}, "user_dashboard_mode": {}}
     
     def _save_sharing_config(self, config: Dict):
         """Save sharing configuration to database or JSON."""
@@ -2217,11 +1983,9 @@ class DashboardManager:
                     return
                 except Exception as e:
                     logger.error(f"Error saving sharing config to database: {e}")
-                    # Fallback to JSON
-                    pass
+                    return
             
-            # Fallback to JSON
-            safe_json_write(self.sharing_config_file, config)
+            return
         except Exception as e:
             logger.error(f"Error saving sharing config: {e}")
     
@@ -2316,9 +2080,7 @@ class DashboardManager:
             except Exception:
                 pass
         
-        # Fallback to JSON config
-        config = self._load_sharing_config()
-        return config["user_dashboard_mode"].get(username, "isolated")
+        return "isolated"
     
     def set_user_dashboard_mode(self, username: str, mode: str) -> bool:
         """Set dashboard mode for a user (isolated or group name)."""
@@ -2338,15 +2100,9 @@ class DashboardManager:
                     return True
                 except Exception as e:
                     logger.error(f"Error setting dashboard mode in database: {e}")
-                    # Fallback to JSON
-                    pass
+                    return False
             
-            # Fallback to JSON
-            config = self._load_sharing_config()
-            config["user_dashboard_mode"][username] = mode
-            self._save_sharing_config(config)
-            logger.info(f"Set dashboard mode for {username} to {mode} in JSON")
-            return True
+            return False
         except Exception as e:
             logger.error(f"Error setting dashboard mode: {e}")
             return False
@@ -2441,14 +2197,15 @@ class DashboardManager:
             return
         
         if not username:
-            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+            if STREAMLIT_AVAILABLE and st:
                 username = st.session_state.get('username', 'default_user')
             else:
                 username = 'default_user'
         
-        # Add metadata to the DataFrame
+        # Add metadata to DataFrame
         df_with_metadata = df.copy()
-        audit_timestamp = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+        import datetime as dt
+        audit_timestamp = dt.datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
         df_with_metadata['audit_timestamp'] = audit_timestamp
         df_with_metadata['username'] = username
         
@@ -2456,41 +2213,70 @@ class DashboardManager:
         if self._db_manager:
             try:
                 df_dict = df_with_metadata.to_dict('records')
-                for record in df_dict:
-                    query = """
+                query = """
                         INSERT INTO agent_audit_results 
                         (username, agent_name, file_name, file_path, releasing_detection, 
                          late_hello_detection, rebuttal_detection, timestamp, call_duration, 
                          transcript, confidence_score, metadata)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """
-                    # Map DataFrame columns to database columns
-                    # Use 'Transcription' to match RESULT_KEYS, fallback to 'Transcript' for backwards compatibility
+                params_list = []
+                for record in df_dict:
                     transcription = record.get('Transcription') or record.get('Transcript', '')
                     
-                    # Convert detection values to string for database insertion
-                    # Database columns are VARCHAR and expect 'Yes', 'No', or 'N/A' values
-                    # The constraints check for these specific text values
                     releasing_detection = convert_detection_to_string(record.get('Releasing Detection'), default="No")
                     late_hello_detection = convert_detection_to_string(record.get('Late Hello Detection'), default="No")
                     rebuttal_detection = convert_detection_to_string(record.get('Rebuttal Detection'), default="No")
                     
-                    params = (
-                        username,
-                        record.get('Agent Name'),
-                        record.get('File Name'),
-                        record.get('File Path'),
-                        releasing_detection,  # String: 'Yes', 'No', or 'N/A'
-                        late_hello_detection,   # String: 'Yes', 'No', or 'N/A'
-                        rebuttal_detection,     # String: 'Yes', 'No', or 'N/A'
-                        record.get('Timestamp') or audit_timestamp,
-                        record.get('Call Duration'),
-                        transcription,
-                        record.get('Confidence Score'),
-                        json.dumps(record) if record else None  # Store full record as metadata
+                    # Handle timestamp properly for PostgreSQL
+                    timestamp_field = record.get('Timestamp')
+                    if timestamp_field:
+                        try:
+                            # Parse timestamp and ensure it's in proper format
+                            if isinstance(timestamp_field, str):
+                                # Try to parse as datetime
+                                timestamp_dt = dt.datetime.strptime(timestamp_field, "%B %d, %I:%M:%S %p")
+                                formatted_timestamp = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
+                            else:
+                                # Use as-is if it's already a datetime object
+                                formatted_timestamp = timestamp_field.strftime("%Y-%m-%d %H:%M:%S") if hasattr(timestamp_field, 'strftime') else str(timestamp_field)
+                        except Exception:
+                            # Fallback to current timestamp if parsing fails
+                            formatted_timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        formatted_timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    params_list.append(
+                        (
+                            username,
+                            record.get('Agent Name'),
+                            record.get('File Name'),
+                            record.get('File Path'),
+                            releasing_detection,
+                            late_hello_detection,
+                            rebuttal_detection,
+                            formatted_timestamp,  # Use formatted timestamp
+                            record.get('Call Duration'),
+                            transcription,
+                            record.get('Confidence Score'),
+                            json.dumps(record) if record else None,
+                        )
                     )
-                    self._db_manager.execute_query(query, params, fetch=False)
-                logger.info(f"Saved {len(df_dict)} agent audit results to database for user {username}")
+
+                # Use optimized execute_many with chunking for large batches
+                start_time = time.time()
+                self._db_manager.execute_many(query, params_list, fetch=False, chunk_size=100)
+                elapsed = time.time() - start_time
+                logger.info(f"Saved {len(df_dict)} agent audit results to database for user {username} in {elapsed:.2f}s")
+                
+                # Log connection pool stats if available
+                try:
+                    if hasattr(self._db_manager, 'get_pool_stats'):
+                        pool_stats = self._db_manager.get_pool_stats()
+                        if pool_stats:
+                            logger.debug(f"Database pool stats after save: {pool_stats}")
+                except Exception:
+                    pass
                 
                 # Check if this is a campaign audit and also save to campaign audit storage
                 campaign_name = self._detect_campaign_from_dataframe(df_with_metadata)
@@ -2507,25 +2293,7 @@ class DashboardManager:
                 return
             except Exception as e:
                 logger.error(f"Error saving agent audit results to database: {e}")
-                # Fallback to JSON
-                pass
-        
-        # Fallback to JSON
-        self.initialize_agent_audit_storage(username)
-        
-        # Load existing data
-        try:
-            with open(self.agent_audit_file, 'r') as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            data = {'login_timestamp': datetime.now().isoformat(), 'audit_results': []}
-        
-        # Convert DataFrame to dict and append
-        df_dict = df_with_metadata.to_dict('records')
-        data['audit_results'].extend(df_dict)
-        
-        # Save back to file with file locking
-        safe_json_write(self.agent_audit_file, data)
+                raise  # Re-raise exception instead of falling back to JSON
     
     def initialize_agent_audit_storage(self, username: str = None):
         """
@@ -2648,54 +2416,7 @@ class DashboardManager:
                 return combined_df
             except Exception as e:
                 logger.error(f"Error loading agent audit data from database: {e}")
-                # Fallback to JSON
-                pass
-        
-        # Fallback to JSON
-        all_data = []
-        
-        for shared_user in shared_users:
-            # Initialize storage for this user
-            self.initialize_agent_audit_storage(shared_user)
-            
-            # Load data from user-specific file
-            try:
-                with open(self.agent_audit_file, 'r') as f:
-                    data = json.load(f)
-                
-                if not data.get('audit_results'):
-                    continue  # No data for this user
-                
-                # Convert to DataFrame
-                user_df = pd.DataFrame(data['audit_results'])
-                if not user_df.empty:
-                    all_data.append(user_df)
-                
-            except (FileNotFoundError, json.JSONDecodeError):
-                continue  # Skip if file doesn't exist or is corrupted
-        
-        if not all_data:
-            return pd.DataFrame()
-        
-        # Combine all data from shared users
-        combined_df = pd.concat(all_data, ignore_index=True)
-        
-        # Ensure all Campaign Audit columns exist with empty defaults if missing
-        # Match Campaign Audit columns exactly (from convert_all_to_dataframe_format)
-        campaign_audit_columns = [
-            'Agent Name', 'Phone Number', 'Timestamp', 'Disposition',
-            'Releasing Detection', 'Late Hello Detection', 'Rebuttal Detection',
-            'Transcription', 'Dialer Name', 'Agent Intro', 'Owner Name',
-            'Reason for calling', 'Intro Score', 'Status',
-            'File Name', 'File Path', 'Call Duration', 'Confidence Score',
-            'username', 'audit_timestamp', 'Audit Type'
-        ]
-        for col in campaign_audit_columns:
-            if col not in combined_df.columns:
-                combined_df[col] = ''
-        
-        # Remove duplicates based on phone number, keeping the most recent entry
-        if not combined_df.empty and 'Phone Number' in combined_df.columns:
+                raise  # Re-raise exception instead of falling back to JSON
             # Sort by audit_timestamp (most recent first) and drop duplicates by phone number
             combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
             combined_df = combined_df.drop_duplicates(subset=['Phone Number'], keep='first')
@@ -2829,26 +2550,7 @@ class DashboardManager:
                 return
             except Exception as e:
                 logger.error(f"Error saving lite audit results to database: {e}")
-                # Fallback to JSON
-                pass
-        
-        # Fallback to JSON
-        # Initialize storage for this user
-        self.initialize_lite_audit_storage(username)
-        
-        # Load existing data
-        try:
-            with open(self.lite_audit_file, 'r') as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
-            data = {'login_timestamp': datetime.now().isoformat(), 'audit_results': []}
-        
-        # Convert DataFrame to dict and append
-        df_dict = df_with_metadata.to_dict('records')
-        data['audit_results'].extend(df_dict)
-        
-        # Save back to file with file locking
-        safe_json_write(self.lite_audit_file, data)
+                raise  # Re-raise exception instead of falling back to JSON
     
     def get_combined_lite_audit_data(self, username: str = None) -> pd.DataFrame:
         """
@@ -3094,47 +2796,7 @@ class DashboardManager:
                     
             except Exception as e:
                 logger.error(f"Error loading lite audit data from database: {e}")
-                # Fallback to JSON
-                pass
-        
-        # Fallback to JSON file loading
-        all_data = []
-        
-        for shared_user in shared_users:
-            # Initialize storage for this user
-            self.initialize_lite_audit_storage(shared_user)
-            
-            # Load data from user-specific file
-            try:
-                with open(self.lite_audit_file, 'r') as f:
-                    data = json.load(f)
-                
-                if not data.get('audit_results'):
-                    continue  # No data for this user
-                
-                # Convert to DataFrame
-                user_df = pd.DataFrame(data['audit_results'])
-                if not user_df.empty:
-                    all_data.append(user_df)
-                
-            except (FileNotFoundError, json.JSONDecodeError):
-                continue  # Skip if file doesn't exist or is corrupted
-        
-        if not all_data:
-            return pd.DataFrame()
-        
-        # Combine all data from shared users
-        combined_df = pd.concat(all_data, ignore_index=True)
-        
-        # Remove duplicates based on phone number, keeping the most recent entry
-        if not combined_df.empty and 'Phone Number' in combined_df.columns:
-            # Sort by audit_timestamp (most recent first) and drop duplicates by phone number
-            combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
-            combined_df = combined_df.drop_duplicates(subset=['Phone Number'], keep='first')
-            # Sort back by timestamp for display (most recent first)
-            combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
-        
-        return combined_df
+                raise  # Re-raise exception instead of falling back to JSON
     
     def clear_lite_audit_data(self, username: str = None):
         """Clear lite audit data for the specified user."""
@@ -3188,22 +2850,9 @@ class DashboardManager:
                 return 0
             except Exception as e:
                 logger.error(f"Error getting daily download count from database: {e}")
-                # Fallback to JSON
-                pass
+                return 0
         
-        # Fallback to JSON
-        today_str = today.isoformat()
-        counter_file = self.daily_counters_dir / f"{username}_{today_str}.json"
-        
-        if not counter_file.exists():
-            return 0
-        
-        try:
-            with open(counter_file, 'r') as f:
-                data = json.load(f)
-            return data.get('download_count', 0)
-        except (FileNotFoundError, json.JSONDecodeError):
-            return 0
+        return 0
     
     def increment_daily_download_count(self, username: str, count: int):
         """
@@ -3228,14 +2877,13 @@ class DashboardManager:
         
         today = datetime.now().date()
         today_str = today.isoformat()
-        
         if self._db_manager:
             try:
                 # Check if record exists
                 check_query = """
-                    SELECT download_count FROM daily_counters 
-                    WHERE username = %s AND date = %s
-                """
+                        SELECT download_count, updated_at FROM daily_counters 
+                        WHERE username = %s AND date = %s
+                    """
                 existing = self._db_manager.execute_query(check_query, (username, today), fetchone=True)
                 
                 if existing:
@@ -3243,14 +2891,14 @@ class DashboardManager:
                     new_count = existing.get('download_count', 0) + count
                     update_query = """
                         UPDATE daily_counters 
-                        SET download_count = %s, last_updated = CURRENT_TIMESTAMP
+                        SET download_count = %s, updated_at = CURRENT_TIMESTAMP
                         WHERE username = %s AND date = %s
                     """
                     self._db_manager.execute_query(update_query, (new_count, username, today), fetch=False)
                 else:
                     # Insert new record
                     insert_query = """
-                        INSERT INTO daily_counters (username, date, download_count, last_updated)
+                        INSERT INTO daily_counters (username, date, download_count, updated_at)
                         VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                     """
                     self._db_manager.execute_query(insert_query, (username, today, count), fetch=False)
@@ -3260,35 +2908,9 @@ class DashboardManager:
                 # Only log error if it's not a pool exhaustion (we handle that gracefully)
                 if "pool exhausted" not in str(e).lower() and "pool" not in str(e).lower():
                     logger.error(f"Error incrementing daily download count in database: {e}")
-                # Fallback to JSON silently
-                pass
+                return
         
-        # Fallback to JSON
-        counter_file = self.daily_counters_dir / f"{username}_{today_str}.json"
-        
-        # Load existing data
-        if counter_file.exists():
-            try:
-                with open(counter_file, 'r') as f:
-                    data = json.load(f)
-            except json.JSONDecodeError:
-                data = {'download_count': 0, 'date': today_str}
-        else:
-            data = {'download_count': 0, 'date': today_str}
-        
-        # Increment count
-        data['download_count'] += count
-        data['last_updated'] = datetime.now().isoformat()
-        
-        # Add quota system info if available
-        if QUOTA_SYSTEM_AVAILABLE:
-            quota_status = quota_manager.get_user_quota_status(username)
-            if quota_status.get("managed"):
-                data['quota_managed'] = True
-                data['quota_status'] = quota_status
-        
-        # Save back with file locking
-        safe_json_write(counter_file, data)
+        return
     
     def get_daily_usage_info(self, username: str) -> dict:
         """

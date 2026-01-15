@@ -17,6 +17,8 @@ from audio_pipeline.audio_processor import AudioProcessor, RESULT_KEYS
 logger = logging.getLogger(__name__)
 from audio_pipeline.detections import IntroductionClassifier
 
+FORCED_MAX_WORKERS = 5
+
 
 class BatchProcessor:
     """
@@ -32,7 +34,7 @@ class BatchProcessor:
         cpu_count = multiprocessing.cpu_count()
         
         # Check for manual override via environment variable
-        if max_workers is None and os.getenv("ASSEMBLYAI_MAX_WORKERS"):
+        if os.getenv("ASSEMBLYAI_MAX_WORKERS"):
             try:
                 max_workers = int(os.getenv("ASSEMBLYAI_MAX_WORKERS"))
                 logger.info(f"Using ASSEMBLYAI_MAX_WORKERS={max_workers} from environment")
@@ -320,24 +322,41 @@ class BatchProcessor:
             
             # Create semaphore to limit concurrent AssemblyAI API calls
             semaphore = asyncio.Semaphore(self.max_workers)
+            logger.info(f"Semaphore initialized with {self.max_workers} max workers (available: {semaphore._value})")
+            
+            # CRITICAL FIX: Use a shared executor pool for the entire batch to avoid nested executor deadlocks
+            # The default executor can get exhausted when process_single_file uses ThreadPoolExecutor internally
+            # A shared executor prevents deadlocks and resource exhaustion
+            import concurrent.futures
+            batch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers * 2)
             
             async def process_single_file_async(file_path: Path) -> dict:
                 """Process a single file with async transcription."""
                 async with semaphore:
                     try:
-                        # Run the synchronous process_single_file in executor
-                        # This allows us to use async for AssemblyAI calls while keeping other processing sync
                         loop = asyncio.get_event_loop()
-                        result = await loop.run_in_executor(
-                            None,
-                            self.audio_processor.process_single_file,
-                            file_path,
-                            additional_metadata,
-                            False,
-                            username,
-                            user_api_key,
+                        result = await asyncio.wait_for(
+                            loop.run_in_executor(
+                                batch_executor,
+                                self.audio_processor.process_single_file,
+                                file_path,
+                                additional_metadata,
+                                False,
+                                username,
+                                user_api_key,
+                            ),
+                            timeout=timeout_per_file
                         )
                         return result
+                    except asyncio.TimeoutError:
+                        logger.error(f"Async processing timeout for {file_path} after {timeout_per_file}s")
+                        return {
+                            'agent_name': 'Timeout',
+                            'phone_number': '',
+                            'file_path': str(file_path),
+                            'error': f"Processing timeout after {timeout_per_file}s",
+                            'classification_success': False
+                        }
                     except Exception as e:
                         logger.error(f"Async processing failed for {file_path}: {e}", exc_info=True)
                         return {
@@ -350,64 +369,97 @@ class BatchProcessor:
             
             # Process batch with async concurrency control
             start_time = time.time()
-            tasks = [process_single_file_async(file_path) for file_path in batch_files]
+            batch_start = start_time  # Track batch start time for timeout calculations
             
-            # Use as_completed equivalent for async - gather results as they complete
-            completed_count = 0
-            for coro in asyncio.as_completed(tasks):
-                try:
-                    file_start_time = time.time()
-                    result = await asyncio.wait_for(coro, timeout=timeout_per_file)
-                    file_processing_time = time.time() - file_start_time
-                    
-                    # Update batch sizer with processing time for adaptive sizing
-                    batch_sizer.update_processing_time(file_processing_time)
-                    
-                    results.append(result)
-                    completed_count += 1
-                    completed_global += 1
-                    
-                    # Log progress every 5 files
-                    if completed_count % 5 == 0 or completed_count == len(batch_files):
-                        elapsed = time.time() - start_time
-                        avg_time = elapsed / completed_count if completed_count > 0 else 0
-                        logger.info(f"Async batch {batch_num}: completed {completed_count}/{len(batch_files)} files in {elapsed:.1f}s (avg: {avg_time:.1f}s/file)")
-                        print(f"Async Progress: {completed_count}/{len(batch_files)} files processed ({completed_count/len(batch_files)*100:.0f}%)")
-                    
-                    # Update overall progress for UI after each file
-                    if progress_callback:
-                        progress_callback(completed_global, total_files)
+            try:
+                # CRITICAL FIX: Wrap coroutines in tasks before using as_completed()
+                # asyncio.as_completed() requires tasks, not coroutines
+                tasks = [asyncio.create_task(process_single_file_async(file_path)) for file_path in batch_files]
+                
+                # Use as_completed equivalent for async - gather results as they complete
+                completed_count = 0
+                for coro in asyncio.as_completed(tasks):
+                    try:
+                        file_start_time = time.time()
+                        result = await asyncio.wait_for(coro, timeout=timeout_per_file)
+                        file_processing_time = time.time() - file_start_time
                         
-                except asyncio.TimeoutError:
-                    logger.error(f"Async processing timeout for file in batch {batch_num}")
-                    print(f"Warning: Async timeout processing file in batch {batch_num}")
-                    results.append({
-                        'agent_name': 'Timeout',
-                        'phone_number': '',
-                        'file_path': 'Unknown',
-                        'error': f"Processing timeout after {timeout_per_file}s",
-                        'classification_success': False
-                    })
-                    completed_count += 1
-                    completed_global += 1
-                    
-                    if progress_callback:
-                        progress_callback(completed_global, total_files)
+                        # Update batch sizer with processing time for adaptive sizing
+                        batch_sizer.update_processing_time(file_processing_time)
                         
-                except Exception as e:
-                    logger.error(f"Async batch processing error: {e}", exc_info=True)
-                    results.append({
-                        'agent_name': 'Error',
-                        'phone_number': '',
-                        'file_path': 'Unknown',
-                        'error': f"Processing error: {str(e)}",
-                        'classification_success': False
-                    })
-                    completed_count += 1
-                    completed_global += 1
-                    
-                    if progress_callback:
-                        progress_callback(completed_global, total_files)
+                        results.append(result)
+                        completed_count += 1
+                        completed_global += 1
+                        
+                        # Log progress every 5 files, with detailed state at record 23 (common hang point)
+                        if completed_count % 5 == 0 or completed_count == len(batch_files) or completed_count == 23:
+                            elapsed = time.time() - start_time
+                            avg_time = elapsed / completed_count if completed_count > 0 else 0
+                            semaphore_available = semaphore._value if hasattr(semaphore, '_value') else 'unknown'
+                            active_tasks = len([t for t in tasks if not t.done()])
+                            logger.info(
+                                f"Async batch {batch_num}: completed {completed_count}/{len(batch_files)} files in {elapsed:.1f}s "
+                                f"(avg: {avg_time:.1f}s/file, semaphore: {semaphore_available}/{self.max_workers}, "
+                                f"active tasks: {active_tasks})"
+                            )
+                            if completed_count == 23:
+                                logger.info(f"DEBUG: At record 23 - semaphore state: {semaphore_available}, active tasks: {active_tasks}, "
+                                          f"total tasks: {len(tasks)}, completed: {completed_count}")
+                            print(f"Async Progress: {completed_count}/{len(batch_files)} files processed ({completed_count/len(batch_files)*100:.0f}%)")
+                        
+                        # Update overall progress for UI after each file
+                        if progress_callback:
+                            progress_callback(completed_global, total_files)
+                            
+                    except asyncio.TimeoutError:
+                        elapsed_time = time.time() - batch_start
+                        logger.error(
+                            f"Async processing timeout for file in batch {batch_num} "
+                            f"(elapsed: {elapsed_time:.1f}s, timeout: {timeout_per_file}s)"
+                        )
+                        print(f"Warning: Async timeout processing file in batch {batch_num} after {elapsed_time:.1f}s")
+                        results.append({
+                            'agent_name': 'Timeout',
+                            'phone_number': '',
+                            'file_path': 'Unknown',
+                            'error': f"Processing timeout after {timeout_per_file}s (elapsed: {elapsed_time:.1f}s)",
+                            'classification_success': False
+                        })
+                        completed_count += 1
+                        completed_global += 1
+                        
+                        if progress_callback:
+                            progress_callback(completed_global, total_files)
+                            
+                    except Exception as e:
+                        logger.error(f"Async batch processing error: {e}", exc_info=True)
+                        results.append({
+                            'agent_name': 'Error',
+                            'phone_number': '',
+                            'file_path': 'Unknown',
+                            'error': f"Processing error: {str(e)}",
+                            'classification_success': False
+                        })
+                        completed_count += 1
+                        completed_global += 1
+                        
+                        if progress_callback:
+                            progress_callback(completed_global, total_files)
+                
+                # Clean up any remaining tasks to prevent resource leaks
+                incomplete_tasks = [t for t in tasks if not t.done()]
+                if incomplete_tasks:
+                    logger.warning(f"Batch {batch_num}: {len(incomplete_tasks)} incomplete tasks, cancelling...")
+                    for task in incomplete_tasks:
+                        task.cancel()
+                    # Wait briefly for cancellations to complete
+                    await asyncio.gather(*incomplete_tasks, return_exceptions=True)
+                    logger.info(f"Batch {batch_num}: Cleaned up {len(incomplete_tasks)} incomplete tasks")
+            
+            finally:
+                # Shutdown batch executor to free resources
+                batch_executor.shutdown(wait=True)
+                logger.debug(f"Batch {batch_num} executor shutdown complete")
             
             batch_time = time.time() - start_time
             logger.info(f"Async batch {batch_num} completed in {batch_time:.1f}s")
@@ -1128,11 +1180,17 @@ def get_batch_processor(username: Optional[str] = None) -> BatchProcessor:
                         max_workers = None
                 else:
                     max_workers = None
+
+                max_workers = FORCED_MAX_WORKERS
                 
                 _batch_processors[user_key] = BatchProcessor(max_workers=max_workers)
                 logger.info(f"Created BatchProcessor instance for {user_key}")
-    
-    return _batch_processors[user_key]
+
+    processor = _batch_processors[user_key]
+    if processor.max_workers != FORCED_MAX_WORKERS:
+        processor.max_workers = FORCED_MAX_WORKERS
+
+    return processor
 
 def batch_analyze_folder(folder_path: str, username: Optional[str] = None, user_api_key: Optional[str] = None, additional_metadata: Optional[dict] = None) -> pd.DataFrame:
     """
@@ -1168,14 +1226,15 @@ def batch_analyze_folder_fast(folder_path: str, progress_callback: Optional[Call
     Returns:
         pandas DataFrame with analysis results
     """
+    processor = get_batch_processor(username)
     if use_async:
         # Use async processing (Phase 2 optimization)
         logger.info("Using async batch processing (Phase 2 optimization)")
-        results = asyncio.run(_batch_processor.process_folder_async(folder_path, progress_callback, additional_metadata, username=username, user_api_key=user_api_key))
+        results = asyncio.run(processor.process_folder_async(folder_path, progress_callback, additional_metadata, username=username, user_api_key=user_api_key))
     else:
         # Use traditional ThreadPoolExecutor processing
         logger.info("Using ThreadPoolExecutor batch processing")
-        results = _batch_processor.process_folder_parallel(folder_path, progress_callback, additional_metadata, username=username, user_api_key=user_api_key)
+        results = processor.process_folder_parallel(folder_path, progress_callback, additional_metadata, username=username, user_api_key=user_api_key)
     
     if show_all_results:
         # Return all results as DataFrame for debugging, but apply proper column formatting

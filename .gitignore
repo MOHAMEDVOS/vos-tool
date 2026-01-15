@@ -8,6 +8,10 @@
 .env.staging
 .env.development
 
+# Encryption key (CRITICAL - never commit)
+.encryption_key
+*/.encryption_key
+
 # Backup files that may contain credentials
 config_backup.py
 .env_backup

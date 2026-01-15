@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 def fix_constraints():
     """Fix the CHECK constraints on agent_audit_results table."""
+    conn = None
+    cursor = None
     try:
         db = get_db_manager()
         conn = db.connection_pool.getconn()
@@ -63,7 +65,6 @@ def fix_constraints():
         """)
         logger.info("  Added constraint: agent_audit_results_rebuttal_detection_check")
         
-        # Commit changes
         conn.commit()
         logger.info("✓ Constraints fixed successfully!")
         
@@ -74,28 +75,31 @@ def fix_constraints():
                 pg_get_constraintdef(oid) as definition
             FROM pg_constraint 
             WHERE conrelid = 'agent_audit_results'::regclass 
-                AND contype = 'c'
-                AND conname LIKE '%detection%'
-            ORDER BY conname
+                AND conname LIKE '%_detection_check'
         """)
         
-        logger.info("\nCurrent constraints:")
+        logger.info("  Updated constraints:")
         for row in cursor.fetchall():
             logger.info(f"  {row[0]}: {row[1]}")
-        
-        cursor.close()
-        db.connection_pool.putconn(conn)
         
         return True
         
     except Exception as e:
-        logger.error(f"✗ Failed to fix constraints: {e}", exc_info=True)
-        if 'conn' in locals():
+        logger.error(f"Failed to fix constraints: {e}", exc_info=True)
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if cursor:
             try:
-                conn.rollback()
+                cursor.close()
             except:
                 pass
-        return False
+        if conn:
+            try:
+                db.connection_pool.putconn(conn)
+            except:
+                pass
 
 if __name__ == "__main__":
     success = fix_constraints()

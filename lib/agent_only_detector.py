@@ -167,26 +167,43 @@ class AgentOnlyTranscriptionEngine:
         logger.warning(f"Unexpected number of channels: {audio_segment.channels}, converting to mono")
         return audio_segment.set_channels(1)
 
-    def transcribe_agent_only(self, audio_file_path: str) -> Dict[str, Any]:
+    def transcribe_agent_only(self, audio_file_path: str, timeout: Optional[int] = None, audio_duration_seconds: Optional[float] = None) -> Dict[str, Any]:
         """
         Transcribe only the agent channel using AssemblyAI with speaker diarization.
 
         Args:
             audio_file_path: Path to the audio file
+            timeout: Transcription timeout in seconds (optional, will be calculated if None)
+            audio_duration_seconds: Duration of audio file for progressive timeout calculation
 
         Returns:
-            Dict with transcript and metadata
+            Dict with transcript and metadata including transcription_status
         """
         start_time = time.time()
 
         try:
             logger.info(f"Starting agent-only transcription with AssemblyAI: {audio_file_path}")
 
+            # Calculate progressive timeout based on audio duration if not provided
+            if timeout is None:
+                try:
+                    from lib.timeout_utils import calculate_transcription_timeout
+                    timeout = calculate_transcription_timeout(audio_duration_seconds)
+                    logger.info(f"Calculated transcription timeout: {timeout}s (file duration: {audio_duration_seconds:.1f}s)" if audio_duration_seconds else f"Using default timeout: {timeout}s")
+                except ImportError:
+                    # Fallback to config or default
+                    try:
+                        from backend.core.config import settings
+                        timeout = settings.ASSEMBLYAI_TRANSCRIPTION_TIMEOUT
+                    except ImportError:
+                        timeout = 300  # 5 minutes default
+
             # Transcribe with fast-path settings (no diarization for speed)
             # Disable language detection to avoid failures on low/zero-speech clips
             result = self.local_engine.assemblyai_engine.transcribe_file(
                 audio_file_path,
                 enable_speaker_diarization=False,  # Disabled for faster processing
+                timeout=timeout,
                 options={
                     "language_detection": False,
                     "language_code": "en"
@@ -209,6 +226,8 @@ class AgentOnlyTranscriptionEngine:
                 "processing_time_ms": processing_time,
                 "transcription_method": "assemblyai_api",
                 "channels_processed": 1,  # Agent only
+                "transcription_status": result.get("transcription_status", "unknown"),
+                "transcription_error": result.get("transcription_error"),
                 "error": "" if agent_transcript else "transcription_failed"
             }
 
@@ -217,11 +236,18 @@ class AgentOnlyTranscriptionEngine:
             logger.error(f"Agent-only transcription failed: {e}")
             return {
                 "transcript": "",
-                "error": str(e),
-                "processing_time_ms": processing_time
+                "full_transcript": "",
+                "speakers": [],
+                "utterances": [],
+                "processing_time_ms": processing_time,
+                "transcription_method": "assemblyai_api",
+                "channels_processed": 1,
+                "transcription_status": "failed",
+                "transcription_error": str(e),
+                "error": str(e)
             }
     
-    async def transcribe_agent_only_async(self, audio_file_path: str) -> Dict[str, Any]:
+    async def transcribe_agent_only_async(self, audio_file_path: str, audio_duration_seconds: Optional[float] = None) -> Dict[str, Any]:
         """
         Async version of transcribe_agent_only - runs transcription in thread pool to avoid blocking.
         
@@ -233,7 +259,10 @@ class AgentOnlyTranscriptionEngine:
         """
         import asyncio
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.transcribe_agent_only, audio_file_path)
+        return await loop.run_in_executor(
+            None,
+            lambda: self.transcribe_agent_only(audio_file_path, audio_duration_seconds=audio_duration_seconds)
+        )
 
     def _validate_audio_quality(self, audio_segment: AudioSegment) -> Dict[str, Any]:
         """Validate audio quality for agent channel."""
@@ -377,9 +406,25 @@ class AgentOnlyRebuttalDetector:
 
         try:
             logger.info(f"Starting async agent-only rebuttal detection with AssemblyAI: {audio_file_path}")
+            
+            # Get audio duration for timeout calculation and logging
+            try:
+                from pydub import AudioSegment
+                audio = AudioSegment.from_file(audio_file_path)
+                audio_duration_seconds = len(audio) / 1000.0
+                logger.info(f"Audio file duration: {audio_duration_seconds:.1f}s")
+            except Exception as e:
+                logger.warning(f"Could not determine audio duration: {e}")
+                audio_duration_seconds = None
 
             # Step 1: Transcribe only agent channel with AssemblyAI (async)
-            transcription_result = await self.transcription_engine.transcribe_agent_only_async(audio_file_path)
+            transcription_start = time.time()
+            transcription_result = await self.transcription_engine.transcribe_agent_only_async(
+                audio_file_path, 
+                audio_duration_seconds=audio_duration_seconds
+            )
+            transcription_elapsed = time.time() - transcription_start
+            logger.info(f"Transcription step completed in {transcription_elapsed:.2f}s")
 
             if not transcription_result["transcript"]:
                 # Check if it's a timeout error - if so, return "No" instead of "Error"
@@ -405,21 +450,29 @@ class AgentOnlyRebuttalDetector:
             # Step 2: Apply Egyptian accent corrections for better accuracy (CPU-bound, run in executor)
             import asyncio
             loop = asyncio.get_event_loop()
+            correction_start = time.time()
             corrected_result = await loop.run_in_executor(
                 None,
                 self.egyptian_corrector.apply_corrections,
                 raw_transcript
             )
             corrected_transcript, accent_corrections = corrected_result
-            logger.info(f"Applied {len(accent_corrections)} Egyptian accent corrections")
+            correction_elapsed = time.time() - correction_start
+            logger.info(
+                f"Applied {len(accent_corrections)} Egyptian accent corrections "
+                f"in {correction_elapsed:.2f}s"
+            )
             logger.info(f"Final corrected transcript (displayed in app): '{corrected_transcript[:100]}...'")
 
             # Step 3: Detect rebuttals using corrected transcript (CPU-bound, run in executor)
+            detection_start = time.time()
             matches = await loop.run_in_executor(
                 None,
                 self.semantic_engine.detect_rebuttals,
                 corrected_transcript
             )
+            detection_elapsed = time.time() - detection_start
+            logger.info(f"Semantic rebuttal detection completed in {detection_elapsed:.2f}s")
 
             # Step 4: Determine final result
             if matches:

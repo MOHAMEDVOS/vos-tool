@@ -252,10 +252,10 @@ CREATE TRIGGER update_call_recordings_updated_at BEFORE UPDATE ON call_recording
 CREATE TRIGGER update_quota_usage_updated_at BEFORE UPDATE ON quota_usage FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_rebuttal_phrases_updated_at BEFORE UPDATE ON rebuttal_phrases FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Insert default admin user (password should be changed after deployment)
-INSERT INTO users (username, app_pass_hash, role, daily_limit) 
-VALUES ('Mohamed Abdo', '$2b$12$placeholder_hash_change_after_deployment', 'Owner', 999999)
-ON CONFLICT (username) DO NOTHING;
+-- SECURITY: Owner user must be created via secure setup script after deployment
+-- DO NOT insert default users with placeholder passwords in schema files
+-- Use a secure initialization script with proper password hashing
+-- Example: python scripts/create_owner_user.py
 
 -- Create function to clean up expired sessions
 CREATE OR REPLACE FUNCTION cleanup_expired_sessions()

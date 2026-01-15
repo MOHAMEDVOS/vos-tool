@@ -232,6 +232,24 @@ docker-compose up -d
 | `FORCE_READYMODE` | Enable ReadyMode | `false` |
 | `DEBUG` | Debug mode | `false` |
 
+### Timeout Configuration
+
+| Variable | Description | Default | Notes |
+|----------|-------------|---------|-------|
+| `ASSEMBLYAI_TRANSCRIPTION_TIMEOUT` | Transcription API timeout (seconds) | `300` | Fixed timeout for transcription calls |
+| `ASSEMBLYAI_REBUTTAL_TIMEOUT_SECONDS` | Base timeout for rebuttal detection (seconds) | `180` | Progressive: 180s + (file_duration_min × 30s), capped 60-600s |
+| `MAX_REBUTTAL_DURATION_SECONDS` | Skip rebuttal for files longer than this (seconds) | `600` | Files > 10 min skip rebuttal detection |
+| `PROCESSING_TIMEOUT_SINGLE_FILE` | Overall file processing timeout (seconds) | `600` | Total timeout for single file processing |
+| `PROCESSING_TIMEOUT_LITE_FILE` | Lite audit timeout (seconds) | `60` | Timeout for fast lite audit mode |
+
+**Progressive Timeout for Short Files (30-60s)**:
+- The system automatically calculates appropriate timeouts based on file duration
+- 30s file → ~180s timeout (3 min)
+- 60s file → ~210s timeout (3.5 min)
+- This prevents unnecessary long waits for short files
+
+**📖 Complete environment variable reference: [ENV_VARIABLES.md](ENV_VARIABLES.md)**
+
 ## Building Individual Services
 
 ```bash

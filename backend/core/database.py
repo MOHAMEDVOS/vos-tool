@@ -211,8 +211,8 @@ def _apply_full_schema(db):
             logger.warning(f"Debug search failed for migration_schema.sql under {root_dir}: {e}")
 
     schema_files = [
-        root_dir / 'cloud-migration' / 'init.sql',
         root_dir / 'cloud-migration' / 'migration_schema.sql',
+        root_dir / 'cloud-migration' / 'init.sql',
     ]
 
     for schema_file in schema_files:
@@ -303,6 +303,70 @@ def create_tables_if_needed(db):
         db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS category TEXT;", fetch=False)
         db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
         db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
+
+        # Create processing_jobs table (durable async job tracking)
+        try:
+            db_type = getattr(db, "db_type", "postgresql")
+        except Exception:
+            db_type = "postgresql"
+
+        if db_type == "sqlite":
+            create_jobs_table = """
+            CREATE TABLE IF NOT EXISTS processing_jobs (
+                job_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                status TEXT NOT NULL,
+                progress REAL DEFAULT 0.0,
+                stage TEXT,
+                file_id TEXT,
+                file_path TEXT,
+                audit_type TEXT,
+                options_json TEXT,
+                error TEXT,
+                result_json TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            );
+            """
+        else:
+            create_jobs_table = """
+            CREATE TABLE IF NOT EXISTS processing_jobs (
+                job_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                status TEXT NOT NULL,
+                progress DOUBLE PRECISION DEFAULT 0.0,
+                stage TEXT,
+                file_id TEXT,
+                file_path TEXT,
+                audit_type TEXT,
+                options_json JSONB,
+                error TEXT,
+                result_json JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+
+        db.execute_query(create_jobs_table, fetch=False)
+        logger.info("✓ Processing jobs table created/verified")
+
+        # Create daily_counters table if it doesn't exist
+        create_daily_counters_table = """
+        CREATE TABLE IF NOT EXISTS daily_counters (
+            id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
+            username TEXT NOT NULL,
+            date DATE NOT NULL,
+            download_count INTEGER DEFAULT 0,
+            last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(username, date)
+        );
+        """
+        db.execute_query(create_daily_counters_table, fetch=False)
+        logger.info("✓ Daily counters table created/verified")
+
+        # Ensure updated_at column exists in daily_counters
+        db.execute_query("ALTER TABLE daily_counters ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
 
         _apply_full_schema(db)
         

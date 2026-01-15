@@ -11,6 +11,7 @@ import os
 import sys
 import asyncio
 from pathlib import Path
+import signal
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -43,7 +44,8 @@ class AssemblyAITranscriptionEngine:
         self, 
         audio_file_path: str, 
         options: Optional[Dict[str, Any]] = None,
-        enable_speaker_diarization: Optional[bool] = None
+        enable_speaker_diarization: Optional[bool] = None,
+        timeout: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Transcribe audio file using AssemblyAI API.
@@ -52,6 +54,7 @@ class AssemblyAITranscriptionEngine:
             audio_file_path: Path to audio file (local file path)
             options: Optional transcription parameters
             enable_speaker_diarization: Enable speaker diarization (default: True)
+            timeout: Transcription timeout in seconds (default: 300s from config)
             
         Returns:
             Dict with transcript and metadata:
@@ -62,10 +65,35 @@ class AssemblyAITranscriptionEngine:
             - confidence: Overall confidence score (float)
             - language_code: Detected language code (str)
             - processing_time_ms: Processing time in milliseconds (int, optional)
+            - transcription_status: Status of transcription (completed/failed/timeout)
+            - transcription_error: Error message if failed
         """
         start_time = time.time()
         
+        # Get timeout from config if not provided
+        if timeout is None:
+            try:
+                from backend.core.config import settings
+                timeout = settings.ASSEMBLYAI_TRANSCRIPTION_TIMEOUT
+            except ImportError:
+                timeout = 300  # 5 minutes default
+        
+        class TimeoutError(Exception):
+            pass
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError(f"Transcription timed out after {timeout} seconds")
+        
+        # Set up timeout handler
+        if os.name != 'nt':  # Unix-like systems
+            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout)
+        
         try:
+            file_name = Path(audio_file_path).name
+            logger.info(f"Starting transcription with {timeout}s timeout: {file_name}")
+            api_call_start = time.time()
+            
             # Default configuration - optimized for fast processing (30-60s files)
             # Diarization disabled by default for speed (can be enabled via env var or parameter)
             default_config = {
@@ -81,7 +109,6 @@ class AssemblyAITranscriptionEngine:
             config_dict = {**default_config, **(options or {})}
             config = aai.TranscriptionConfig(**config_dict)
             
-            logger.info(f"Transcribing audio file: {Path(audio_file_path).name}")
             logger.debug(f"Configuration: speaker_labels={config_dict.get('speaker_labels')}, "
                         f"language_detection={config_dict.get('language_detection')}")
             
@@ -91,7 +118,18 @@ class AssemblyAITranscriptionEngine:
             # Check for errors
             if transcript.error:
                 logger.error(f"AssemblyAI transcription error: {transcript.error}")
-                raise Exception(f"Transcription failed: {transcript.error}")
+                return {
+                    "transcript": "",
+                    "words": [],
+                    "utterances": [],
+                    "speakers": [],
+                    "confidence": None,
+                    "language_code": None,
+                    "processing_time_ms": int((time.time() - start_time) * 1000),
+                    "transcription_method": "assemblyai_api",
+                    "transcription_status": "failed",
+                    "transcription_error": transcript.error
+                }
             
             processing_time_ms = int((time.time() - start_time) * 1000)
             
@@ -105,6 +143,8 @@ class AssemblyAITranscriptionEngine:
                 "language_code": transcript.language_code if hasattr(transcript, 'language_code') else None,
                 "processing_time_ms": processing_time_ms,
                 "transcription_method": "assemblyai_api",
+                "transcription_status": "completed",
+                "transcription_error": None,
                 "status": transcript.status.value if hasattr(transcript, 'status') else "completed"
             }
             
@@ -113,9 +153,41 @@ class AssemblyAITranscriptionEngine:
             
             return result
             
+        except TimeoutError as e:
+            processing_time_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"Transcription timeout after {timeout}s: {e}")
+            return {
+                "transcript": "",
+                "words": [],
+                "utterances": [],
+                "speakers": [],
+                "confidence": None,
+                "language_code": None,
+                "processing_time_ms": processing_time_ms,
+                "transcription_method": "assemblyai_api",
+                "transcription_status": "timeout",
+                "transcription_error": str(e)
+            }
         except Exception as e:
+            processing_time_ms = int((time.time() - start_time) * 1000)
             logger.error(f"AssemblyAI transcription error: {e}", exc_info=True)
-            raise
+            return {
+                "transcript": "",
+                "words": [],
+                "utterances": [],
+                "speakers": [],
+                "confidence": None,
+                "language_code": None,
+                "processing_time_ms": processing_time_ms,
+                "transcription_method": "assemblyai_api",
+                "transcription_status": "failed",
+                "transcription_error": str(e)
+            }
+        finally:
+            # Clean up timeout handler
+            if os.name != 'nt':  # Unix-like systems
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
     
     def _extract_words(self, words: List) -> List[Dict[str, Any]]:
         """Extract word-level timestamps from transcript."""

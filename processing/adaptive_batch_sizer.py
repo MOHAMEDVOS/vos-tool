@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 logger = logging.getLogger(__name__)
 

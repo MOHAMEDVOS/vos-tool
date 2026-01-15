@@ -23,26 +23,52 @@ def check_authentication() -> bool:
         return False
 
     # Validate session with backend API - pass session_id to validate specific session
-    try:
-        api_client = get_api_client()
-        session_id = st.session_state.get("session_id")
-        # Pass session_id to validate the specific session (not just any session)
-        session_info = api_client.check_session(session_id=session_id)
-        if not session_info.get("valid", False):
-            # Session is invalid, clear local session state
-            st.session_state.session_invalidated = True
-            for key in ["authenticated", "username", "session_id", "access_token", "role"]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            return False
-        return True
-    except Exception as e:
-        logger.error(f"Session validation error: {e}")
-        # On error, assume invalid
-        for key in ["authenticated", "username", "session_id", "access_token", "role"]:
-            if key in st.session_state:
-                del st.session_state[key]
-        return False
+    # Add retry logic for connection issues
+    max_retries = 2
+    for attempt in range(max_retries):
+        try:
+            api_client = get_api_client()
+            session_id = st.session_state.get("session_id")
+            # Pass session_id to validate specific session (not just any session)
+            session_info = api_client.check_session(session_id=session_id)
+            if not session_info.get("valid", False):
+                # Session is invalid, clear local session state
+                st.session_state.session_invalidated = True
+                for key in ["authenticated", "username", "session_id", "access_token", "role"]:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                return False
+            return True
+        except Exception as e:
+            error_str = str(e)
+            # Check for connection-related errors
+            is_connection_error = (
+                "ConnectionResetError" in error_str or 
+                "Connection aborted" in error_str or
+                "forcibly closed" in error_str or
+                "10054" in error_str or
+                "timeout" in error_str.lower()
+            )
+            
+            if is_connection_error and attempt < max_retries - 1:
+                logger.warning(f"Session validation connection error (attempt {attempt + 1}/{max_retries}): {e}")
+                # Brief delay before retry
+                import time
+                time.sleep(0.5)
+                continue
+            elif is_connection_error:
+                # Backend is unreachable, use local validation as fallback
+                logger.warning(f"Backend unreachable, using local session validation: {e}")
+                # If we have a valid token and session state, assume authenticated for now
+                # This prevents users from being logged out due to backend connectivity issues
+                return is_user_authenticated()
+            else:
+                logger.error(f"Session validation error: {e}")
+                # On error, assume invalid
+                for key in ["authenticated", "username", "session_id", "access_token", "role"]:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                return False
 
 
 def is_user_authenticated() -> bool:

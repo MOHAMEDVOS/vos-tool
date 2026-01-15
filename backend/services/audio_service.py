@@ -19,8 +19,7 @@ from lib.dashboard_manager import dashboard_manager
 
 logger = logging.getLogger(__name__)
 
-# In-memory job storage (in production, use Redis or database)
-_jobs: Dict[str, Dict[str, Any]] = {}
+from backend.services import job_store
 
 
 async def upload_audio_file(file_content: bytes, filename: str, username: str) -> Dict[str, Any]:
@@ -58,17 +57,19 @@ async def process_audio(
 ) -> str:
     """Process audio file and return job ID."""
     job_id = str(uuid.uuid4())
-    
-    # Initialize job
-    _jobs[job_id] = {
-        "status": "pending",
-        "file_id": file_id,
-        "file_path": file_path,
-        "audit_type": audit_type,
-        "username": username,
-        "created_at": datetime.now().isoformat(),
-        "progress": 0.0
-    }
+
+    # Initialize durable job record
+    job_store.create_job(
+        job_id,
+        username=username,
+        status="pending",
+        progress=0.0,
+        stage="queued",
+        file_id=file_id,
+        file_path=file_path,
+        audit_type=audit_type,
+        options=options,
+    )
     
     # Start processing in background
     asyncio.create_task(_process_audio_background(job_id, file_path, audit_type, username, options))
@@ -85,8 +86,7 @@ async def _process_audio_background(
 ):
     """Background task for audio processing."""
     try:
-        _jobs[job_id]["status"] = "processing"
-        _jobs[job_id]["progress"] = 0.1
+        job_store.update_job(job_id, status="processing", progress=0.1, stage="starting")
         
         # Get user's AssemblyAI API key if available
         user_api_key = None
@@ -107,40 +107,95 @@ async def _process_audio_background(
         
         # Import processing functions
         from processing import batch_analyze_folder, batch_analyze_folder_lite
-        from analyzer.rebuttal_detection import analyze_transcript_for_rebuttals
+        from audio_pipeline.audio_processor import AudioProcessor
+        from audio_pipeline.fast_audio_processor import FastAudioProcessor
+        from audio_pipeline.semantic_audio_processor import SemanticAudioProcessor
         from lib.egyptian_accent_correction import EgyptianAccentCorrection
         
-        # Process based on audit type
-        job_metadata = {"API Key Source": api_key_source}
+        # Process based on audit type - SINGLE FILE ONLY
+        job_metadata = {"API Key Source": api_key_source, "Processing Mode": "single_file"}
+
+        # Get timeout from config
+        try:
+            from backend.core.config import settings
+            if audit_type == "lite":
+                timeout = settings.PROCESSING_TIMEOUT_LITE_FILE
+            else:
+                timeout = settings.PROCESSING_TIMEOUT_SINGLE_FILE
+        except ImportError:
+            timeout = 600  # 10 minutes default for heavy, 60s for lite
 
         if audit_type == "lite":
-            # Lite audit processing
-            _jobs[job_id]["progress"] = 0.3
-            result = await asyncio.to_thread(
-                batch_analyze_folder_lite,
-                str(Path(file_path).parent),
-                None,
-                job_metadata,
-                username,
-                user_api_key,  # Pass user API key
+            # Lite audit processing - FAST single file only
+            job_store.update_job(job_id, progress=0.3, stage="processing_lite_fast")
+            # Use FastAudioProcessor for much faster lite processing
+            processor = FastAudioProcessor()
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    processor.process_single_file_fast,
+                    Path(file_path),
+                    additional_metadata=job_metadata,
+                    username=username,
+                    user_api_key=user_api_key,
+                ),
+                timeout=timeout
             )
+            # Wrap single result in list to match expected batch format
+            result = [result]
         else:
-            # Heavy audit processing
-            _jobs[job_id]["progress"] = 0.3
-            result = await asyncio.to_thread(
-                batch_analyze_folder,
-                str(Path(file_path).parent),
-                username,
-                user_api_key,
-                job_metadata,
+            # Heavy audit processing - SEMANTIC single file only (AssemblyAI + semantic analysis!)
+            job_store.update_job(job_id, progress=0.3, stage="processing_heavy_semantic")
+            # Use SemanticAudioProcessor for heavy processing with semantic rebuttal detection
+            processor = SemanticAudioProcessor()
+            result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    processor.process_single_file_semantic,
+                    Path(file_path),
+                    additional_metadata=job_metadata,
+                    include_debug=False,
+                    username=username,
+                    user_api_key=user_api_key,
+                ),
+                timeout=timeout
             )
+            # Wrap single result in list to match expected batch format
+            result = [result]
+
+        job_store.update_job(job_id, progress=0.9, stage="finalizing")
+
+        # Store result durably
+        try:
+            if hasattr(result, "to_dict"):
+                result_payload = result.to_dict(orient="records")
+            else:
+                result_payload = result
+        except Exception:
+            result_payload = result
+
+        job_store.set_job_result(job_id, {"result": result_payload, "metadata": job_metadata})
+        job_store.update_job(job_id, status="completed", progress=1.0, stage="completed")
         
-        _jobs[job_id]["progress"] = 0.9
-        
-        # Store result
-        _jobs[job_id]["status"] = "completed"
-        _jobs[job_id]["result"] = result
-        _jobs[job_id]["progress"] = 1.0
+        # Also save to dashboard for immediate visibility
+        try:
+            from lib.dashboard_manager import dashboard_manager
+            
+            # Convert result to DataFrame for dashboard storage
+            import pandas as pd
+            if isinstance(result_payload, list) and result_payload:
+                df = pd.DataFrame(result_payload)
+            else:
+                df = pd.DataFrame([result_payload]) if result_payload else pd.DataFrame()
+            
+            # Save to appropriate dashboard based on audit type
+            if audit_type == "heavy":
+                dashboard_manager.save_agent_audit_results(df, username)
+                logger.info(f"Saved {len(df)} heavy audit results to dashboard for user {username}")
+            else:  # lite mode
+                dashboard_manager.save_lite_audit_results(df, username)
+                logger.info(f"Saved {len(df)} lite audit results to dashboard for user {username}")
+            
+        except Exception as e:
+            logger.warning(f"Failed to save results to dashboard: {e}")
         
         # Release worker pool resources for this user
         try:
@@ -151,10 +206,27 @@ async def _process_audio_background(
         except Exception as e:
             logger.warning(f"Could not release worker pool resources: {e}")
         
+    except asyncio.TimeoutError:
+        logger.error(f"Processing timeout for job {job_id} after {timeout}s")
+        try:
+            job_store.update_job(job_id, status="failed", error=f"Processing timeout after {timeout}s", stage="timeout")
+        except Exception:
+            pass
+        
+        # Release worker pool resources even on timeout
+        try:
+            from backend.services.worker_pool_manager import get_worker_pool_manager
+            pool_manager = get_worker_pool_manager()
+            pool_manager.release_user_workers(username)
+            logger.info(f"Released worker pool resources for user {username} after timeout")
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Audio processing error: {e}", exc_info=True)
-        _jobs[job_id]["status"] = "failed"
-        _jobs[job_id]["error"] = str(e)
+        try:
+            job_store.update_job(job_id, status="failed", error=str(e), stage="failed")
+        except Exception:
+            pass
         
         # Release worker pool resources even on error
         try:
@@ -168,13 +240,18 @@ async def _process_audio_background(
 
 def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
     """Get processing job status."""
-    return _jobs.get(job_id)
+    return job_store.get_job(job_id)
 
 
 def get_job_result(job_id: str) -> Optional[Dict[str, Any]]:
     """Get processing job result."""
-    job = _jobs.get(job_id)
-    if job and job.get("status") == "completed":
-        return job.get("result")
-    return None
+    job = job_store.get_job(job_id)
+    if not job:
+        return None
+    if job.get("status") != "completed":
+        return None
+    result_obj = job.get("result_json")
+    if isinstance(result_obj, dict) and "result" in result_obj:
+        return result_obj["result"]
+    return result_obj
 

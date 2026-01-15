@@ -38,23 +38,12 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Try to load LLaMA classifier for complex cases
-try:
-    from experimental.llama_rebuttal_classifier import llama_rebuttal_detection
-    LLAMA_AVAILABLE = True
-    logger.info("✅ LLaMA classifier loaded successfully (available for complex cases)")
-except ImportError as e:
-    LLAMA_AVAILABLE = False
-    llama_rebuttal_detection = None
-    # Silently handle missing llama_cpp - it's an optional dependency
-    if 'llama_cpp' not in str(e):
-        logger.debug(f"LLaMA classifier not available: {e}")
-except Exception as e:
-    LLAMA_AVAILABLE = False
-    llama_rebuttal_detection = None
-    # Only log if it's not the expected missing module error
-    if 'llama_cpp' not in str(e):
-        logger.debug(f"LLaMA classifier initialization failed: {e}")
+# LLaMA classifier removed - experimental feature causing hangs
+# The experimental/llama_rebuttal_classifier module doesn't exist
+# and llama-cpp-python is not installed (not in requirements.txt)
+LLAMA_AVAILABLE = False
+llama_rebuttal_detection = None
+logger.info("🚫 LLaMA classifier disabled (removed - experimental feature)")
 
 class DataIngestionLayer:
     """Handles input validation and preprocessing."""
@@ -1370,6 +1359,7 @@ class KeywordRepository:
         """Initialize repository and load learned phrases."""
         self._learned_phrases_cache = None
         self._learned_phrases_timestamp = None
+        self._learned_phrases_loaded_at = None
 
     REBUTTAL_PHRASES = {
         "OTHER_PROPERTY_FAMILY": [
@@ -1731,6 +1721,14 @@ class KeywordRepository:
     def _load_learned_phrases(self) -> Dict[str, List[str]]:
         """Load learned phrases from PostgreSQL database or JSON file."""
         try:
+            db_cache_seconds = int(os.getenv("REBUTTAL_DB_CACHE_SECONDS", "300"))
+            if (
+                self._learned_phrases_cache is not None
+                and self._learned_phrases_loaded_at is not None
+                and (time.time() - self._learned_phrases_loaded_at) < db_cache_seconds
+            ):
+                return self._learned_phrases_cache
+
             # Try to load from database first
             try:
                 from lib.database import get_db_manager
@@ -1752,6 +1750,7 @@ class KeywordRepository:
                         # Cache the result
                         self._learned_phrases_cache = learned_phrases
                         self._learned_phrases_timestamp = None  # Database doesn't have mtime
+                        self._learned_phrases_loaded_at = time.time()
                         
                         logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
                         return learned_phrases
@@ -1763,7 +1762,6 @@ class KeywordRepository:
             # Fallback to JSON file
             from pathlib import Path
             import json
-            import os
             
             # Path to the phrase learning repository JSON file
             repository_path = Path("dashboard_data") / "rebuttal_repository.json"
@@ -1788,6 +1786,7 @@ class KeywordRepository:
             # Cache the result with timestamp
             self._learned_phrases_cache = learned_phrases
             self._learned_phrases_timestamp = current_mtime
+            self._learned_phrases_loaded_at = time.time()
             
             logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from repository")
             return learned_phrases
@@ -1883,38 +1882,15 @@ class SemanticDetectionEngine:
         else:
             logger.warning("❌ Semantic model not available, using exact matching only")
 
-        # 3. Tertiary: LLaMA inference for complex cases
-        # Use LLaMA ONLY when:
-        # - No high-confidence matches found (best confidence < 0.70), OR
-        # - No matches found at all
+        # 3. Tertiary: LLaMA inference for complex cases - REMOVED
+        # LLaMA classifier was removed due to missing dependencies and hangs
+        # The system now relies on exact + semantic matching only
         best_confidence = max([m['confidence'] for m in matches], default=0.0)
-        should_use_llama = (
-            LLAMA_AVAILABLE and 
-            llama_rebuttal_detection is not None and
-            (len(matches) == 0 or best_confidence < 0.70)
-        )
         
-        if should_use_llama:
-            logger.info(f"🤖 Complex case detected (best confidence: {best_confidence:.2f}), invoking LLaMA analysis...")
-            try:
-                llama_result = llama_rebuttal_detection(transcript)
-                
-                if llama_result and llama_result['result'] == 'Yes':
-                    # LLaMA found a rebuttal
-                    matches.append({
-                        'phrase': llama_result.get('reasoning', 'LLaMA detected rebuttal pattern'),
-                        'category': 'LLAMA_COMPLEX_CASE',
-                        'confidence': llama_result['confidence_score'],
-                        'match_type': 'llama_inference',
-                        'model': llama_result.get('model', 'local-llama')
-                    })
-                    logger.info(f"✅ LLaMA detected rebuttal: {llama_result['reasoning']} (confidence: {llama_result['confidence_score']:.2f})")
-                elif llama_result:
-                    logger.info(f"ℹ️ LLaMA analysis: No rebuttal found (confidence: {llama_result['confidence_score']:.2f})")
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ LLaMA inference failed, continuing with existing matches: {e}")
-
+        # Log confidence for debugging (no LLaMA fallback)
+        if len(matches) == 0 or best_confidence < 0.70:
+            logger.info(f"ℹ️ Low confidence case (best: {best_confidence:.2f}) - using exact + semantic matching only")
+        
         # Sort by confidence score (highest first)
         matches.sort(key=lambda x: x['confidence'], reverse=True)
 

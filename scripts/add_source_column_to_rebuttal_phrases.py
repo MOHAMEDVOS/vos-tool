@@ -35,6 +35,8 @@ def add_source_column_if_missing():
     logger.info("ADDING SOURCE COLUMN TO rebuttal_phrases TABLE")
     logger.info("=" * 60)
     
+    conn = None
+    cursor = None
     try:
         db_manager = get_db_manager()
         if not db_manager:
@@ -59,8 +61,6 @@ def add_source_column_if_missing():
         
         if column_exists:
             logger.info("✓ Column 'source' already exists in rebuttal_phrases table")
-            cursor.close()
-            db_manager.connection_pool.putconn(conn)
             return True
         
         # Add the column
@@ -83,20 +83,24 @@ def add_source_column_if_missing():
         conn.commit()
         logger.info("✓ Updated existing rows with default 'manual' source")
         
-        cursor.close()
-        db_manager.connection_pool.putconn(conn)
-        
         return True
         
     except Exception as e:
-        logger.error(f"Error adding source column: {e}", exc_info=True)
-        if 'conn' in locals():
+        logger.error(f"Failed to add source column: {e}", exc_info=True)
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if cursor:
             try:
-                conn.rollback()
+                cursor.close()
+            except:
+                pass
+        if conn:
+            try:
                 db_manager.connection_pool.putconn(conn)
             except:
                 pass
-        return False
 
 
 def main():

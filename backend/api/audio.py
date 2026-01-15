@@ -3,7 +3,7 @@ Audio processing API endpoints.
 """
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends
-from typing import Optional
+from typing import Optional, Dict
 import sys
 from pathlib import Path
 
@@ -129,8 +129,76 @@ async def get_processing_status(
         job_id=job_id,
         status=job.get("status", "unknown"),
         progress=job.get("progress", 0.0),
-        message=job.get("error")
+        message=job.get("error"),
+        stage=job.get("stage")
     )
+
+
+def _extract_transcription_status(result_dict: Optional[Dict], stored_metadata: Optional[Dict]) -> Optional[str]:
+    """Extract transcription status from result or metadata."""
+    if not result_dict and not stored_metadata:
+        return None
+    
+    # Check result dict first
+    if result_dict:
+        # Direct transcription status
+        if "transcription_status" in result_dict:
+            return result_dict["transcription_status"]
+        
+        # Check nested result structure (batch format)
+        if "result" in result_dict and isinstance(result_dict["result"], list) and result_dict["result"]:
+            first_item = result_dict["result"][0]
+            if isinstance(first_item, dict) and "transcription_status" in first_item:
+                return first_item["transcription_status"]
+    
+    # Check metadata
+    if stored_metadata:
+        if "transcription_status" in stored_metadata:
+            return stored_metadata["transcription_status"]
+    
+    # Check for error patterns
+    if result_dict:
+        # Check if transcript is empty but processing completed
+        transcript = result_dict.get("transcript", "")
+        if not transcript and result_dict.get("classification_success") is False:
+            return "failed"
+        
+        # Check for timeout indicators
+        error = result_dict.get("error", "")
+        if "timeout" in error.lower():
+            return "timeout"
+    
+    return None
+
+
+def _extract_transcription_error(result_dict: Optional[Dict], stored_metadata: Optional[Dict]) -> Optional[str]:
+    """Extract transcription error from result or metadata."""
+    if not result_dict and not stored_metadata:
+        return None
+    
+    # Check result dict first
+    if result_dict:
+        # Direct transcription error
+        if "transcription_error" in result_dict:
+            return result_dict["transcription_error"]
+        
+        # Check nested result structure (batch format)
+        if "result" in result_dict and isinstance(result_dict["result"], list) and result_dict["result"]:
+            first_item = result_dict["result"][0]
+            if isinstance(first_item, dict) and "transcription_error" in first_item:
+                return first_item["transcription_error"]
+        
+        # Check general error field for transcription-related errors
+        error = result_dict.get("error", "")
+        if error and any(keyword in error.lower() for keyword in ["transcription", "assemblyai", "api", "timeout"]):
+            return error
+    
+    # Check metadata
+    if stored_metadata:
+        if "transcription_error" in stored_metadata:
+            return stored_metadata["transcription_error"]
+    
+    return None
 
 
 @router.get("/results/{job_id}", response_model=ProcessingResult)
@@ -154,16 +222,41 @@ async def get_processing_results(
         )
     
     result = get_job_result(job_id)
-    
+
+    # The stored result is a DataFrame-like payload (list[dict]) plus optional metadata.
+    # For now, expose it in `metadata` to keep the schema stable until we add richer fields.
+    stored_metadata = None
+    try:
+        stored_metadata = job.get("result_json", {}).get("metadata") if isinstance(job.get("result_json"), dict) else None
+    except Exception:
+        stored_metadata = None
+
+    result_dict = result if isinstance(result, dict) else None
+    result_payload = result if not isinstance(result, dict) else None
+
+    merged_metadata = None
+    if result_dict and result_dict.get("metadata") is not None:
+        merged_metadata = result_dict.get("metadata")
+    elif result_payload is not None:
+        merged_metadata = {
+            "result": result_payload,
+            "metadata": stored_metadata,
+        }
+    else:
+        merged_metadata = stored_metadata
+
     return ProcessingResult(
         job_id=job_id,
         status=job.get("status", "unknown"),
-        transcript=result.get("transcript") if result else None,
-        agent_transcript=result.get("agent_transcript") if result else None,
-        customer_transcript=result.get("customer_transcript") if result else None,
-        rebuttals=result.get("rebuttals") if result else None,
-        accent_corrections=result.get("accent_corrections") if result else None,
-        metadata=result.get("metadata") if result else None,
-        error=job.get("error")
+        transcript=result_dict.get("transcript") if result_dict else None,
+        agent_transcript=result_dict.get("agent_transcript") if result_dict else None,
+        customer_transcript=result_dict.get("customer_transcript") if result_dict else None,
+        rebuttals=result_dict.get("rebuttals") if result_dict else None,
+        accent_corrections=result_dict.get("accent_corrections") if result_dict else None,
+        metadata=merged_metadata,
+        error=job.get("error"),
+        # New transcription-specific fields
+        transcription_status=_extract_transcription_status(result_dict, stored_metadata),
+        transcription_error=_extract_transcription_error(result_dict, stored_metadata),
+        processing_stage=job.get("stage")
     )
-

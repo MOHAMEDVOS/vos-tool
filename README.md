@@ -200,6 +200,11 @@ JWT_SECRET=your_jwt_secret_here
 # AssemblyAI (Required for transcription)
 ASSEMBLYAI_API_KEY=your_assemblyai_api_key
 
+# Timeout Configuration (Optional - for 30-60s files, system uses progressive timeouts)
+# ASSEMBLYAI_TRANSCRIPTION_TIMEOUT=300
+# ASSEMBLYAI_REBUTTAL_TIMEOUT_SECONDS=180
+# PROCESSING_TIMEOUT_SINGLE_FILE=600
+
 # ReadyMode (Optional - for call automation)
 READYMODE_USER=your_username
 READYMODE_PASSWORD=your_password

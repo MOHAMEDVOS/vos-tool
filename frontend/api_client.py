@@ -4,6 +4,8 @@ API Client for communicating with the backend FastAPI service.
 
 import os
 import requests
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 from typing import Optional, Dict, Any, List
 from datetime import date
 import streamlit as st
@@ -25,6 +27,27 @@ class APIClient:
             base_url = os.getenv("BACKEND_URL", "http://localhost:8000")
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
+        
+        # Configure retry strategy for connection issues
+        retry_strategy = Retry(
+            total=3,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS"],
+            backoff_factor=1
+        )
+        
+        # Configure HTTP adapter with retry strategy
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=10
+        )
+        
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+        
+        # Set timeouts to prevent hanging connections
+        self.session.timeout = (10, 30)  # (connect_timeout, read_timeout) in seconds
     
     def _get_headers(self) -> Dict[str, str]:
         """Get request headers with authentication token."""

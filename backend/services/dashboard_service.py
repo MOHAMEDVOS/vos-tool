@@ -23,7 +23,7 @@ def _filter_df_by_date(df, start_date: Optional[date], end_date: Optional[date])
         import pandas as pd
 
         ts_col = None
-        for candidate in ["audit_timestamp", "Timestamp", "timestamp", "created_at"]:
+        for candidate in ["audit_timestamp = datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")", "Timestamp", "timestamp", "created_at"]:
             if candidate in df.columns:
                 ts_col = candidate
                 break

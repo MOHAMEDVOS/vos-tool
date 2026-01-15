@@ -3,8 +3,12 @@ import tempfile
 import time
 import threading
 import traceback
+import logging
 from pathlib import Path
 from datetime import date, datetime
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 # Import auto-refresh for real-time progress updates
 try:
@@ -1095,10 +1099,10 @@ def show_audit_section(
                             if not df.empty:
                                 df["Audit Type"] = "Lite Audit"
 
-                        # Complete the progress
+                        # Complete the processing progress
                         try:
                             progress_bar.progress(1.0)
-                            status_text.text("Processing complete!")
+                            status_text.text("Processing complete! Saving results...")
                         except Exception:
                             # Update session state placeholders if original ones were cleared on rerun
                             if "audit_progress_placeholder" in st.session_state:
@@ -1106,28 +1110,56 @@ def show_audit_section(
                                     st.progress(1.0)
                             if "audit_status_placeholder" in st.session_state:
                                 st.session_state.audit_status_placeholder.text(
-                                    "Processing complete!"
+                                    "Processing complete! Saving results..."
                                 )
 
-                        # Save results based on audit mode
+                        # Save results based on audit mode (DEFERRED: after processing completes)
                         current_username_local = st.session_state.get(
                             "username", "Auditor1"
                         )
 
-                        if audit_mode == "heavy":
-                            dashboard_manager.save_agent_audit_results(
-                                df, current_username_local
-                            )
-                            dashboard_manager.increment_daily_download_count(
-                                current_username_local, len(df)
-                            )
-                        else:  # lite mode
-                            dashboard_manager.save_lite_audit_results(
-                                df, current_username_local
-                            )
-                            dashboard_manager.increment_daily_download_count(
-                                current_username_local, len(df)
-                            )
+                        # Show save progress indicator
+                        save_start_time = time.time()
+                        if not df.empty:
+                            try:
+                                if "audit_status_placeholder" in st.session_state:
+                                    st.session_state.audit_status_placeholder.text(
+                                        f"Saving {len(df)} results to dashboard..."
+                                    )
+                            except Exception:
+                                pass
+                            
+                            logger.info(f"Starting dashboard save for {len(df)} records (audit mode: {audit_mode})")
+                            
+                            if audit_mode == "heavy":
+                                dashboard_manager.save_agent_audit_results(
+                                    df, current_username_local
+                                )
+                                dashboard_manager.increment_daily_download_count(
+                                    current_username_local, len(df)
+                                )
+                            else:  # lite mode
+                                dashboard_manager.save_lite_audit_results(
+                                    df, current_username_local
+                                )
+                                dashboard_manager.increment_daily_download_count(
+                                    current_username_local, len(df)
+                                )
+                            
+                            save_elapsed = time.time() - save_start_time
+                            logger.info(f"Dashboard save completed in {save_elapsed:.2f}s for {len(df)} records")
+                            
+                            if save_elapsed > 10:
+                                logger.warning(f"Dashboard save took {save_elapsed:.2f}s (slow, consider optimization)")
+                        else:
+                            logger.warning("No results to save (empty DataFrame)")
+
+                        # Update status to show completion
+                        try:
+                            status_text.text("Save complete!")
+                        except Exception:
+                            if "audit_status_placeholder" in st.session_state:
+                                st.session_state.audit_status_placeholder.text("Save complete!")
 
                         st.success(
                             f"AGENT {mode_name.upper()} AUDIT COMPLETE! Processed {len(df) if not df.empty else 0} calls successfully!"
@@ -1294,10 +1326,12 @@ def show_audit_section(
 
             dialer_name = extract_dialer_name_from_url(ready_url)
 
+            # Use absolute paths from config to ensure correct location
+            from config import RECORDINGS_ROOT
             search_paths = [
-                Path(f"Recordings/Campaign/{current_username_local}"),
-                Path("Recordings/Campaign"),
-                Path("Recordings"),
+                RECORDINGS_ROOT / "Campaign" / current_username_local,
+                RECORDINGS_ROOT / "Campaign",
+                RECORDINGS_ROOT,
             ]
 
             target_folder = None

@@ -10,7 +10,8 @@ from pathlib import Path
 # Add parent directory to path to access lib modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI
+from typing import Any
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
@@ -20,22 +21,11 @@ from backend.core.config import settings
 from backend.core.database import init_db
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+from lib.logging_config import setup_backend_logging
+setup_backend_logging()
 logger = logging.getLogger(__name__)
 
-
-# Ensure DB/tables exist as early as possible, before importing routers that may
-# import modules which query the database at import time.
-try:
-    init_db()
-    logger.info("Database initialized successfully (early init)")
-except Exception as e:
-    logger.error(f"Database initialization failed (early init): {e}")
-
-
+# Import routers (database initialization happens in lifespan)
 from backend.api import auth, audio, dashboard, settings as settings_api, readymode, user_data
 
 
@@ -99,7 +89,7 @@ async def health_check():
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Global exception handler."""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(

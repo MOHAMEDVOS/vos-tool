@@ -1,38 +1,35 @@
 # ==================== config.py (CLEANED) ====================
 from pathlib import Path
 import os
+from typing import Tuple, Union
 from dotenv import load_dotenv
-load_dotenv()
+try:
+    load_dotenv()
+except ValueError as e:
+    if "embedded null character" in str(e):
+        # .env file is corrupted, skip it and continue
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("⚠️  .env file contains null characters, skipping environment file loading")
+        # Continue without .env file
+    else:
+        raise
 try:
     from lib.app_settings_manager import app_settings as _persistent_app_settings
 except ImportError:
     _persistent_app_settings = None
 
 # ────────────── Base directories ──────────────
-BASE_DIR        = Path(__file__).parent
-RECORDINGS_DIR  = BASE_DIR / "Recordings"
+from lib.path_utils import get_recordings_root
+
+BASE_DIR = Path(__file__).parent
+RECORDINGS_DIR = BASE_DIR / "Recordings"
 
 # Ensure directories exist
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 
-def _select_recordings_root() -> Path:
-    env_root = os.getenv("RECORDINGS_ROOT")
-    candidates = []
-    if env_root:
-        candidates.append(Path(env_root))
-    candidates.extend([Path("/app/Recordings"), Path("/tmp/Recordings"), RECORDINGS_DIR])
-    for candidate in candidates:
-        try:
-            candidate.mkdir(parents=True, exist_ok=True)
-            test_file = candidate / ".write_test"
-            test_file.write_text("ok", encoding="utf-8")
-            test_file.unlink(missing_ok=True)
-            return candidate
-        except Exception:
-            continue
-    return RECORDINGS_DIR
-
-RECORDINGS_ROOT = _select_recordings_root()
+# Use shared path utility
+RECORDINGS_ROOT = get_recordings_root()
 
 # ────────────── ReadyMode Dialer URLs ──────────────
 READY_MODE_URLS = {
@@ -74,7 +71,29 @@ PASSWORD = os.getenv("READYMODE_PASSWORD")  # Optional: System fallback password
 # Note: No warning if not set - this is intentional since each user has their own credentials
 
 # ────────────── User Management Functions ──────────────
-def get_user_readymode_credentials(username: str):
+def _get_user_data(username: str, field: str, fallback=None):
+    """
+    Generic helper for user data retrieval from dashboard_manager.
+    
+    Args:
+        username: The app username
+        field: The field name to retrieve
+        fallback: Default value if user or field doesn't exist
+        
+    Returns:
+        The requested field value or fallback
+    """
+    try:
+        from lib.dashboard_manager import user_manager
+        user_data = user_manager.get_user(username)
+        if user_data:
+            return user_data.get(field, fallback)
+    except ImportError:
+        pass
+    return fallback
+
+
+def get_user_readymode_credentials(username: str) -> Union[Tuple[None, None], Tuple[str, str]]:
     """
     Get ReadyMode credentials for a specific user (with secure decryption).
     
@@ -82,7 +101,7 @@ def get_user_readymode_credentials(username: str):
         username: The app username
         
     Returns:
-        tuple: (readymode_username, readymode_password)
+        tuple: (readymode_username, readymode_password) or (None, None)
     """
     # Import user_manager dynamically to avoid circular imports
     try:
@@ -102,7 +121,8 @@ def get_user_readymode_credentials(username: str):
     # If no fallback is set, return None (caller should handle this)
     return None, None
 
-def get_user_app_password(username: str):
+
+def get_user_app_password(username: str) -> Union[str, None]:
     """
     Get app password for a specific user.
     
@@ -112,19 +132,10 @@ def get_user_app_password(username: str):
     Returns:
         str: App password or None if user doesn't exist
     """
-    # Import user_manager dynamically to avoid circular imports
-    try:
-        from lib.dashboard_manager import user_manager
-        user_data = user_manager.get_user(username)
-        if user_data:
-            return user_data.get('app_pass')
-    except ImportError:
-        pass
-    
-    # Fallback to None if user_manager not available
-    return None
+    return _get_user_data(username, 'app_pass', None)
 
-def get_user_daily_limit(username: str):
+
+def get_user_daily_limit(username: str) -> int:
     """
     Get daily download limit for a specific user.
     
@@ -134,17 +145,7 @@ def get_user_daily_limit(username: str):
     Returns:
         int: Daily download limit or 0 if user doesn't exist
     """
-    # Import user_manager dynamically to avoid circular imports
-    try:
-        from lib.dashboard_manager import user_manager
-        user_data = user_manager.get_user(username)
-        if user_data:
-            return user_data.get('daily_limit', 0)
-    except ImportError:
-        pass
-    
-    # Fallback to 0 if user_manager not available
-    return 0
+    return _get_user_data(username, 'daily_limit', 0)
 
 # ────────────── Application Settings ──────────────
 class AppSettings:

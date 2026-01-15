@@ -75,68 +75,43 @@ class AppSettingsManager:
         self._load_settings()
     
     def _load_settings(self):
-        """Load settings from database or JSON file."""
+        """Load settings from database (PostgreSQL-only)."""
         try:
-            # Try to load from database first
-            if self._db_manager:
-                try:
-                    query = "SELECT setting_key, setting_value FROM app_settings"
-                    results = self._db_manager.execute_query(query, fetch=True)
-                    
-                    if results:
-                        loaded_settings = {}
-                        for row in results:
-                            key = row['setting_key']
-                            value = row['setting_value']
-                            
-                            # Parse key format: "category.key" or just "category"
-                            if '.' in key:
-                                category, setting_key = key.split('.', 1)
-                                if category not in loaded_settings:
-                                    loaded_settings[category] = {}
-                                loaded_settings[category][setting_key] = value
-                            else:
-                                # Handle root-level settings
-                                loaded_settings[key] = value
-                        
-                        # Merge with defaults
-                        self.settings = self._merge_settings(self.default_settings, loaded_settings)
-                        logger.info("Loaded app settings from database")
-                        return
-                except Exception as e:
-                    logger.error(f"Error loading settings from database: {e}")
-                    # Fallback to JSON
-                    pass
+            if not self._db_manager:
+                logger.warning("Database manager not available, using default settings")
+                self.settings = self.default_settings.copy()
+                return
             
-            # Fallback to JSON file
-            if self.settings_file.exists():
-                with open(self.settings_file, 'r', encoding='utf-8') as f:
-                    loaded_settings = json.load(f)
+            query = "SELECT setting_key, setting_value FROM app_settings"
+            results = self._db_manager.execute_query(query, fetch=True)
+            
+            if results:
+                loaded_settings = {}
+                for row in results:
+                    key = row['setting_key']
+                    value = row['setting_value']
+                    
+                    # Parse key format: "category.key" or just "category"
+                    if '.' in key:
+                        category, setting_key = key.split('.', 1)
+                        if category not in loaded_settings:
+                            loaded_settings[category] = {}
+                        loaded_settings[category][setting_key] = value
+                    else:
+                        # Handle root-level settings
+                        loaded_settings[key] = value
                 
-                # Merge with defaults to ensure all keys exist
+                # Merge with defaults
                 self.settings = self._merge_settings(self.default_settings, loaded_settings)
-                logger.info("Loaded app settings from file")
+                logger.info("Loaded app settings from database")
             else:
+                # No settings in database, use defaults and save them
                 self.settings = self.default_settings.copy()
                 self._save_settings()
-                logger.info("Created default app settings")
+                logger.info("Created default app settings in database")
                 
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            logger.error(f"Error parsing settings file: {e}")
-            logger.info("Using default settings due to corrupted file")
-            self.settings = self.default_settings.copy()
-            # Try to backup corrupted file
-            try:
-                backup_path = self.settings_file.with_suffix('.json.backup')
-                self.settings_file.rename(backup_path)
-                logger.info(f"Backed up corrupted settings to {backup_path}")
-            except Exception:
-                pass
-        except (OSError, IOError) as e:
-            logger.error(f"Error accessing settings file: {e}")
-            self.settings = self.default_settings.copy()
         except Exception as e:
-            logger.error(f"Unexpected error loading settings: {e}")
+            logger.error(f"Error loading settings from database: {e}")
             self.settings = self.default_settings.copy()
     
     def _merge_settings(self, defaults: Dict, loaded: Dict) -> Dict:
@@ -152,40 +127,31 @@ class AppSettingsManager:
         return result
     
     def _save_settings(self):
-        """Save current settings to database or file."""
+        """Save current settings to database (PostgreSQL-only)."""
         try:
-            # Try to save to database first
-            if self._db_manager:
-                try:
-                    # Save all settings to database
-                    for category, category_settings in self.settings.items():
-                        if isinstance(category_settings, dict):
-                            for key, value in category_settings.items():
-                                setting_key = f"{category}.{key}"
-                                query = """
-                                    INSERT INTO app_settings (setting_key, setting_value, category, updated_at)
-                                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                                    ON CONFLICT (setting_key) 
-                                    DO UPDATE SET setting_value = EXCLUDED.setting_value, 
-                                                  updated_at = CURRENT_TIMESTAMP
-                                """
-                                # Convert value to JSONB-compatible format (always JSON string)
-                                value_json = json.dumps(value)
-                                self._db_manager.execute_query(query, (setting_key, value_json, category), fetch=False)
-                    
-                    logger.info("Saved app settings to database")
-                    return
-                except Exception as e:
-                    logger.error(f"Error saving settings to database: {e}")
-                    # Fallback to JSON
-                    pass
+            if not self._db_manager:
+                logger.error("Cannot save settings: database manager not available")
+                return
             
-            # Fallback to JSON file
-            with open(self.settings_file, 'w', encoding='utf-8') as f:
-                json.dump(self.settings, f, indent=2)
-            logger.info("Saved app settings to file")
+            # Save all settings to database
+            for category, category_settings in self.settings.items():
+                if isinstance(category_settings, dict):
+                    for key, value in category_settings.items():
+                        setting_key = f"{category}.{key}"
+                        query = """
+                            INSERT INTO app_settings (setting_key, setting_value, category, updated_at)
+                            VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                            ON CONFLICT (setting_key) 
+                            DO UPDATE SET setting_value = EXCLUDED.setting_value, 
+                                          updated_at = CURRENT_TIMESTAMP
+                        """
+                        # Convert value to JSONB-compatible format (always JSON string)
+                        value_json = json.dumps(value)
+                        self._db_manager.execute_query(query, (setting_key, value_json, category), fetch=False)
+            
+            logger.info("Saved app settings to database")
         except Exception as e:
-            logger.error(f"Error saving settings: {e}")
+            logger.error(f"Error saving settings to database: {e}")
     
     def get_setting(self, category: str, key: str, default=None):
         """Get a specific setting value."""
@@ -215,30 +181,27 @@ class AppSettingsManager:
             
             self.settings[category][key] = value
             
-            # Save to database immediately if available
-            if self._db_manager:
-                try:
-                    setting_key = f"{category}.{key}"
-                    value_json = json.dumps(value) if not isinstance(value, str) or not value.startswith('{') else value
-                    query = """
-                        INSERT INTO app_settings (setting_key, setting_value, category, updated_at)
-                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                        ON CONFLICT (setting_key) 
-                        DO UPDATE SET setting_value = EXCLUDED.setting_value, 
-                                      updated_at = CURRENT_TIMESTAMP
-                    """
-                    self._db_manager.execute_query(query, (setting_key, value_json, category), fetch=False)
-                    logger.info(f"Updated setting in database: {category}.{key} = {value}")
-                    return True
-                except Exception as e:
-                    logger.error(f"Error saving setting to database: {e}")
-                    # Continue to save to JSON as fallback
-                    pass
+            # Save to database
+            if not self._db_manager:
+                logger.error(f"Cannot save setting {category}.{key}: database not available")
+                return False
             
-            # Fallback: save all settings to JSON
-            self._save_settings()
-            logger.info(f"Updated setting: {category}.{key} = {value}")
-            return True
+            try:
+                setting_key = f"{category}.{key}"
+                value_json = json.dumps(value) if not isinstance(value, str) or not value.startswith('{') else value
+                query = """
+                    INSERT INTO app_settings (setting_key, setting_value, category, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (setting_key) 
+                    DO UPDATE SET setting_value = EXCLUDED.setting_value, 
+                                  updated_at = CURRENT_TIMESTAMP
+                """
+                self._db_manager.execute_query(query, (setting_key, value_json, category), fetch=False)
+                logger.info(f"Updated setting in database: {category}.{key} = {value}")
+                return True
+            except Exception as e:
+                logger.error(f"Error saving setting to database: {e}")
+                return False
         except Exception as e:
             logger.error(f"Error setting {category}.{key}: {e}")
             return False
@@ -255,31 +218,28 @@ class AppSettingsManager:
             
             self.settings[category].update(updates)
             
-            # Save to database immediately if available
-            if self._db_manager:
-                try:
-                    for key, value in updates.items():
-                        setting_key = f"{category}.{key}"
-                        value_json = json.dumps(value) if not isinstance(value, str) or not value.startswith('{') else value
-                        query = """
-                            INSERT INTO app_settings (setting_key, setting_value, category, updated_at)
-                            VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
-                            ON CONFLICT (setting_key) 
-                            DO UPDATE SET setting_value = EXCLUDED.setting_value, 
-                                          updated_at = CURRENT_TIMESTAMP
-                        """
-                        self._db_manager.execute_query(query, (setting_key, value_json, category), fetch=False)
-                    logger.info(f"Updated {category} settings in database: {list(updates.keys())}")
-                    return True
-                except Exception as e:
-                    logger.error(f"Error saving category to database: {e}")
-                    # Continue to save to JSON as fallback
-                    pass
+            # Save to database
+            if not self._db_manager:
+                logger.error(f"Cannot update category {category}: database not available")
+                return False
             
-            # Fallback: save all settings to JSON
-            self._save_settings()
-            logger.info(f"Updated {category} settings: {list(updates.keys())}")
-            return True
+            try:
+                for key, value in updates.items():
+                    setting_key = f"{category}.{key}"
+                    value_json = json.dumps(value) if not isinstance(value, str) or not value.startswith('{') else value
+                    query = """
+                        INSERT INTO app_settings (setting_key, setting_value, category, updated_at)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                        ON CONFLICT (setting_key) 
+                        DO UPDATE SET setting_value = EXCLUDED.setting_value, 
+                                      updated_at = CURRENT_TIMESTAMP
+                    """
+                    self._db_manager.execute_query(query, (setting_key, value_json, category), fetch=False)
+                logger.info(f"Updated {category} settings in database: {list(updates.keys())}")
+                return True
+            except Exception as e:
+                logger.error(f"Error saving category to database: {e}")
+                return False
         except Exception as e:
             logger.error(f"Error updating {category}: {e}")
             return False

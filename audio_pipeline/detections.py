@@ -7,12 +7,30 @@ and the introduction classifier.
 import logging
 import re
 from typing import Dict
+import sys
+import importlib.util
+from pathlib import Path
 
 import numpy as np
 from pydub import AudioSegment
 from thefuzz import fuzz
 
-from config import app_settings
+# Import app_settings from root-level config.py (not the config package)
+# Python prioritizes packages over modules, so we need to import the file directly
+_root_dir = Path(__file__).parent.parent
+_config_file = _root_dir / "config.py"
+if _config_file.exists():
+    spec = importlib.util.spec_from_file_location("root_config", _config_file)
+    root_config = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(root_config)
+    app_settings = root_config.app_settings
+else:
+    # Fallback: try importing from parent directory
+    if str(_root_dir) not in sys.path:
+        sys.path.insert(0, str(_root_dir))
+    import config as root_config
+    app_settings = root_config.app_settings
+
 from scipy import signal
 from scipy.fft import rfft, rfftfreq
 

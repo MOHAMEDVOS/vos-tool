@@ -7,9 +7,10 @@ import os
 import re
 import sys
 import time
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
 import numpy as np
 from pydub import AudioSegment
@@ -50,15 +51,17 @@ except (ModuleNotFoundError, ImportError):
 
 
 logger = logging.getLogger(__name__)
-_agent_detector = None
+_agent_detectors: Dict[str, AgentOnlyRebuttalDetector] = {}
+_agent_detectors_lock = threading.Lock()
 
 
 def get_agent_detector(user_api_key: Optional[str] = None):
-    global _agent_detector
-    # Create a new instance with user API key if different
-    if _agent_detector is None or user_api_key is not None:
-        _agent_detector = AgentOnlyRebuttalDetector(user_api_key=user_api_key)
-    return _agent_detector
+    user_key = user_api_key or "__default__"
+    if user_key not in _agent_detectors:
+        with _agent_detectors_lock:
+            if user_key not in _agent_detectors:
+                _agent_detectors[user_key] = AgentOnlyRebuttalDetector(user_api_key=user_api_key)
+    return _agent_detectors[user_key]
 
 
 def format_agent_name_with_spaces(agent_name: str) -> str:
@@ -196,7 +199,10 @@ class AudioProcessor:
                 logger.info(f"Late hello detection completed in {late_time:.2f}s: {result['late_hello_detection']}")
                 
                 # Rebuttal detection (slow, completes last ~30-60s, but started in parallel)
-                # Check if we need rebuttal detection (skip if releasing call)
+                # Check if we need rebuttal detection (skip if releasing call or very long file)
+                audio_duration_seconds = len(agent_audio) / 1000
+                max_rebuttal_duration = int(os.getenv("MAX_REBUTTAL_DURATION_SECONDS", "600"))  # 10 minutes default
+                
                 if result['releasing_detection'] == 'Yes':
                     logger.info(f"Skipping rebuttal detection for releasing call: {file_name}")
                     # Note: future_rebuttal may still be running, but we'll ignore the result
@@ -211,28 +217,75 @@ class AudioProcessor:
                                 logger.debug("Rebuttal detection already started, will complete but result will be ignored")
                         except Exception:
                             pass
+                elif audio_duration_seconds > max_rebuttal_duration:
+                    logger.info(f"Skipping rebuttal detection for very long file ({audio_duration_seconds:.1f}s > {max_rebuttal_duration}s): {file_name}")
+                    if future_rebuttal:
+                        future_rebuttal.cancel()
+                    result['rebuttal_detection'] = {
+                        'result': 'No', 
+                        'transcript': '', 
+                        'confidence_score': 0.0,
+                        'skipped': True,
+                        'skip_reason': 'audio_too_long',
+                        'audio_duration_seconds': audio_duration_seconds
+                    }
                 elif future_rebuttal:
                     reb_start = time.time()
                     try:
-                        detection_result = future_rebuttal.result()
+                        # Calculate progressive timeout based on audio duration
+                        from lib.timeout_utils import calculate_rebuttal_timeout
+                        rebuttal_timeout_s = calculate_rebuttal_timeout(audio_duration_seconds)
+                        
+                        logger.info(
+                            f"Waiting for rebuttal detection (timeout: {rebuttal_timeout_s}s, "
+                            f"file duration: {audio_duration_seconds:.1f}s) for {file_name}"
+                        )
+                        detection_result = future_rebuttal.result(timeout=rebuttal_timeout_s)
+                        reb_time = time.time() - reb_start
+                        logger.info(f"Rebuttal detection completed in {reb_time:.1f}s for {file_name}")
                         result['rebuttal_detection'] = {
                             'result': detection_result['result'],
                             'confidence_score': detection_result.get('confidence_score'),
                             'transcript': detection_result.get('transcript', '')
                         }
+                    except TimeoutError as reb_timeout:
+                        elapsed_time = time.time() - reb_start
+                        logger.warning(
+                            f"Agent-only rebuttal detection timed out after {rebuttal_timeout_s}s "
+                            f"(elapsed: {elapsed_time:.1f}s, file duration: {audio_duration_seconds:.1f}s) "
+                            f"for {file_name}. Treating as 'No'."
+                        )
+                        try:
+                            future_rebuttal.cancel()
+                        except Exception:
+                            pass
+                        result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': 'timeout'}
                     except Exception as reb_error:
+                        elapsed_time = time.time() - reb_start
                         # Check if it's a timeout error
                         error_str = str(reb_error)
                         is_timeout = 'ReadTimeout' in error_str or 'timeout' in error_str.lower() or 'timed out' in error_str.lower()
                         
                         if is_timeout:
-                            logger.warning(f"Agent-only rebuttal detection timed out: {reb_error}. Treating as 'No' rebuttal.")
+                            logger.warning(
+                                f"Agent-only rebuttal detection timed out (elapsed: {elapsed_time:.1f}s, "
+                                f"file duration: {audio_duration_seconds:.1f}s): {reb_error}. "
+                                f"Treating as 'No' rebuttal."
+                            )
                             result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': 'timeout'}
                         else:
-                            logger.error(f"Agent-only rebuttal detection failed: {reb_error}")
+                            logger.error(
+                                f"Agent-only rebuttal detection failed (elapsed: {elapsed_time:.1f}s, "
+                                f"file duration: {audio_duration_seconds:.1f}s): {reb_error}"
+                            )
                             result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': str(reb_error)}
                     reb_time = time.time() - reb_start
-                    logger.info(f"Agent-only rebuttal detection completed in {reb_time:.2f}s: {result['rebuttal_detection'].get('result', 'Error')}")
+                    logger.info(
+                        f"Agent-only rebuttal detection completed in {reb_time:.2f}s "
+                        f"(file duration: {audio_duration_seconds:.1f}s, "
+                        f"ratio: {reb_time/audio_duration_seconds:.1f}x): "
+                        f"{result['rebuttal_detection'].get('result', 'Error')}"
+                    )
                 else:
                     logger.warning(f"Could not start rebuttal detection (temp file creation failed) for {file_name}")
                     result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': 'temp_file_failed'}

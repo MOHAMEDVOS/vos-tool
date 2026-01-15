@@ -766,6 +766,25 @@ def show_actions_section(dashboard_manager):
         else:
             rebuttal_counts_df = pd.DataFrame(columns=['Agent Name', 'No Rebuttals'])
 
+        # Dialer Name(s) per agent - get unique dialers from flagged calls
+        # Check for both 'dialer_name' and 'Dialer Name' columns
+        dialer_col = None
+        if 'dialer_name' in flagged_df.columns:
+            dialer_col = 'dialer_name'
+        elif 'Dialer Name' in flagged_df.columns:
+            dialer_col = 'Dialer Name'
+        
+        if dialer_col and not flagged_df[dialer_col].isna().all():
+            # Group by Agent Name and get unique dialer names, join with " & "
+            dialer_names_df = (
+                flagged_df[flagged_df[dialer_col].notna()]
+                .groupby('Agent Name')[dialer_col]
+                .apply(lambda x: ' & '.join(sorted(x.dropna().unique())))
+                .reset_index(name='Dialer Name(s)')
+            )
+        else:
+            dialer_names_df = pd.DataFrame(columns=['Agent Name', 'Dialer Name(s)'])
+
         # Start from agents with at least one flagged call
         agent_stats = flagged_counts_df.copy()
 
@@ -774,11 +793,16 @@ def show_actions_section(dashboard_manager):
         agent_stats = agent_stats.merge(releasing_counts_df, on='Agent Name', how='left')
         agent_stats = agent_stats.merge(late_hello_counts_df, on='Agent Name', how='left')
         agent_stats = agent_stats.merge(rebuttal_counts_df, on='Agent Name', how='left')
+        agent_stats = agent_stats.merge(dialer_names_df, on='Agent Name', how='left')
 
         # Ensure numeric columns are integers and fill missing with 0
         for col in ['Total Calls', 'Flagged Calls', 'Releasing', 'Late Hello', 'No Rebuttals']:
             if col in agent_stats.columns:
                 agent_stats[col] = agent_stats[col].fillna(0).astype(int)
+        
+        # Fill missing dialer names with empty string
+        if 'Dialer Name(s)' in agent_stats.columns:
+            agent_stats['Dialer Name(s)'] = agent_stats['Dialer Name(s)'].fillna('')
 
         # Deduction rule: Yes if Flagged Calls >= 5, otherwise No
         agent_stats['Deduction'] = agent_stats['Flagged Calls'].apply(
@@ -791,7 +815,7 @@ def show_actions_section(dashboard_manager):
         # Reorder columns to match desired layout
         desired_cols = [
             'Agent Name', 'Total Calls', 'Flagged Calls',
-            'Releasing', 'Late Hello', 'No Rebuttals', 'Deduction'
+            'Releasing', 'Late Hello', 'No Rebuttals', 'Dialer Name(s)', 'Deduction'
         ]
         existing_cols = [col for col in desired_cols if col in agent_stats.columns]
         remaining_cols = [col for col in agent_stats.columns if col not in existing_cols]

@@ -23,50 +23,91 @@ class SecurityManager:
         self.fernet = Fernet(self.encryption_key) if self.encryption_key else None
     
     def _get_or_create_encryption_key(self):
-        """Get encryption key from environment or create a persistent one."""
-        # Try to get from environment first
+        """Get encryption key from environment or create a persistent one.
+        
+        SECURITY: Prefers ENCRYPTION_KEY_PATH or ENCRYPTION_KEY environment variable.
+        Falls back to .encryption_key file for backward compatibility but warns.
+        """
+        # Priority 1: Try to get path from environment
+        env_key_path = os.getenv('ENCRYPTION_KEY_PATH')
+        if env_key_path and os.path.exists(env_key_path):
+            try:
+                with open(env_key_path, 'rb') as f:
+                    key_data = f.read()
+                # Validate the key
+                Fernet(key_data)
+                logger.info(f"Using encryption key from secure path: {env_key_path}")
+                return key_data
+            except Exception as e:
+                logger.warning(f"Invalid encryption key at path {env_key_path}: {e}")
+        
+        # Priority 2: Try to get key directly from environment
         env_key = os.getenv('ENCRYPTION_KEY')
         if env_key:
             try:
                 # Validate the key format
                 Fernet(env_key.encode())
-                logger.info("Using encryption key from environment variable")
+                logger.info("Using encryption key from ENCRYPTION_KEY environment variable")
                 return env_key.encode()
             except Exception as e:
-                logger.debug(f"Invalid encryption key in environment (will use persistent key): {e}")
+                logger.warning(f"Invalid ENCRYPTION_KEY in environment: {e}")
 
-        # Try to load from persistent file
+        # Priority 3: Try to load from persistent file (DEPRECATED - for backward compatibility)
         key_file = os.path.join(os.path.dirname(__file__), '.encryption_key')
         if os.path.exists(key_file):
+            logger.warning(
+                "⚠️  SECURITY WARNING: Using encryption key from .encryption_key file. "
+                "This is deprecated for security reasons. "
+                "Please migrate to environment variable: "
+                "1. Set ENCRYPTION_KEY_PATH in .env to point to secure location "
+                "   (e.g., ENCRYPTION_KEY_PATH=/home/user/.vos_secure/encryption_key)"
+                "2. Move .encryption_key to that secure location "
+                "3. Delete .encryption_key from project directory"
+            )
             try:
                 with open(key_file, 'rb') as f:
                     key_data = f.read()
                 # Validate the key
                 Fernet(key_data)
-                logger.info("Using persistent encryption key from file")
                 return key_data
             except Exception as e:
-                logger.warning(f"Invalid encryption key in file: {e}")
+                logger.error(f"Invalid encryption key in file: {e}")
                 # Remove corrupted key file
                 try:
                     os.remove(key_file)
                 except Exception:
-                    # Ignore file removal errors
                     pass
 
-        # Generate new key and save it
-        logger.info("Generating new encryption key and saving to file")
+        # No key found anywhere - generate new one and save to secure location if possible
+        logger.warning("No encryption key found. Generating new key.")
         key = Fernet.generate_key()
 
-        # Save to file with secure permissions
+        # Try to save to secure location if ENCRYPTION_KEY_PATH is set
+        if env_key_path:
+            try:
+                # Create directory if needed
+                os.makedirs(os.path.dirname(env_key_path), exist_ok=True)
+                with open(env_key_path, 'wb') as f:
+                    f.write(key)
+                # Set secure permissions
+                secure_file_permissions(env_key_path)
+                logger.info(f"✓ New encryption key saved to secure location: {env_key_path}")
+                return key
+            except Exception as e:
+                logger.error(f"Could not save encryption key to {env_key_path}: {e}")
+        
+        # Fallback: Save to file with strong warning
+        logger.error(
+            "⚠️  CRITICAL: Saving encryption key to .encryption_key file in project directory. "
+            "This is NOT secure for production! "
+            "Set ENCRYPTION_KEY_PATH in your .env file to use a secure location."
+        )
         try:
             with open(key_file, 'wb') as f:
                 f.write(key)
-            # Set secure permissions
             secure_file_permissions(key_file)
-            logger.info("Encryption key saved to persistent file")
         except Exception as e:
-            logger.warning(f"Could not save encryption key to file: {e}")
+            logger.error(f"Could not save encryption key: {e}")
 
         return key
     

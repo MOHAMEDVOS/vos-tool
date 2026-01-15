@@ -1,6 +1,14 @@
 -- Additional Schema for Complete Data Migration
 -- This script creates all missing tables required for full JSON to PostgreSQL migration
--- Run this AFTER init.sql to ensure all tables exist
+
+-- Create trigger function for updating updated_at columns
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
 
 -- ============================================================================
 -- 1. ALTER EXISTING TABLES
