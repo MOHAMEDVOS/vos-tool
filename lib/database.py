@@ -46,6 +46,46 @@ except ImportError as e:
 import sqlite3
 
 
+def retry_on_db_error(max_retries=3, backoff_factor=2):
+    """
+    Decorator to retry database operations on transient failures.
+    
+    Handles connection pool exhaustion, timeouts, and transient network errors.
+    """
+    import time
+    from functools import wraps
+    
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    error_str = str(e).lower()
+                    
+                    # Check if retryable
+                    is_retryable = ('pool' in error_str or 'exhausted' in error_str or 
+                                   'timeout' in error_str or 'timed out' in error_str or
+                                   ('connection' in error_str and ('refused' in error_str or 'reset' in error_str)))
+                    
+                    if is_retryable and attempt < max_retries - 1:
+                        wait_time = backoff_factor ** attempt
+                        logger.warning(f"DB operation failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        if attempt == max_retries - 1:
+                            logger.error(f"All {max_retries} retry attempts exhausted for {func.__name__}")
+                        raise
+            
+            raise last_exception
+        return wrapper
+    return decorator
+
+
 def _parse_database_url(database_url: str) -> Dict[str, Optional[str]]:
     try:
         if not database_url:
@@ -133,8 +173,9 @@ class DatabaseManager:
             host = 'localhost'
 
         try:
-            # Get pool size from environment or use default (10 for very conservative connection usage)
-            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '10'))
+            # Get pool size from environment or use default
+            # Increased from 10 to 20 to support more concurrent users (P0 Fix #2)
+            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '20'))
             connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
 
             port = os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or db_url_parts.get('port') or '5432'
@@ -195,12 +236,19 @@ class DatabaseManager:
         self.db_path = db_path
         logger.info(f"✓ SQLite database initialized at {db_path}")
     
+    @retry_on_db_error(max_retries=3, backoff_factor=2)
     def get_connection(self):
-        """Get a database connection."""
+        """Get a database connection with automatic retry on pool exhaustion."""
         if self.db_type == 'postgresql':
             if not self.connection_pool:
                 raise RuntimeError("PostgreSQL connection pool not initialized")
-            return self.connection_pool.getconn()
+            try:
+                conn = self.connection_pool.getconn()
+                logger.debug("Connection acquired from pool")
+                return conn
+            except Exception as e:
+                logger.error(f"Failed to get connection from pool: {e}")
+                raise
         else:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
