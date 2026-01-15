@@ -2327,13 +2327,20 @@ class DashboardManager:
             }
             safe_json_write(self.agent_audit_file, initial_data)
     
-    def get_combined_agent_audit_data(self, username: str = None) -> pd.DataFrame:
+    def get_combined_agent_audit_data(
+        self, 
+        username: str = None,
+        limit: int = None,
+        offset: int = 0
+    ) -> pd.DataFrame:
         """
         Combine all agent audit results from user-specific storage.
         Supports shared dashboards - users in sharing groups see combined data.
         
         Args:
             username: Username to load data for
+            limit: Maximum number of rows to return (None = all rows)
+            offset: Number of rows to skip (default: 0)
         
         Returns:
             Combined DataFrame of all agent audit results for the user/group
@@ -2350,13 +2357,18 @@ class DashboardManager:
         # Load from database
         if self._db_manager:
             try:
-                # Build query with usernames
+                # Build query with usernames and pagination
                 placeholders = ','.join(['%s'] * len(shared_users))
                 query = f"""
                     SELECT * FROM agent_audit_results 
                     WHERE username IN ({placeholders})
                     ORDER BY created_at DESC
                 """
+                
+                # Add pagination if limit is specified
+                if limit is not None:
+                    query += f" LIMIT {int(limit)} OFFSET {int(offset)}"
+                
                 results = self._db_manager.execute_query(query, tuple(shared_users), fetch=True)
                 
                 if not results:
@@ -2432,6 +2444,40 @@ class DashboardManager:
             combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
         
         return combined_df
+    
+    def get_agent_audit_count(self, username: str = None) -> int:
+        """
+        Get total count of agent audit results for pagination.
+        
+        Args:
+            username: Username to count results for
+            
+        Returns:
+            Total number of audit results
+        """
+        if not username:
+            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
+                username = st.session_state.get('username', 'default_user')
+            else:
+                username = 'default_user'
+        
+        # Get all users whose data this user can access
+        shared_users = self.get_shared_users(username)
+        
+        if self._db_manager:
+            try:
+                placeholders = ','.join(['%s'] * len(shared_users))
+                query = f"""
+                    SELECT COUNT(*) as count FROM agent_audit_results 
+                    WHERE username IN ({placeholders})
+                """
+                result = self._db_manager.execute_query(query, tuple(shared_users), fetch=True)
+                return result[0]['count'] if result else 0
+            except Exception as e:
+                logger.error(f"Error getting audit count: {e}")
+                return 0
+        
+        return 0
     
     def initialize_lite_audit_storage(self, username: str = None):
         """
