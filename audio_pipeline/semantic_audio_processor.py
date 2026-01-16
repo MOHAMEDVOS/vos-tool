@@ -282,7 +282,7 @@ class SemanticAudioProcessor:
                     transcription_status = "timeout" if "timeout" in str(e).lower() else "failed"
                     transcription_error = str(e)
             
-            result['transcript'] = transcript
+            result['transcription'] = transcript
             result['transcription_status'] = transcription_status
             result['transcription_error'] = transcription_error
             
@@ -296,6 +296,9 @@ class SemanticAudioProcessor:
                     )
                     
                     semantic_result = future_semantic.result(timeout=30)  # 30 second timeout for semantic
+                    # Ensure transcript is always included in result
+                    if 'transcript' not in semantic_result:
+                        semantic_result['transcript'] = transcript
                     result['rebuttal_detection'] = semantic_result
                     
                 except Exception as e:
@@ -308,7 +311,11 @@ class SemanticAudioProcessor:
                     }
             else:
                 # Fallback to keyword-only if no semantic engine
-                result['rebuttal_detection'] = self._fast_keyword_detection(transcript)
+                fallback_result = self._fast_keyword_detection(transcript)
+                # Ensure transcript is included in fallback result
+                if 'transcript' not in fallback_result:
+                    fallback_result['transcript'] = transcript
+                result['rebuttal_detection'] = fallback_result
             
             # Clean up temp file
             if temp_file and Path(temp_file).exists():

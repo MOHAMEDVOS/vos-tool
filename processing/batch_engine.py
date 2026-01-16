@@ -552,7 +552,7 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
                 RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
                 RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '')
+                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', '')  # Fallback for legacy key
             }
             
             # Add dialer name if available in metadata
@@ -566,7 +566,14 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
             
             # Add introduction scoring
             agent_name = result.get('agent_name', '')
+            
+            # Get transcription with fallback for both key names
             transcription = result.get('transcription', '')
+            if not transcription:
+                # Fallback: try 'transcript' key (legacy/pre-fix)
+                transcription = result.get('transcript', '')
+                if transcription:
+                    logger.debug(f"Using fallback 'transcript' key for {agent_name}")
             
             # Get existing detection results
             rebuttal_detected = result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No'
@@ -575,7 +582,7 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
             
             # Create classifier with agent name only (owner/property will be detected from transcript)
             classifier = IntroductionClassifier(agent_name, '', '')
-            intro_scores = classifier.score(transcription, rebuttal_detected, late_hello_detected, releasing_detected)
+            intro_scores = classifier.score(transcription or '', rebuttal_detected, late_hello_detected, releasing_detected)
             
             # Add new columns
             flagged_call['Agent Intro'] = intro_scores['agent_intro']['display']
@@ -638,7 +645,7 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
             RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
             RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
             RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '')
+            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', '')  # Fallback for legacy key
         }
         
         # Add dialer name if available in metadata
@@ -652,7 +659,14 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
         
         # Add introduction scoring
         agent_name = result.get('agent_name', '')
+        
+        # Get transcription with fallback for both key names
         transcription = result.get('transcription', '')
+        if not transcription:
+            # Fallback: try 'transcript' key (legacy/pre-fix)
+            transcription = result.get('transcript', '')
+            if transcription:
+                logger.debug(f"Using fallback 'transcript' key for {agent_name}")
         
         # Get existing detection results
         rebuttal_detected = result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No'
@@ -661,7 +675,7 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
         
         # Create classifier with agent name only (owner/property will be detected from transcript)
         classifier = IntroductionClassifier(agent_name, '', '')
-        intro_scores = classifier.score(transcription, rebuttal_detected, late_hello_detected, releasing_detected)
+        intro_scores = classifier.score(transcription or '', rebuttal_detected, late_hello_detected, releasing_detected)
         
         # Add new columns
         formatted_result['Agent Intro'] = intro_scores['agent_intro']['display']
