@@ -128,6 +128,15 @@ def get_user_readymode_credentials(username: str) -> Union[Tuple[None, None], Tu
     # Fallback to system default from environment variables (if set)
     # This is only used if the user doesn't have their own ReadyMode credentials
     if USERNAME and PASSWORD:
+        # Also apply decryption to fallback credentials if needed
+        if len(PASSWORD) > 60:
+            try:
+                from lib.security_utils import security_manager
+                decrypted_pass = security_manager.decrypt_string(PASSWORD)
+                if decrypted_pass:
+                    return USERNAME, decrypted_pass
+            except Exception:
+                pass
         return USERNAME, PASSWORD
     
     # If no fallback is set, return None (caller should handle this)
