@@ -109,9 +109,10 @@ def get_user_readymode_credentials(username: str) -> Union[Tuple[None, None], Tu
         # Use secure credential retrieval method
         readymode_user, readymode_pass = user_manager.get_user_readymode_credentials(username)
         if readymode_user and readymode_pass:
-            # Decrypt password if it's encrypted (starts with gAAAA for Fernet)
-            # This handles cases where dashboard stores encrypted credentials but automation needs plaintext
-            if readymode_pass.startswith('gAAAA'):
+            # Decrypt password if it's encrypted
+            # Fernet tokens are long (>100 chars). Double-encoded tokens start with Z0F.
+            # Plain passwords are usually short.
+            if len(readymode_pass) > 60:
                 try:
                     from lib.security_utils import security_manager
                     decrypted_pass = security_manager.decrypt_string(readymode_pass)
