@@ -104,9 +104,6 @@ def get_user_readymode_credentials(username: str) -> Union[Tuple[None, None], Tu
         tuple: (readymode_username, readymode_password) or (None, None)
     """
     # Import user_manager dynamically to avoid circular imports
-    except ImportError:
-        pass
-        
     try:
         from lib.dashboard_manager import user_manager
         # Use secure credential retrieval method
