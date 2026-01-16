@@ -175,7 +175,13 @@ class AudioProcessor:
                 future_rebuttal = None
                 if temp_file:
                     agent_detector = get_agent_detector(user_api_key)
-                    future_rebuttal = executor.submit(agent_detector.detect_rebuttals_in_audio, temp_file)
+                    # Pass original file name for cache lookup (temp files have different paths each time)
+                    original_path = file_name if file_name else temp_file
+                    future_rebuttal = executor.submit(
+                        agent_detector.detect_rebuttals_in_audio, 
+                        temp_file, 
+                        original_file_path=original_path
+                    )
                 
                 # Collect results as they complete
                 # Releasing detection (fast, completes first ~0.5-1s)

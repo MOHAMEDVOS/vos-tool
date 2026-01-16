@@ -167,14 +167,15 @@ class AgentOnlyTranscriptionEngine:
         logger.warning(f"Unexpected number of channels: {audio_segment.channels}, converting to mono")
         return audio_segment.set_channels(1)
 
-    def transcribe_agent_only(self, audio_file_path: str, timeout: Optional[int] = None, audio_duration_seconds: Optional[float] = None) -> Dict[str, Any]:
+    def transcribe_agent_only(self, audio_file_path: str, timeout: Optional[int] = None, audio_duration_seconds: Optional[float] = None, original_file_path: Optional[str] = None) -> Dict[str, Any]:
         """
         Transcribe only the agent channel using AssemblyAI with speaker diarization.
 
         Args:
-            audio_file_path: Path to the audio file
+            audio_file_path: Path to the audio file (may be temp file)
             timeout: Transcription timeout in seconds (optional, will be calculated if None)
             audio_duration_seconds: Duration of audio file for progressive timeout calculation
+            original_file_path: Original file path for cache lookup (if different from audio_file_path)
 
         Returns:
             Dict with transcript and metadata including transcription_status
@@ -182,7 +183,9 @@ class AgentOnlyTranscriptionEngine:
         start_time = time.time()
 
         try:
-            logger.info(f"Starting agent-only transcription with AssemblyAI: {audio_file_path}")
+            # Use original path for cache lookup if provided, otherwise use audio_file_path
+            cache_key_path = original_file_path if original_file_path else audio_file_path
+            logger.info(f"Starting agent-only transcription with AssemblyAI: {audio_file_path} (cache key: {cache_key_path})")
 
             # Calculate progressive timeout based on audio duration if not provided
             if timeout is None:
@@ -197,6 +200,24 @@ class AgentOnlyTranscriptionEngine:
                         timeout = settings.ASSEMBLYAI_TRANSCRIPTION_TIMEOUT
                     except ImportError:
                         timeout = 300  # 5 minutes default
+
+            # Check cache first using original file path
+            cached_result = self.local_engine.assemblyai_engine.cache.get(cache_key_path)
+            if cached_result:
+                logger.info(f"✅ CACHE HIT for transcription: {cache_key_path}")
+                processing_time = int((time.time() - start_time) * 1000)
+                return {
+                    "transcript": cached_result.get("transcript", ""),
+                    "full_transcript": cached_result.get("transcript", ""),
+                    "speakers": cached_result.get("speakers", []),
+                    "utterances": cached_result.get("utterances", []),
+                    "processing_time_ms": processing_time,
+                    "transcription_method": "assemblyai_api_cached",
+                    "channels_processed": 1,
+                    "transcription_status": "completed",
+                    "transcription_error": None,
+                    "error": ""
+                }
 
             # Transcribe with fast-path settings (no diarization for speed)
             # Disable language detection to avoid failures on low/zero-speech clips
@@ -217,6 +238,14 @@ class AgentOnlyTranscriptionEngine:
             utterances = result.get("utterances", [])
             
             processing_time = int((time.time() - start_time) * 1000)
+            
+            # Cache the result using original file path as key
+            if agent_transcript and cache_key_path:
+                try:
+                    self.local_engine.assemblyai_engine.cache.set(cache_key_path, result)
+                    logger.info(f"💾 Cached transcription for: {cache_key_path}")
+                except Exception as cache_error:
+                    logger.warning(f"Failed to cache transcription: {cache_error}")
             
             return {
                 "transcript": agent_transcript,
@@ -308,12 +337,13 @@ class AgentOnlyRebuttalDetector:
         self.egyptian_corrector = EgyptianAccentCorrection()
         logger.info("Agent-Only Rebuttal Detector initialized with AssemblyAI (Egyptian Accent Support)")
 
-    def detect_rebuttals_in_audio(self, audio_file_path: str) -> Dict[str, Any]:
+    def detect_rebuttals_in_audio(self, audio_file_path: str, original_file_path: Optional[str] = None) -> Dict[str, Any]:
         """
         Complete pipeline: Agent-only transcription with AssemblyAI → Rebuttal detection
 
         Args:
-            audio_file_path: Path to audio file
+            audio_file_path: Path to audio file (may be temp file)
+            original_file_path: Original file path for cache lookup (if different from audio_file_path)
 
         Returns:
             Standardized detection result
@@ -321,10 +351,15 @@ class AgentOnlyRebuttalDetector:
         start_time = time.time()
 
         try:
-            logger.info(f"Starting agent-only rebuttal detection with AssemblyAI: {audio_file_path}")
+            # Use original path for logging if provided
+            cache_key = original_file_path if original_file_path else audio_file_path
+            logger.info(f"Starting agent-only rebuttal detection with AssemblyAI: {audio_file_path} (cache key: {cache_key})")
 
-            # Step 1: Transcribe only agent channel with AssemblyAI
-            transcription_result = self.transcription_engine.transcribe_agent_only(audio_file_path)
+            # Step 1: Transcribe only agent channel with AssemblyAI (with cache support)
+            transcription_result = self.transcription_engine.transcribe_agent_only(
+                audio_file_path, 
+                original_file_path=original_file_path
+            )
 
             if not transcription_result["transcript"]:
                 return self.formatter.format_result(
