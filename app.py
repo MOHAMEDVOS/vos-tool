@@ -741,7 +741,8 @@ def show_settings_section():
                 "Status": "🟢 Online" if is_online else "🔴 Offline",
                 "Daily Limit": daily_limit_display,
                 "App Account": "Active" if config.get("app_pass") else "Not Set",
-                "ReadyMode": "Configured" if config.get("readymode_user") else "Not Set"
+                "ReadyMode": "Configured" if config.get("readymode_user") else "Not Set",
+                "AssemblyAI": "Configured" if config.get("assemblyai_api_key_encrypted") else "Not Set"
             })
 
         # Display enhanced user table
@@ -756,7 +757,8 @@ def show_settings_section():
                 "Status": st.column_config.TextColumn("Status", width="small"),
                 "Daily Limit": st.column_config.TextColumn("Daily Limit", width="small"),
                 "App Account": st.column_config.TextColumn("App Account", width="small"),
-                "ReadyMode": st.column_config.TextColumn("ReadyMode", width="small")
+                "ReadyMode": st.column_config.TextColumn("ReadyMode", width="small"),
+                "AssemblyAI": st.column_config.TextColumn("AssemblyAI", width="small")
             }
         )
 

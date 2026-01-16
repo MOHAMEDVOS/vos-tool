@@ -100,23 +100,37 @@ class BatchProcessor:
         from concurrent.futures import TimeoutError
         
         logger = logging.getLogger(__name__)
+        
+        # Auto-fetch AssemblyAI key if not provided but username is
+        if not user_api_key and username:
+            try:
+                from lib.dashboard_manager import user_manager
+                fetched_key = user_manager.get_user_assemblyai_key(username)
+                if fetched_key:
+                    user_api_key = fetched_key
+                    logger.info(f"Retrieved AssemblyAI API key from database for user {username}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch user API key: {e}")
+
         audio_files = self.find_audio_files(folder_path)
         
         if not audio_files:
             return []
         
         # PRE-LOAD MODELS BEFORE BATCH PROCESSING STARTS
-        logger.info("Pre-loading models before batch processing...")
-        try:
-            from processing.model_preloader import get_model_preloader
-            preloader = get_model_preloader()
-            preload_success = preloader.preload_all_models()
-            if preload_success:
-                logger.info("✓ All models pre-loaded successfully")
-            else:
-                logger.warning("Some models failed to pre-load, will load on-demand")
-        except Exception as e:
-            logger.warning(f"Model pre-loading failed: {e}, will load on-demand")
+        # TEMPORARILY DISABLED: This was blocking transcription while downloading HuggingFace models
+        # Models will load on-demand instead
+        # logger.info("Pre-loading models before batch processing...")
+        # try:
+        #     from processing.model_preloader import get_model_preloader
+        #     preloader = get_model_preloader()
+        #     preload_success = preloader.preload_all_models()
+        #     if preload_success:
+        #         logger.info("✓ All models pre-loaded successfully")
+        #     else:
+        #         logger.warning("Some models failed to pre-load, will load on-demand")
+        # except Exception as e:
+        #     logger.warning(f"Model pre-loading failed: {e}, will load on-demand")
         
         results = []
         total_files = len(audio_files)
@@ -272,23 +286,39 @@ class BatchProcessor:
         from concurrent.futures import TimeoutError
         
         logger.info("Starting ASYNC batch processing (Phase 2 optimization)")
+        
+        # Auto-fetch AssemblyAI key if not provided but username is
+        if not user_api_key and username:
+            try:
+                from lib.dashboard_manager import user_manager
+                fetched_key = user_manager.get_user_assemblyai_key(username)
+                if fetched_key:
+                    user_api_key = fetched_key
+                    logger.info(f"Retrieved AssemblyAI API key from database for user {username}")
+                else:
+                    logger.warning(f"No AssemblyAI API key found in database for user {username}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch user API key: {e}")
+
         audio_files = self.find_audio_files(folder_path)
         
         if not audio_files:
             return []
         
         # PRE-LOAD MODELS BEFORE BATCH PROCESSING STARTS
-        logger.info("Pre-loading models before async batch processing...")
-        try:
-            from processing.model_preloader import get_model_preloader
-            preloader = get_model_preloader()
-            preload_success = preloader.preload_all_models()
-            if preload_success:
-                logger.info("✓ All models pre-loaded successfully")
-            else:
-                logger.warning("Some models failed to pre-load, will load on-demand")
-        except Exception as e:
-            logger.warning(f"Model pre-loading failed: {e}, will load on-demand")
+        # TEMPORARILY DISABLED: This was blocking transcription while downloading HuggingFace models
+        # Models will load on-demand instead
+        # logger.info("Pre-loading models before async batch processing...")
+        # try:
+        #     from processing.model_preloader import get_model_preloader
+        #     preloader = get_model_preloader()
+        #     preload_success = preloader.preload_all_models()
+        #     if preload_success:
+        #         logger.info("✓ All models pre-loaded successfully")
+        #     else:
+        #         logger.warning("Some models failed to pre-load, will load on-demand")
+        # except Exception as e:
+        #     logger.warning(f"Model pre-loading failed: {e}, will load on-demand")
         
         results = []
         total_files = len(audio_files)

@@ -15,6 +15,10 @@ _SEMANTIC_EMBEDDINGS = None
 
 def get_semantic_model():
     """Get or create the global semantic model instance (thread-safe singleton)."""
+    # TEMPORARILY DISABLED: Semantic model downloads are blocking transcription
+    logger.warning("Semantic model loading disabled - semantic rebuttal matching unavailable")
+    return None, None
+    
     global _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
     if _SEMANTIC_MODEL is not None:

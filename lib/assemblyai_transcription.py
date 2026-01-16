@@ -22,6 +22,43 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logger = logging.getLogger(__name__)
 
+# Auto-initialize API key from database if possible
+try:
+    # Try to get user's API key from database
+    #  Attempt to determine current user from session state or environment
+    current_user = None
+    try:
+        import streamlit as st
+        if hasattr(st, 'session_state') and 'username' in st.session_state:
+            current_user = st.session_state['username']
+    except:
+        pass
+    
+    if not current_user:
+        current_user = os.getenv('VOS_USER', 'Mohamed Abdo')  # Fallback
+    
+    from lib.dashboard_manager import user_manager
+    user_api_key = user_manager.get_user_assemblyai_key(current_user)
+    
+    if user_api_key:
+        aai.settings.api_key = user_api_key
+        logger.info(f"Auto-initialized AssemblyAI API key from database for user: {current_user}")
+    else:
+        # Fallback to environment variable
+        env_key = os.getenv("ASSEMBLYAI_API_KEY")
+        if env_key:
+            aai.settings.api_key = env_key
+            logger.info("Using AssemblyAI API key from environment variable")
+except Exception as e:
+    logger.warning(f"Could not auto-initialize API key from database: {e}")
+    # Try environment fallback
+    try:
+        env_key = os.getenv("ASSEMBLYAI_API_KEY")
+        if env_key:
+            aai.settings.api_key = env_key
+    except:
+        pass
+
 
 def retry_api_call(max_retries=3, backoff_factor=2, retry_on_rate_limit=True):
     """

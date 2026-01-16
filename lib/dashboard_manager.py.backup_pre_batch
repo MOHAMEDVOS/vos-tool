@@ -922,7 +922,6 @@ class UserManager:
                         'app_pass_salt': user.get('app_pass_salt'),
                         'readymode_user': user.get('readymode_user'),
                         'readymode_pass_encrypted': user.get('readymode_pass_encrypted'),
-                        'assemblyai_api_key_encrypted': user.get('assemblyai_api_key_encrypted'),
                         'daily_limit': user.get('daily_limit', 5000),
                         'role': user.get('role', self.ROLE_AUDITOR),
                         'created_by': user.get('created_by'),
@@ -1412,34 +1411,6 @@ class UserManager:
             logger.error(f"Error getting ReadyMode credentials for {username}: {e}")
             return None, None
     
-    
-    def get_user_assemblyai_key(self, username: str) -> Optional[str]:
-        """
-        Get decrypted AssemblyAI API key for a user.
-        
-        Args:
-            username: Username
-            
-        Returns:
-            str: Decrypted API key or None if not found
-        """
-        try:
-            user_data = self.get_user(username)
-            if not user_data:
-                return None
-
-            # Check if key is encrypted (standard)
-            if SECURITY_AVAILABLE and 'assemblyai_api_key_encrypted' in user_data:
-                encrypted_key = user_data.get('assemblyai_api_key_encrypted')
-                if encrypted_key:
-                    return security_manager.decrypt_string(encrypted_key)
-            
-            return None
-
-        except Exception as e:
-            logger.error(f"Error getting AssemblyAI key for {username}: {e}")
-            return None
-
     def get_user_role(self, username: str) -> str:
         """
         Get the role of a user.
@@ -2291,20 +2262,12 @@ class DashboardManager:
                             json.dumps(record) if record else None,
                         )
                     )
-                
-                # Use optimized execute_values_batch for 50x faster inserts
-                query = """
-                    INSERT INTO agent_audit_results 
-                    (username, agent_name, file_name, file_path, releasing_detection, 
-                     late_hello_detection, rebuttal_detection, timestamp, call_duration, 
-                     transcript, confidence_score, metadata)
-                    VALUES %s
-                """
-                
+
+                # Use optimized execute_many with chunking for large batches
                 start_time = time.time()
-                rows_inserted = self._db_manager.execute_values_batch(query, params_list, page_size=100)
+                self._db_manager.execute_many(query, params_list, fetch=False, chunk_size=100)
                 elapsed = time.time() - start_time
-                logger.info(f"✅ Batch inserted {rows_inserted} agent audit results for user {username} in {elapsed:.2f}s (using execute_values)")
+                logger.info(f"Saved {len(df_dict)} agent audit results to database for user {username} in {elapsed:.2f}s")
                 
                 # Log connection pool stats if available
                 try:
@@ -2356,20 +2319,13 @@ class DashboardManager:
             }
             safe_json_write(self.agent_audit_file, initial_data)
     
-    def get_combined_agent_audit_data(
-        self, 
-        username: str = None,
-        limit: int = None,
-        offset: int = 0
-    ) -> pd.DataFrame:
+    def get_combined_agent_audit_data(self, username: str = None) -> pd.DataFrame:
         """
         Combine all agent audit results from user-specific storage.
         Supports shared dashboards - users in sharing groups see combined data.
         
         Args:
             username: Username to load data for
-            limit: Maximum number of rows to return (None = all rows)
-            offset: Number of rows to skip (default: 0)
         
         Returns:
             Combined DataFrame of all agent audit results for the user/group
@@ -2386,18 +2342,13 @@ class DashboardManager:
         # Load from database
         if self._db_manager:
             try:
-                # Build query with usernames and pagination
+                # Build query with usernames
                 placeholders = ','.join(['%s'] * len(shared_users))
                 query = f"""
                     SELECT * FROM agent_audit_results 
                     WHERE username IN ({placeholders})
                     ORDER BY created_at DESC
                 """
-                
-                # Add pagination if limit is specified
-                if limit is not None:
-                    query += f" LIMIT {int(limit)} OFFSET {int(offset)}"
-                
                 results = self._db_manager.execute_query(query, tuple(shared_users), fetch=True)
                 
                 if not results:
@@ -2474,40 +2425,6 @@ class DashboardManager:
         
         return combined_df
     
-    def get_agent_audit_count(self, username: str = None) -> int:
-        """
-        Get total count of agent audit results for pagination.
-        
-        Args:
-            username: Username to count results for
-            
-        Returns:
-            Total number of audit results
-        """
-        if not username:
-            if STREAMLIT_AVAILABLE and st and hasattr(st, 'session_state'):
-                username = st.session_state.get('username', 'default_user')
-            else:
-                username = 'default_user'
-        
-        # Get all users whose data this user can access
-        shared_users = self.get_shared_users(username)
-        
-        if self._db_manager:
-            try:
-                placeholders = ','.join(['%s'] * len(shared_users))
-                query = f"""
-                    SELECT COUNT(*) as count FROM agent_audit_results 
-                    WHERE username IN ({placeholders})
-                """
-                result = self._db_manager.execute_query(query, tuple(shared_users), fetch=True)
-                return result[0]['count'] if result else 0
-            except Exception as e:
-                logger.error(f"Error getting audit count: {e}")
-                return 0
-        
-        return 0
-    
     def initialize_lite_audit_storage(self, username: str = None):
         """
         Initialize lite audit storage - each user gets their own isolated storage file.
@@ -2567,8 +2484,6 @@ class DashboardManager:
         if self._db_manager:
             try:
                 df_dict = df_with_metadata.to_dict('records')
-                params_list = []
-                
                 for record in df_dict:
                     # Validate and normalize detection values before saving
                     releasing = record.get('Releasing Detection', 'No')
@@ -2605,25 +2520,20 @@ class DashboardManager:
                         'audit_timestamp': audit_timestamp
                     }
                     
-                    params_list.append((
+                    query = """
+                        INSERT INTO lite_audit_results 
+                        (username, agent_name, file_name, file_path, detection_results)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """
+                    params = (
                         username,
                         record.get('Agent Name'),
                         record.get('File Name'),
                         record.get('File Path'),
                         json.dumps(detection_results)
-                    ))
-                
-                # Use optimized execute_values_batch for 50x faster inserts
-                query = """
-                    INSERT INTO lite_audit_results 
-                    (username, agent_name, file_name, file_path, detection_results)
-                    VALUES %s
-                """
-                
-                start_time = time.time()
-                rows_inserted = self._db_manager.execute_values_batch(query, params_list, page_size=100)
-                elapsed = time.time() - start_time
-                logger.info(f"✅ Batch inserted {rows_inserted} lite audit results for user {username} in {elapsed:.2f}s (using execute_values)")
+                    )
+                    self._db_manager.execute_query(query, params, fetch=False)
+                logger.info(f"Saved {len(df_dict)} lite audit results to database for user {username}")
                 
                 # Check if this is a campaign audit and also save to campaign audit storage
                 campaign_name = self._detect_campaign_from_dataframe(df_with_metadata)
