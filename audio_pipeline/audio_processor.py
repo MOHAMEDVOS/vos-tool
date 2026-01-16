@@ -124,7 +124,7 @@ class AudioProcessor:
             return audio.split_to_mono()[0]
         return audio
 
-    def classify_call(self, agent_audio: AudioSegment, full_audio: AudioSegment, file_name: str = "", user_api_key: Optional[str] = None) -> Dict[str, Any]:
+    def classify_call(self, agent_audio: AudioSegment, full_audio: AudioSegment, file_name: str = "", file_path: str = "", user_api_key: Optional[str] = None) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
 
         logger.info(f"Starting classification for file: {file_name}")
@@ -175,8 +175,9 @@ class AudioProcessor:
                 future_rebuttal = None
                 if temp_file:
                     agent_detector = get_agent_detector(user_api_key)
-                    # Pass original file name for cache lookup (temp files have different paths each time)
-                    original_path = file_name if file_name else temp_file
+                    # Pass full file path for cache lookup (temp files have different paths each time)
+                    # Use file_path (full path) if available, fallback to file_name (basename), fallback to temp_file
+                    original_path = file_path if file_path else (file_name if file_name else temp_file)
                     future_rebuttal = executor.submit(
                         agent_detector.detect_rebuttals_in_audio, 
                         temp_file, 
@@ -401,7 +402,7 @@ class AudioProcessor:
             }
 
         try:
-            classification = self.classify_call(agent_audio, audio, file_name=file_path.name, user_api_key=user_api_key)
+            classification = self.classify_call(agent_audio, audio, file_name=file_path.name, file_path=str(file_path), user_api_key=user_api_key)
         except Exception as e:
             logger.error(f"Classification failed for {file_path}: {e}", exc_info=True)
             classification = {
