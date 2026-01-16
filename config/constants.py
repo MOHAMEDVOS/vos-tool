@@ -22,16 +22,18 @@ class ProcessingConfig:
     TIMEOUT_LITE_FILE = 60  # 1 minute in seconds
     
     # Rebuttal detection timeouts (progressive based on file duration)
-    REBUTTAL_DETECTION_TIMEOUT_BASE = 180  # 3 minutes base timeout
-    REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE = 30  # 30 seconds per minute of audio
+    # INCREASED for free tier AssemblyAI which can be slow due to rate limits
+    REBUTTAL_DETECTION_TIMEOUT_BASE = 300  # 5 minutes base timeout (was 180)
+    REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE = 60  # 60 seconds per minute of audio (was 30)
     REBUTTAL_DETECTION_TIMEOUT_MAX = 600  # 10 minutes maximum
-    REBUTTAL_DETECTION_TIMEOUT_MIN = 60  # 1 minute minimum
+    REBUTTAL_DETECTION_TIMEOUT_MIN = 120  # 2 minutes minimum (was 60)
     
     # Transcription timeouts
-    TRANSCRIPTION_TIMEOUT_BASE = 180  # 3 minutes base timeout
-    TRANSCRIPTION_TIMEOUT_PER_MINUTE = 30  # 30 seconds per minute of audio
+    # INCREASED for free tier AssemblyAI which can be slow due to rate limits
+    TRANSCRIPTION_TIMEOUT_BASE = 300  # 5 minutes base timeout (was 180)
+    TRANSCRIPTION_TIMEOUT_PER_MINUTE = 60  # 60 seconds per minute of audio (was 30)
     TRANSCRIPTION_TIMEOUT_MAX = 600  # 10 minutes maximum
-    TRANSCRIPTION_TIMEOUT_MIN = 60  # 1 minute minimum
+    TRANSCRIPTION_TIMEOUT_MIN = 120  # 2 minutes minimum (was 60)
 
 
 class SecurityConfig:
