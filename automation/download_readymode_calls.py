@@ -339,11 +339,11 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
         try:
             # Login
             if update_callback:
-                update_callback(f"🔐 Logging in to {dialer_name}...", 0, 100)
+                update_callback(0, 100)  # Starting
             login_to_readymode(page, dialer_url, readymode_user, readymode_pass, cancellation_callback)
             
             if update_callback:
-                update_callback("✅ Login successful", 10, 100)
+                update_callback(10, 100)  # Login complete
             
             # Navigate to agent or campaign stats
             if campaign_name:
@@ -376,7 +376,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             page.wait_for_load_state("networkidle", timeout=30000)
             
             if update_callback:
-                update_callback("📊 Loading call list...", 20, 100)
+                update_callback(20, 100)  # Loading calls
             
             # Navigate to listen page
             listen_link = page.locator("a:has-text('Listen')").first
@@ -400,7 +400,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
             
             if update_callback:
-                update_callback(f"📥 Found {len(download_links)} recordings. Starting download...", 30, 100)
+                update_callback(30, 100)  # Found recordings
             
             # Get cookies for download session
             cookies_dict = {}
@@ -447,11 +447,11 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         skipped_count += 1
                     
                     if update_callback:
-                        current = downloaded_count + skipped_count
-                        update_callback(f"📥 Downloaded {downloaded_count}/{total_count} files", current, total_count)
+                        # Pass downloaded, total - exactly 2 params!
+                        update_callback(downloaded_count, total_count)
             
             if update_callback:
-                update_callback(f"✅ Download complete! {downloaded_count} files saved", 100, 100)
+                update_callback(total_count, total_count)  # Complete
             
             print(f"DOWNLOAD_COMPLETE: {downloaded_count} files downloaded to {DOWNLOAD_DIR}")
             return DOWNLOAD_DIR
