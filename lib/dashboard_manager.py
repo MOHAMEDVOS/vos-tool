@@ -734,6 +734,42 @@ class SessionManager:
             logger.error(f"Error getting session info for {username}: {e}")
             return None
 
+
+    def get_session_data(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get session data by session_id (DATABASE ONLY).
+        
+        Args:
+            session_id: The session ID to look up
+            
+        Returns:
+            Dict containing session data or None if not found
+        """
+        try:
+            if self._db_manager:
+                query = """
+                    SELECT * FROM user_sessions 
+                    WHERE session_id = %s AND is_active = TRUE 
+                    AND expires_at > CURRENT_TIMESTAMP
+                """
+                session = self._db_manager.execute_query(query, (session_id,), fetchone=True)
+                
+                if session:
+                    return {
+                        'session_id': session['session_id'],
+                        'username': session['username'],
+                        'created_at': session['created_at'].isoformat() if session.get('created_at') else None,
+                        'last_activity': session['last_activity'].isoformat() if session.get('last_activity') else None,
+                        'ip_address': str(session.get('ip_address', 'unknown')),
+                        'user_agent': session.get('user_agent', 'unknown')
+                    }
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error getting session data for ID {session_id}: {e}")
+            return None
+        return None
+
     def get_active_sessions(self) -> Dict[str, Dict[str, Any]]:
         """
         Get all active (non-expired) sessions.

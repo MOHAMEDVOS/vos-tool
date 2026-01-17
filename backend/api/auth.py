@@ -102,36 +102,29 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
 
 @router.get("/session")
 async def check_session(
-    current_user: dict = Depends(get_current_user),
-    session_id: Optional[str] = Query(None, description="Session ID to validate")
+    session_id: str = Query(..., description="Session ID to validate")
 ):
-    """Check if session is valid.
+    """Check if session is valid (public endpoint).
     
     Args:
-        session_id: Optional session ID to validate. If provided, validates the specific session.
-                   If None, checks if any active session exists (for backwards compatibility).
+        session_id: Session ID to validate.
     """
-    username = current_user["username"]
+    # Look up session data using the ID (no auth required)
+    session_data = session_manager.get_session_data(session_id)
     
-    # If session_id provided, validate that specific session
-    if session_id:
-        is_valid = session_manager.validate_session(username, session_id)
+    if not session_data:
         return {
-            "valid": is_valid,
-            "username": username
+            "valid": False,
+            "username": None
         }
     
-    # Fallback: check if any active session exists (for backwards compatibility)
-    existing_session = session_manager.check_existing_session(username)
-    if existing_session:
-        is_valid = session_manager.validate_session(username, existing_session)
-        return {
-            "valid": is_valid,
-            "username": username
-        }
+    username = session_data["username"]
+    
+    # Standard validation (expiration, etc.)
+    is_valid = session_manager.validate_session(username, session_id)
     
     return {
-        "valid": False,
-        "username": username
+        "valid": is_valid,
+        "username": username if is_valid else None
     }
 
