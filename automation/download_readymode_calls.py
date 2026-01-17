@@ -375,14 +375,14 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             max_attempts = max_samples * 3
             
             is_campaign_audit = bool(campaign_name)
-            download_links = []
+            download_tasks = []  # Changed from download_links to download_tasks (stores tuples)
             
-            while len(download_links) < max_samples and attempted < max_attempts:
+            while len(download_tasks) < max_samples and attempted < max_attempts:
                 if cancellation_callback and cancellation_callback():
                     print("CANCELLED Download cancelled by user")
                     raise KeyboardInterrupt("Download cancelled by user")
                 
-                print(f"\\nPAGE Page {page_number} (Collected: {len(download_links)}/{max_samples})")
+                print(f"\\nPAGE Page {page_number} (Collected: {len(download_tasks)}/{max_samples})")
                 
                 # Wait for MP3 links to be present
                 try:
@@ -391,32 +391,80 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     print("WARNING No MP3 links found on this page")
                     break
                 
-                # Get all MP3 links on current page
-                all_links = page.locator("a[href*='.mp3']").all()
+                # Find all DIV blocks containing MP3 links (to extract metadata)
+                blocks = page.locator("div:has(a[href*='.mp3'])").all()
                 
                 new_links_this_page = 0
-                for link in all_links:
-                    if len(download_links) >= max_samples:
+                for block in blocks:
+                    if len(download_tasks) >= max_samples:
                         break
                     
-                    href = link.get_attribute("href")
-                    if href and ".mp3" in href:
+                    try:
+                        # Extract metadata from spans within the block
+                        file_text = block.locator("span[repvar='File']").text_content()
+                        agent_text = block.locator("span[repvar='User']").text_content().strip()
+                        href = block.locator("a[href*='.mp3']").get_attribute("href")
+                        
+                        # Extract time with fallback
+                        try:
+                            time_text = block.locator("span[repvar='Time']").text_content()
+                            if not time_text or not time_text.strip():
+                                time_text = "Unknown_Time"
+                        except:
+                            time_text = "Unknown_Time"
+                        
+                        # Extract type/disposition with fallback
+                        try:
+                            type_text = block.locator("span[repvar='Type']").text_content()
+                            if not type_text or not type_text.strip():
+                                type_text = "Unknown_Type"
+                        except:
+                            type_text = "Unknown_Type"
+                        
                         # Make absolute URL
                         if not href.startswith("http"):
                             base = dialer_url.rstrip("/")
                             href = f"{base}/{href.lstrip('/')}"
                         
-                        if href not in seen_links:
-                            seen_links.add(href)
-                            download_links.append(href)
-                            new_links_this_page += 1
-                            attempted += 1
+                        # Skip if we've seen this link already
+                        if href in seen_links:
+                            continue
+                        
+                        # Extract phone number from file_text
+                        phone_match = re.search(r"\(\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}", file_text)
+                        phone_number = phone_match.group(0) if phone_match else f"unknown_{len(download_tasks)+1}"
+                        
+                        # Ensure all components are valid for filename
+                        if not time_text or not time_text.strip():
+                            time_text = "Unknown_Time"
+                        if not type_text or not type_text.strip():
+                            type_text = "Unknown_Type"
+                        if not phone_number or not phone_number.strip():
+                            phone_number = f"unknown_{len(download_tasks)+1}"
+                        
+                        # Create descriptive filename (matching Selenium format)
+                        filename = f"{agent_text} _ {time_text} _ {phone_number} _ {type_text}.mp3"
+                        
+                        # Sanitize filename to remove problematic characters
+                        filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
+                        
+                        filepath = os.path.join(DOWNLOAD_DIR, filename)
+                        
+                        # Add to download tasks
+                        seen_links.add(href)
+                        download_tasks.append((href, filepath, filename))
+                        new_links_this_page += 1
+                        attempted += 1
+                        
+                    except Exception as e:
+                        # Skip blocks that fail to extract metadata
+                        continue
                 
                 print(f"SEARCH Found {new_links_this_page} new links on page")
                 
                 # Check if we have enough
-                if len(download_links) >= max_samples:
-                    print(f"SUCCESS Collected {len(download_links)} links (target: {max_samples})")
+                if len(download_tasks) >= max_samples:
+                    print(f"SUCCESS Collected {len(download_tasks)} links (target: {max_samples})")
                     break
                 
                 # Try to navigate to next page
@@ -464,10 +512,10 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     print(f"PAGINATION End of pages reached or pagination failed: {e}")
                     break
             
-            if not download_links:
+            if not download_tasks:
                 raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
             
-            print(f"\\nSEARCH Collected {len(download_links)} total links across {page_number} pages")
+            print(f"\\nSEARCH Collected {len(download_tasks)} total links across {page_number} pages")
             
             if update_callback:
                 update_callback(60, 100)
@@ -478,7 +526,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 cookies_dict[cookie['name']] = cookie['value']
             
             # STEP 9: DOWNLOAD FILES CONCURRENTLY
-            print(f"\\nDOWNLOAD Starting download of {len(download_links)} files...")
+            print(f"\\nDOWNLOAD Starting download of {len(download_tasks)} files...")
             session = requests.Session()
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -487,15 +535,12 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             lock = threading.Lock()
             downloaded_count = 0
             skipped_count = 0
-            total_count = len(download_links)
+            total_count = len(download_tasks)
             
             with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOWNLOADS) as executor:
                 futures = []
                 
-                for idx, href in enumerate(download_links, start=1):
-                    filename = f"call_{idx:04d}.mp3"
-                    filepath = os.path.join(DOWNLOAD_DIR, filename)
-                    
+                for href, filepath, filename in download_tasks:
                     future = executor.submit(
                         download_single_file,
                         session, cookies_dict, headers, href, filepath,
