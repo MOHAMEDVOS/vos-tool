@@ -660,12 +660,15 @@ class QuotaManager:
     
     # ==================== USER OPERATIONS ====================
     
-    def record_user_usage(self, username: str, usage_count: int = 1):
+    def record_user_usage(self, username: str, usage_count: int = 1) -> Tuple[bool, str]:
         """Record usage for a user and check quotas.
         
         Args:
             username: Username to record usage for
             usage_count: Amount of usage to record (default: 1)
+            
+        Returns:
+            Tuple[bool, str]: (allowed, message)
             
         Raises:
             QuotaExceededError: If user has exceeded their quota
@@ -683,7 +686,7 @@ class QuotaManager:
             
             if not user_assignment:
                 logger.warning(f"No quota assignment found for user {username}")
-                return  # Allow usage but log warning
+                return True, f"No quota assignment found for user {username}, allowing usage"
             
             admin_username = user_assignment.get("assigned_to_admin")
             daily_quota = user_assignment.get("daily_quota", 0)
@@ -727,7 +730,9 @@ class QuotaManager:
             """
             self._db_manager.execute_query(admin_usage_query, (admin_username, today, usage_count))
             
-            logger.debug(f"Recorded usage for {username}: {usage_count} (total: {new_usage}/{daily_quota})")
+            msg = f"Recorded usage for {username}: {usage_count} (total: {new_usage}/{daily_quota})"
+            logger.debug(msg)
+            return True, msg
             
         except QuotaExceededError:
             raise  # Re-raise quota exceeded
