@@ -364,132 +364,110 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             if update_callback:
                 update_callback(50, 100)
             
-            # STEP 7: EXTRACT MP3 DOWNLOAD LINKS
-            # Different handling for "All users" vs specific agent
-            if agent and agent.strip().lower() == "all users":
-                # ALL USERS MODE: Pagination through multiple pages
-                print("\\nSEARCH Extracting links in 'All users' pagination mode...")
-                
-                downloaded = 0
-                attempted = 0
-                page_number = 1
-                seen_links = set()
-                max_attempts = max_samples * 3
-                
-                is_campaign_audit = bool(campaign_name)
-                download_links = []
-                
-                while downloaded < max_samples and attempted < max_attempts:
-                    if cancellation_callback and cancellation_callback():
-                        print("CANCELLED Download cancelled by user")
-                        raise KeyboardInterrupt("Download cancelled by user")
-                    
-                    print(f"\\nPAGE Page {page_number} (Collected: {len(download_links)}/{max_samples})")
-                    
-                    # Wait for MP3 links to be present
-                    page.wait_for_selector("a[href*='.mp3']", timeout=30000)
-                    
-                    # Get all MP3 links on current page
-                    all_links = page.locator("a[href*='.mp3']").all()
-                    
-                    new_links_this_page = 0
-                    for link in all_links:
-                        if len(download_links) >= max_samples:
-                            break
-                        
-                        href = link.get_attribute("href")
-                        if href and ".mp3" in href:
-                            # Make absolute URL
-                            if not href.startswith("http"):
-                                base = dialer_url.rstrip("/")
-                                href = f"{base}/{href.lstrip('/')}"
-                            
-                            if href not in seen_links:
-                                seen_links.add(href)
-                                download_links.append(href)
-                                new_links_this_page += 1
-                                attempted += 1
-                    
-                    print(f"SEARCH Found {new_links_this_page} new links on page")
-                    
-                    # Check if we have enough
-                    if len(download_links) >= max_samples:
-                        print(f"SUCCESS Collected {len(download_links)} links (target: {max_samples})")
-                        break
-                    
-                    # Try to navigate to next page
-                    try:
-                        pagination = page.locator("#ccs_cl_pagination")
-                        
-                        if not is_campaign_audit:
-                            # Default behavior: click immediate next sibling page
-                            current = pagination.locator("li.page.selected")
-                            next_page = current.locator("xpath=following-sibling::li[@class='page']").first
-                            next_page.click()
-                            page_number += 1
-                            print(f"NEXT Next page ({page_number})")
-                            time.sleep(2)
-                        else:
-                            # Campaign Audit: hop in 5-page steps (1 -> 5 -> 10 -> 15 -> ...)
-                            current = pagination.locator("li.page.selected")
-                            current_label = current.text_content().strip()
-                            
-                            try:
-                                if current_label.isdigit():
-                                    page_number = int(current_label)
-                            except:
-                                pass
-                            
-                            # Compute next target page in 5-page increments
-                            if page_number < 5:
-                                target_page_number = 5
-                            else:
-                                target_page_number = ((page_number // 5) + 1) * 5
-                            
-                            # Try to find and click target page
-                            try:
-                                target_page = pagination.locator(f"li.page a:has-text('{target_page_number}')").first
-                                target_page.click()
-                                page_number = target_page_number
-                                print(f"NEXT Jumped to page {target_page_number}")
-                                time.sleep(2)
-                            except:
-                                print(f"WARNING No page {target_page_number} found, stopping pagination")
-                                break
-                    
-                    except Exception as e:
-                        print(f"PAGINATION End of pages reached or pagination failed: {e}")
-                        break
-                
-                if not download_links:
-                    raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
-                
-                print(f"\\nSEARCH Collected {len(download_links)} total links across {page_number} pages")
+            # STEP 7: EXTRACT MP3 DOWNLOAD LINKS WITH PAGINATION
+            # All modes paginate through pages to collect max_samples
+            print(f"\\nSEARCH Extracting links with pagination (target: {max_samples} samples)...")
             
-            else:
-                # SPECIFIC AGENT MODE: Single page extraction
-                print("\\nSEARCH Extracting MP3 links from page...")
-                download_links = []
+            downloaded = 0
+            attempted = 0
+            page_number = 1
+            seen_links = set()
+            max_attempts = max_samples * 3
+            
+            is_campaign_audit = bool(campaign_name)
+            download_links = []
+            
+            while len(download_links) < max_samples and attempted < max_attempts:
+                if cancellation_callback and cancellation_callback():
+                    print("CANCELLED Download cancelled by user")
+                    raise KeyboardInterrupt("Download cancelled by user")
+                
+                print(f"\\nPAGE Page {page_number} (Collected: {len(download_links)}/{max_samples})")
                 
                 # Wait for MP3 links to be present
-                page.wait_for_selector("a[href*='.mp3']", timeout=30000)
+                try:
+                    page.wait_for_selector("a[href*='.mp3']", timeout=30000)
+                except:
+                    print("WARNING No MP3 links found on this page")
+                    break
                 
-                # Get all MP3 links
+                # Get all MP3 links on current page
                 all_links = page.locator("a[href*='.mp3']").all()
                 
-                for link in all_links[:max_samples]:
+                new_links_this_page = 0
+                for link in all_links:
+                    if len(download_links) >= max_samples:
+                        break
+                    
                     href = link.get_attribute("href")
                     if href and ".mp3" in href:
                         # Make absolute URL
                         if not href.startswith("http"):
                             base = dialer_url.rstrip("/")
                             href = f"{base}/{href.lstrip('/')}"
-                        download_links.append(href)
+                        
+                        if href not in seen_links:
+                            seen_links.add(href)
+                            download_links.append(href)
+                            new_links_this_page += 1
+                            attempted += 1
                 
-                if not download_links:
-                    raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
+                print(f"SEARCH Found {new_links_this_page} new links on page")
                 
-                print(f"SEARCH Found {len(download_links)} recordings")
+                # Check if we have enough
+                if len(download_links) >= max_samples:
+                    print(f"SUCCESS Collected {len(download_links)} links (target: {max_samples})")
+                    break
+                
+                # Try to navigate to next page
+                try:
+                    pagination = page.locator("#ccs_cl_pagination")
+                    
+                    if not is_campaign_audit:
+                        # Default behavior for BOTH specific agents and "All users":
+                        # Click immediate next sibling page (sequential: 1→2→3→4...)
+                        current = pagination.locator("li.page.selected")
+                        next_page = current.locator("xpath=following-sibling::li[@class='page']").first
+                        next_page.click()
+                        page_number += 1
+                        print(f"NEXT Next page ({page_number})")
+                        time.sleep(2)
+                    else:
+                        # Campaign Audit: hop in 5-page steps (1 → 5 → 10 → 15 → ...)
+                        current = pagination.locator("li.page.selected")
+                        current_label = current.text_content().strip()
+                        
+                        try:
+                            if current_label.isdigit():
+                                page_number = int(current_label)
+                        except:
+                            pass
+                        
+                        # Compute next target page in 5-page increments
+                        if page_number < 5:
+                            target_page_number = 5
+                        else:
+                            target_page_number = ((page_number // 5) + 1) * 5
+                        
+                        # Try to find and click target page
+                        try:
+                            target_page = pagination.locator(f"li.page a:has-text('{target_page_number}')").first
+                            target_page.click()
+                            page_number = target_page_number
+                            print(f"NEXT Jumped to page {target_page_number}")
+                            time.sleep(2)
+                        except:
+                            print(f"WARNING No page {target_page_number} found, stopping pagination")
+                            break
+                
+                except Exception as e:
+                    print(f"PAGINATION End of pages reached or pagination failed: {e}")
+                    break
+            
+            if not download_links:
+                raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
+            
+            print(f"\\nSEARCH Collected {len(download_links)} total links across {page_number} pages")
             
             if update_callback:
                 update_callback(60, 100)
