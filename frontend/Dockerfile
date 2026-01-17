@@ -24,8 +24,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
     find /root/.local -type f -name "*.pyc" -delete && \
     find /root/.local -type f -name "*.pyo" -delete
 
-# Stage 2: Runtime (minimal image)
-FROM python:3.11-slim
+# Stage 2: Runtime (full image for Chrome compatibility)
+# Using non-slim to ensure all kernel features and system configs Chrome needs
+FROM python:3.11
 
 WORKDIR /app
 
