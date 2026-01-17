@@ -648,7 +648,16 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             
             # STEP 9: DOWNLOAD FILES CONCURRENTLY
             print(f"\\nDOWNLOAD Starting download of {len(download_tasks)} files...")
+            print(f"\nDOWNLOAD Starting download of {len(download_tasks)} files...")
             session = requests.Session()
+            # Fix connection pool exhaustion by increasing pool size to match concurrency
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=MAX_CONCURRENT_DOWNLOADS + 5, 
+                pool_maxsize=MAX_CONCURRENT_DOWNLOADS + 5
+            )
+            session.mount('https://', adapter)
+            session.mount('http://', adapter)
+
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             }

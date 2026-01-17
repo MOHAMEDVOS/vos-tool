@@ -880,7 +880,7 @@ def show_audit_section(
                                     "agent_audit_cancelled", False
                                 )
 
-                            download_all_call_recordings(
+                            downloaded_path_str = download_all_call_recordings(
                                 ready_url,
                                 agent=agent_name,
                                 start_date=start_date,
@@ -960,7 +960,7 @@ def show_audit_section(
                             )
                             # Continue to analysis ONLY if we have files... 
                             # But we check for files in the next block anyway.
-
+                            downloaded_path_str = None  # Reset path if download failed
 
                         # ANALYSIS PHASE
                         status_text.text(
@@ -984,26 +984,53 @@ def show_audit_section(
                             except Exception as e:
                                 logger.error(f"Error listing MP3 files in {folder}: {e}")
                                 return []
+                        
                         agent_name_lower = agent_name.lower()
                         all_users_mode = agent_name_lower.strip() in [
                             "all users",
                             "all user",
                             "all",
                         ]
+                        
                         target_folder = None
                         files = []
 
-                        if recordings_base.exists():
+                        # PRIORITY 1: Use the explicit download path returned by the downloader
+                        if 'downloaded_path_str' in locals() and downloaded_path_str:
+                            try:
+                                explicit_path = Path(downloaded_path_str)
+                                if explicit_path.exists() and explicit_path.is_dir():
+                                    target_folder = explicit_path
+                                    files = _list_mp3_files(target_folder)
+                                    # Fallback: if no files found in returned dir (rare), try searching
+                                    if not files:
+                                        logger.warning(f"No files found in returned path {target_folder}, falling back to search")
+                                        target_folder = None
+                            except Exception as e:
+                                logger.error(f"Error using returned download path: {e}")
+                                target_folder = None
+
+                        # PRIORITY 2: Fallback search (only if no explicit path or explicit path empty)
+                        if not target_folder and recordings_base.exists():
+                            # Logic for finding latest folder if we didn't get it from downloader
                             all_dirs = [
                                 d for d in recordings_base.rglob("*") if d.is_dir()
                             ]
                             recent_cutoff = time.time() - (24 * 3600)
+                            
                             candidate_dirs = []
 
                             for d in all_dirs:
                                 folder_name_lower = d.name.lower()
                                 if d.stat().st_mtime > recent_cutoff:
-                                    if all_users_mode or agent_name_lower in folder_name_lower:
+                                    # Relaxed matching: check if name parts match (handles "Mohammed" vs "Mohamed" etc.)
+                                    # or check if folder starts with formatted name (no spaces)
+                                    formatted_agent = agent_name_lower.replace(" ", "")
+                                    
+                                    if (all_users_mode or 
+                                        agent_name_lower in folder_name_lower or 
+                                        formatted_agent in folder_name_lower.replace(" ", "")):
+                                        
                                         mp3_files = _list_mp3_files(d)
                                         if mp3_files:
                                             candidate_dirs.append(
@@ -1028,11 +1055,13 @@ def show_audit_section(
                                             d for d in subdirs if _list_mp3_files(d)
                                         ]
                                     else:
-                                        matching_subdirs = [
-                                            d
-                                            for d in subdirs
-                                            if agent_name_lower in d.name.lower()
-                                        ]
+                                        formatted_agent = agent_name_lower.replace(" ", "")
+                                        matching_subdirs = []
+                                        for d in subdirs:
+                                            d_name_clean = d.name.lower().replace(" ", "")
+                                            if agent_name_lower in d.name.lower() or formatted_agent in d_name_clean:
+                                                matching_subdirs.append(d)
+                                            
                                     if matching_subdirs:
                                         matching_subdirs.sort(
                                             key=lambda x: x.stat().st_mtime,
