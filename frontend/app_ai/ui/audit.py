@@ -931,14 +931,37 @@ def show_audit_section(
                             st.session_state.audit_in_progress = False
                             st.session_state.agent_audit_driver_storage.clear()
                             return
+
                         except Exception as download_error:
+                            logger.error(f"Download failed: {download_error}", exc_info=True)
+                            
+                            # Check if we managed to explore/create the directory at least
+                            # We can't easily know the exact folder name here without repeating logic, 
+                            # but we can decide to stop if the error looks fatal.
+                            
+                            error_str = str(download_error).lower()
+                            fatal_errors = [
+                                "chromedriver", "chrome not reachable", "binary", 
+                                "executable", "path", "connection refused"
+                            ]
+                            
+                            if any(err in error_str for err in fatal_errors):
+                                status_text.text(f"Critical error: {str(download_error)}")
+                                st.error(f"Automation System Error: {str(download_error)}")
+                                st.info("This indicates a missing browser or driver configuration on the server.")
+                                st.session_state.audit_in_progress = False
+                                return
+
                             status_text.text(
-                                f"Download completed with some issues: {str(download_error)}"
+                                f"Download interrupted: {str(download_error)}"
                             )
+                            st.warning(f"Download issue: {str(download_error)}")
                             st.session_state.audit_download_status = (
-                                "Proceeding to analysis phase with available files..."
+                                "Attempting to proceed with any files that were downloaded..."
                             )
-                            # Continue to analysis even if download had issues
+                            # Continue to analysis ONLY if we have files... 
+                            # But we check for files in the next block anyway.
+
 
                         # ANALYSIS PHASE
                         status_text.text(
@@ -951,6 +974,7 @@ def show_audit_section(
                         from config import RECORDINGS_ROOT
                         recordings_base = Path(RECORDINGS_ROOT)
 
+
                         def _list_mp3_files(folder: Path):
                             try:
                                 return [
@@ -958,7 +982,8 @@ def show_audit_section(
                                     for f in folder.iterdir()
                                     if f.is_file() and f.suffix.lower() == ".mp3"
                                 ]
-                            except Exception:
+                            except Exception as e:
+                                logger.error(f"Error listing MP3 files in {folder}: {e}")
                                 return []
                         agent_name_lower = agent_name.lower()
                         all_users_mode = agent_name_lower.strip() in [
