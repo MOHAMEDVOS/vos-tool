@@ -388,6 +388,118 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     print(f"WARNING Continuing with current filter state...\\n")
             
             if update_callback:
+                update_callback(40, 100)
+
+            # STEP 6.1: APPLY DISPOSITION FILTER (Direct Port from Selenium)
+            if disposition:
+                try:
+                    print(f"\n{'='*60}")
+                    print(f"SUCCESS Disposition: {disposition}")
+                    print(f"{'='*60}")
+                    
+                    # 1. Open the dropdown
+                    dropdown_btn = page.locator("button.ui-multiselect")
+                    dropdown_btn.scroll_into_view_if_needed()
+                    dropdown_btn.click()
+                    time.sleep(0.5)
+
+                    # 2. Click 'Uncheck all'
+                    uncheck_all = page.locator("a.ui-multiselect-none")
+                    uncheck_all.click()
+                    time.sleep(0.5)
+
+                    # 3. Check only the desired dispositions
+                    for dispo in disposition:
+                        # XPath matches the Selenium implementation precisely
+                        xpath = f"//ul[contains(@class, 'ui-multiselect-checkboxes')]//label[span[text()='{dispo}']]//input"
+                        checkbox = page.locator(xpath)
+                        try:
+                            if not checkbox.is_checked():
+                                checkbox.click()
+                            time.sleep(0.1)
+                        except Exception as dispo_err:
+                            print(f"WARNING Could not select disposition '{dispo}': {dispo_err}")
+
+                    # 4. Click outside to close the menu
+                    page.mouse.click(10, 10)
+                    time.sleep(0.2)
+                except Exception as e:
+                    print(f"[!] Failed to apply disposition filter: {e}")
+
+            # STEP 6.1.5: APPLY DURATION FILTER (UI level - Direct Port from Selenium)
+            if min_duration is not None or max_duration is not None:
+                try:
+                    print(f"CONFIG Setting duration filter: {min_duration}-{max_duration}")
+                    
+                    # Wait for the dropdown
+                    page.wait_for_selector("#duration_filter", timeout=5000)
+                    
+                    # Map min/max to dropdown value with identical logic to Selenium
+                    duration_val = None
+                    if min_duration == 30 and max_duration == 60:
+                        duration_val = "30-60"
+                        print("SUCCESS Set duration filter: 30-60 seconds")
+                    elif min_duration == 60 and max_duration == 600:
+                        duration_val = "60-600"
+                        print("SUCCESS Set duration filter: 60-600 seconds")
+                    
+                    if duration_val:
+                        page.select_option("#duration_filter", value=duration_val)
+                    else:
+                        print(f"WARNING Custom duration range {min_duration}-{max_duration}, skipping UI filter (will filter post-download)")
+                except Exception as e:
+                    print(f"WARNING Could not set duration filter in UI: {e}")
+
+            # STEP 6.2: RE-APPLY AGENT FILTER (to handle page refresh issues)
+            if agent and agent.strip().lower() not in ["any", "all users"]:
+                try:
+                    print(f"\n{'='*60}")
+                    print(f"RE-APPLY AGENT FILTER (Post-other-filters)")
+                    print(f"{'='*60}")
+                    print(f"Re-applying agent: '{agent}'")
+
+                    # Wait for dropdown to be present and interactable
+                    page.wait_for_selector("#restrict_uid", timeout=10000)
+                    time.sleep(1)  # Give dropdown time to populate
+                    
+                    # Get all available options for debugging (EXACT MATCH of Selenium logs)
+                    options = page.locator("#restrict_uid option").all()
+                    available_options = [opt.text_content().strip() for opt in options]
+                    
+                    print(f"\n📋 RE-APPLY DROPDOWN CONTENTS ({len(available_options)} total options):")
+                    print("-" * 60)
+                    for i, opt in enumerate(available_options[:20], 1):  # Show first 20
+                        print(f"  {i:2d}. '{opt}'")
+                    if len(available_options) > 20:
+                        print(f"  ... and {len(available_options) - 20} more")
+                    print("-" * 60)
+
+                    # Strategy 1: Try exact match
+                    print(f"\nRE-APPLY STRATEGY 1: Exact Match")
+                    print(f"   Searching for: '{agent.strip()}'")
+                    try:
+                        page.select_option("#restrict_uid", label=agent.strip())
+                        print(f"   SUCCESS SUCCESS - Exact match found!")
+                        
+                        # Wait for page refresh
+                        print(f"\n{'='*60}")
+                        print(f"SUCCESS AGENT FILTER RE-APPLIED")
+                        print(f"   Selected: '{agent.strip()}'")
+                        print(f"{'='*60}")
+                        print(f"WAIT Waiting for page to refresh with re-applied agent filter...")
+                        time.sleep(3)
+                        try:
+                            page.wait_for_selector("a[href*='.mp3']", timeout=10000)
+                            print(f"SUCCESS Page updated with re-applied agent filter")
+                        except:
+                            print(f"WARNING Re-applied filter but no results shown yet")
+                    except Exception as e1:
+                        print(f"   FAILED Failed: {type(e1).__name__}")
+                
+                except Exception as e:
+                    print(f"WARNING Failed to re-apply agent filter: {e}")
+            
+            if update_callback:
                 update_callback(50, 100)
             
             # STEP 7: EXTRACT MP3 DOWNLOAD LINKS WITH PAGINATION
