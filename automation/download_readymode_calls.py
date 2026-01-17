@@ -376,7 +376,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             page.wait_for_load_state("networkidle", timeout=30000)
             
             if update_callback:
-                update_callback("📊 Loading call list...")
+                update_callback("📊 Loading call list...", 20, 100)
             
             # Navigate to listen page
             listen_link = page.locator("a:has-text('Listen')").first
@@ -400,7 +400,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
             
             if update_callback:
-                update_callback(f"📥 Found {len(download_links)} recordings. Starting download...")
+                update_callback(f"📥 Found {len(download_links)} recordings. Starting download...", 30, 100)
             
             # Get cookies for download session
             cookies_dict = {}
@@ -447,11 +447,11 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         skipped_count += 1
                     
                     if update_callback:
-                        progress = (downloaded_count + skipped_count) / total_count * 100
-                        update_callback(f"📥 Progress: {progress:.0f}% ({downloaded_count} downloaded, {skipped_count} skipped)")
+                        current = downloaded_count + skipped_count
+                        update_callback(f"📥 Downloaded {downloaded_count}/{total_count} files", current, total_count)
             
             if update_callback:
-                update_callback(f"✅ Download complete! {downloaded_count} files saved to {DOWNLOAD_DIR}")
+                update_callback(f"✅ Download complete! {downloaded_count} files saved", 100, 100)
             
             print(f"DOWNLOAD_COMPLETE: {downloaded_count} files downloaded to {DOWNLOAD_DIR}")
             return DOWNLOAD_DIR
