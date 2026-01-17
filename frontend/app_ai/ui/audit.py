@@ -1494,23 +1494,9 @@ def show_audit_section(
             worker_state["error_message"] = error_message
             worker_state["traceback"] = traceback.format_exc()
         finally:
-            try:
-                if driver_storage and isinstance(driver_storage, dict) and "driver" in driver_storage:
-                    driver = driver_storage.get("driver")
-                    profile_dir = driver_storage.get("profile_dir")
-                    chrome_pid = driver_storage.get("chrome_pid")
-                    try:
-                        _force_kill_chrome_processes(profile_dir=profile_dir, pid=chrome_pid)
-                    except Exception:
-                        pass
-                    try:
-                        if driver is not None:
-                            driver.quit()
-                    except Exception:
-                        pass
-                    driver_storage.clear()
-            except Exception:
-                pass
+            # Playwright handles browser cleanup automatically
+            # No manual process management or driver.quit() needed
+            logger.info("Download worker completed - Playwright handles cleanup")
 
     # --- Campaign Audit Tab ---
     if current_user_role in [user_manager.ROLE_OWNER, user_manager.ROLE_ADMIN]:
