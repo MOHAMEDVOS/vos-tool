@@ -31,7 +31,6 @@ from automation.download_readymode_calls import (
     extract_dialer_name_from_url,
     ReadyModeLoginError,
     ReadyModeNoCallsError,
-    _force_kill_chrome_processes,
 )
 from .components import (
     show_campaign_audit_dashboard,
