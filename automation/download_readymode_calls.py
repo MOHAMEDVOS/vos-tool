@@ -264,7 +264,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                   max_duration=None,
                                   username=None, keep_browser_open=False,
                                   readymode_user=None, readymode_pass=None,
-                                  cancellation_callback=None, driver_storage=None):
+                                  cancellation_callback=None, driver_storage=None,
+                                  disposition=None):
     """
     Download call recordings from ReadyMode using Playwright.
     
