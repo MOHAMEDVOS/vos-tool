@@ -256,7 +256,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             # 3. WAIT FOR CALL LOGS PAGE TO LOAD
             print("⏳ Waiting for Call Logs page to load...")
             time.sleep(5)  # Give page time to fully load
-            page.wait_for_selector("input[name='report[time_from_d]']", timeout=30000)
+            # Flatpickr hides the input field, so wait for attached state, not visible
+            page.wait_for_selector("input[name='report[time_from_d]']", state="attached", timeout=30000)
             print("✅ Call Logs page loaded")
             
             if update_callback:
