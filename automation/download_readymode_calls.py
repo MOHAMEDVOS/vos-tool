@@ -56,7 +56,7 @@ def get_next_run_counter(agent_name: str, username: str, subfolder: str) -> int:
     
     counters = []
     for dir_path in matching_dirs:
-        dir_name = os.basename(dir_path)
+        dir_name = os.path.basename(dir_path)
         try:
             after_date = dir_name.split(f"{agent_name}-{today}_")[1]
             counter_str = after_date.split()[0]
