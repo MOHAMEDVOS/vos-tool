@@ -271,14 +271,16 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 
                 print(f"📅 Setting dates: {start_str} to {end_str}")
                 
-                # CORRECT field names: report[time_from_d] and report[time_to_d]
-                page.fill("input[name='report[time_from_d]']", start_str)
-                page.keyboard.press("Enter")
-                time.sleep(1)
+                # Flatpickr hides the input, use JavaScript to set value directly
+                page.evaluate(f"""
+                    document.querySelector("input[name='report[time_from_d]']").value = '{start_str}';
+                """)
+                time.sleep(0.5)
                 
-                page.fill("input[name='report[time_to_d]']", end_str)
-                page.keyboard.press("Enter")
-                time.sleep(1)
+                page.evaluate(f"""
+                    document.querySelector("input[name='report[time_to_d]']").value = '{end_str}';
+                """)
+                time.sleep(0.5)
                 
                 print("✅ Date filters applied")
             
