@@ -2,7 +2,7 @@
 Timeout calculation utilities for progressive timeouts based on file duration.
 """
 from typing import Optional
-from config.constants import ProcessingConfig
+from config import ProcessingConfig
 
 
 def calculate_rebuttal_timeout(audio_duration_seconds: Optional[float] = None) -> int:

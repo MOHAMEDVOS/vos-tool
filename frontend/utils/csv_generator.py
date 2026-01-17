@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Tuple
 import pandas as pd
 import streamlit as st
-from config.constants import CacheConfig
+from config import CacheConfig
 
 
 @st.cache_data(ttl=CacheConfig.CSV_TTL)

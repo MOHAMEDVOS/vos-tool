@@ -2,7 +2,7 @@
 FFmpeg converter setup utilities.
 """
 from pathlib import Path
-from config.constants import FileConfig
+from config import FileConfig
 
 
 def maybe_set_ffmpeg_converter() -> bool:

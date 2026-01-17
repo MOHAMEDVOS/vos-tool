@@ -253,3 +253,43 @@ class AppSettings:
 
 # Global settings instance
 app_settings = AppSettings()
+
+
+# ────────────── Configuration Constants (Merged from config/constants.py) ──────────────
+
+class CacheConfig:
+    """Cache configuration constants."""
+    CSV_TTL = 3600  # 1 hour in seconds
+
+
+class FileConfig:
+    """File handling configuration constants."""
+    MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50MB
+    FFMPEG_BIN_PATH = Path(__file__).parent / "ffmpeg" / "bin" / "ffmpeg.exe"
+    RECORDINGS_DIR_NAME = "Recordings"
+
+
+class ProcessingConfig:
+    """Processing timeout configuration constants."""
+    TIMEOUT_SINGLE_FILE = int(os.getenv("TIMEOUT_SINGLE_FILE", "600"))
+    TIMEOUT_LITE_FILE = int(os.getenv("TIMEOUT_LITE_FILE", "60"))
+    
+    # Rebuttal detection timeouts (progressive based on file duration)
+    # INCREASED for free tier AssemblyAI which can be slow due to rate limits
+    REBUTTAL_DETECTION_TIMEOUT_BASE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_BASE", "300"))
+    REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE", "60"))
+    REBUTTAL_DETECTION_TIMEOUT_MAX = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MAX", "600"))
+    REBUTTAL_DETECTION_TIMEOUT_MIN = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MIN", "120"))
+    
+    # Transcription timeouts
+    # INCREASED for free tier AssemblyAI which can be slow due to rate limits
+    TRANSCRIPTION_TIMEOUT_BASE = int(os.getenv("TRANSCRIPTION_TIMEOUT_BASE", "300"))
+    TRANSCRIPTION_TIMEOUT_PER_MINUTE = int(os.getenv("TRANSCRIPTION_TIMEOUT_PER_MINUTE", "60"))
+    TRANSCRIPTION_TIMEOUT_MAX = int(os.getenv("TRANSCRIPTION_TIMEOUT_MAX", "600"))
+    TRANSCRIPTION_TIMEOUT_MIN = int(os.getenv("TRANSCRIPTION_TIMEOUT_MIN", "120"))
+
+
+class SecurityConfig:
+    """Security-related constants."""
+    DEFAULT_SECRET_WARNING = "your-secret-key-change-in-production"
+    DEFAULT_JWT_SECRET_WARNING = "your-jwt-secret-change-in-production"

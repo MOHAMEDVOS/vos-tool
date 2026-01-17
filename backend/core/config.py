@@ -17,7 +17,7 @@ except ImportError:
     PYDANTIC_V2 = False
 
 from lib.path_utils import get_upload_dir
-from config.constants import FileConfig, ProcessingConfig, SecurityConfig
+from config import FileConfig, ProcessingConfig, SecurityConfig
 
 
 def _get_cors_origins() -> List[str]:
