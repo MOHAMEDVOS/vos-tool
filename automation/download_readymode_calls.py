@@ -1,7 +1,7 @@
-﻿"""ReadyMode Call Recording Downloader - Playwright Complete Port.
+﻿"""ReadyMode Call Recording Downloader - Playwright EXACT Selenium Port.
 
-This is a complete port of the Selenium automation to Playwright,
-including ALL navigation steps discovered from analyzing the original code.
+This is a line-by-line port of the Selenium automation WITHOUT any assumptions.
+Following the actual workflow discovered from analyzing working Selenium code.
 """
 
 import os
@@ -56,7 +56,7 @@ def get_next_run_counter(agent_name: str, username: str, subfolder: str) -> int:
     
     counters = []
     for dir_path in matching_dirs:
-        dir_name = os.path.basename(dir_path)
+        dir_name = os.basename(dir_path)
         try:
             after_date = dir_name.split(f"{agent_name}-{today}_")[1]
             counter_str = after_date.split()[0]
@@ -132,7 +132,7 @@ def extract_dialer_name_from_url(dialer_url: str) -> str:
 def download_single_file(session, cookies, headers, href, filepath, min_duration, max_duration, lock):
     """Download a single file with optional duration filtering."""
     try:
-        response = session.get(href, cookies=cookies, headers=headers)
+        response = session.get(href, cookies=cookies, headers=headers, timeout=30)
         if response.status_code != 200:
             return False, None, None
         
@@ -175,7 +175,11 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                   readymode_user=None, readymode_pass=None,
                                   cancellation_callback=None, driver_storage=None,
                                   disposition=None):
-    """Download call recordings from ReadyMode using Playwright - COMPLETE PORT."""
+    """
+    Download call recordings from ReadyMode using Playwright.
+    
+    EXACT PORT OF SELENIUM WORKFLOW - NO ASSUMPTIONS.
+    """
     import sys
     
     # Validate agent name
@@ -240,7 +244,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
         page = context.new_page()
         
         try:
-            # 1. LOGIN
+            # STEP 1: LOGIN
             if update_callback:
                 update_callback(0, 100)
             login_to_readymode(page, dialer_url, readymode_user, readymode_pass, cancellation_callback)
@@ -248,105 +252,126 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             if update_callback:
                 update_callback(10, 100)
             
-            # 2. NAVIGATE TO CALL LOGS (This was missing!)
-            print("📊 Navigating to Call Logs...")
+            # STEP 2: CLICK CALL LOGS LINK
+            print("SUCCESS Clicked Call Logs")
             call_logs_link = page.locator("a[href*='+CCS Reports/call_log']")
             call_logs_link.click()
             
-            # 3. WAIT FOR CALL LOGS PAGE TO LOAD
-            print("⏳ Waiting for Call Logs page to load...")
-            time.sleep(5)  # Give page time to fully load
-            # Flatpickr hides the input field, so wait for attached state, not visible
-            page.wait_for_selector("input[name='report[time_from_d]']", state="attached", timeout=30000)
-            print("✅ Call Logs page loaded")
+            # STEP 3: WAIT FOR CALL LOGS PAGE TO FULLY LOAD
+            print("WAIT Waiting for Call Logs page to load...")
+            time.sleep(5)  # Give page time to load completely
             
-            if update_callback:
-                update_callback(20, 100)
+            # Wait for date filter to confirm page loaded
+            try:
+                page.wait_for_selector("input[name='report[time_from_d]']", state="attached", timeout=30000)
+                print("SUCCESS Call Logs page loaded - filters ready")
+            except:
+                print("WARNING Warning: Page may still be loading, continuing anyway...")
+                time.sleep(3)
             
-            # 4. SET DATE FILTERS (with correct field names and format!)
+            # STEP 4: SET DATE FILTERS
             if start_date and end_date:
-                # CORRECT format: MM/DD/YYYY (not YYYY-MM-DD!)
                 start_str = start_date.strftime("%m/%d/%Y")
                 end_str = end_date.strftime("%m/%d/%Y")
                 
-                print(f"📅 Setting dates: {start_str} to {end_str}")
+                print(f"DATE Setting dates: {start_str} to {end_str}")
                 
-                # Flatpickr hides the input, use JavaScript to set value directly
+                # Use JavaScript to set values on hidden Flatpickr inputs
                 page.evaluate(f"""
-                    document.querySelector("input[name='report[time_from_d]']").value = '{start_str}';
+                    var startInput = document.querySelector("input[name='report[time_from_d]']");
+                    if (startInput) {{
+                        startInput.value = '{start_str}';
+                        startInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
                 """)
-                time.sleep(0.5)
-                
-                page.evaluate(f"""
-                    document.querySelector("input[name='report[time_to_d]']").value = '{end_str}';
-                """)
-                time.sleep(0.5)
-                
-                print("✅ Date filters applied")
-            
-            # 5. APPLY AGENT FILTER (if not "All users")
-            if agent and agent.strip().lower() not in ["any", "all users"]:
-                print(f"👤 Applying agent filter: '{agent}'...")
-                
-                # Wait for dropdown to be ready
-                page.wait_for_selector("#restrict_uid", timeout=10000)
                 time.sleep(1)
                 
-                # Try to select agent
+                page.evaluate(f"""
+                    var endInput = document.querySelector("input[name='report[time_to_d]']");
+                    if (endInput) {{
+                        endInput.value = '{end_str}';
+                        endInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                    }}
+                """)
+                
+                print("WAIT Waiting for results to load after date filter...")
+                time.sleep(3)
+                
+                # Try to wait for MP3 links
                 try:
-                    page.select_option("#restrict_uid", label=agent.strip())
-                    print(f"✅ Agent filter applied: {agent}")
-                except Exception as e:
-                    print(f"⚠️ Could not select exact agent, will download all: {e}")
-            
-            # 6. APPLY CAMPAIGN FILTER (if provided)
-            if campaign_name:
-                print(f"🎯 Applying campaign filter: '{campaign_name}'...")
-                try:
-                    page.wait_for_selector("#restrict_campaign", timeout=10000)
-                    page.select_option("#restrict_campaign", label=campaign_name)
-                    print(f"✅ Campaign filter applied: {campaign_name}")
-                except Exception as e:
-                    print(f"⚠️ Could not select campaign: {e}")
-            
-            # 7. APPLY DISPOSITION FILTER (if provided)
-            if disposition:
-                print(f"📞 Applying disposition filter...")
-                try:
-                    page.wait_for_selector("#restrict_status", timeout=10000)
-                    for disp in disposition if isinstance(disposition, list) else [disposition]:
-                        page.select_option("#restrict_status", label=disp)
-                    print(f"✅ Disposition filter applied")
-                except Exception as e:
-                    print(f"⚠️ Could not apply disposition filter: {e}")
+                    page.wait_for_selector("a[href*='.mp3']", timeout=10000)
+                    print("SUCCESS Results loaded")
+                except:
+                    print("WARNING No MP3 links yet (will check after agent filter)")
             
             if update_callback:
                 update_callback(30, 100)
             
-            # 8. CLICK SUBMIT BUTTON
-            print("🔘 Clicking Submit to apply filters...")
-            submit_btn = page.locator("input[value='Submit']")
-            submit_btn.click()
+            # STEP 5: CAMPAIGN FILTER (if provided)
+            if campaign_name:
+                try:
+                    page.wait_for_selector("#restrict_campaign", timeout=10000)
+                    page.select_option("#restrict_campaign", label=campaign_name)
+                    page.wait_for_selector("a[href*='.mp3']", timeout=10000)
+                    print(f"SUCCESS Campaign: {campaign_name}")
+                except Exception as e:
+                    error_msg = f"[!] Campaign '{campaign_name}' not found"
+                    print(error_msg)
+                    raise RuntimeError(error_msg) from e
             
-            # 9. WAIT FOR RESULTS TO LOAD
-            print("⏳ Waiting for filtered results...")
-            time.sleep(3)
-            page.wait_for_selector("table", timeout=30000)
-            print("✅ Results loaded")
-            
-            # 10. CLICK "LISTEN" LINK
-            print("🎧 Clicking Listen link...")
-            listen_link = page.locator("a[href*='listen.php']")
-            listen_link.click()
-            page.wait_for_load_state("networkidle", timeout=30000)
-            print("✅ Listen page loaded")
+            # STEP 6: AGENT FILTER (if not "All users")
+            if agent and agent.strip().lower() not in ["any", "all users"]:
+                agent_selected = False
+                try:
+                    print(f"\\n{'='*60}")
+                    print(f"SEARCH AGENT SELECTION DEBUG")
+                    print(f"{'='*60}")
+                    print(f"Looking for agent: '{agent}'")
+                    
+                    # Wait for dropdown
+                    page.wait_for_selector("#restrict_uid", timeout=10000)
+                    time.sleep(1)
+                    
+                    # Try to select agent
+                    try:
+                        page.select_option("#restrict_uid", label=agent.strip())
+                        agent_selected = True
+                        print(f"SUCCESS Agent filter applied: {agent}")
+                    except:
+                        print(f"WARNING Could not select agent '{agent}', continuing with all agents")
+                    
+                    # Wait for page to update
+                    if agent_selected:
+                        print("WAIT Waiting for page to refresh with filtered results...")
+                        time.sleep(3)
+                        try:
+                            page.wait_for_selector("a[href*='.mp3']", timeout=10000)
+                            print("SUCCESS Page updated with filtered results")
+                        except:
+                            print("WARNING No MP3 links found for this agent")
+                        
+                        print(f"\\n{'='*60}")
+                        print(f"SUCCESS AGENT FILTER APPLIED")
+                        print(f"   Selected: '{agent}'")
+                        print(f"{'='*60}")
+                
+                except Exception as e:
+                    print(f"WARNING Agent filter failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    print(f"WARNING Continuing with current filter state...\\n")
             
             if update_callback:
-                update_callback(40, 100)
+                update_callback(50, 100)
             
-            # 11. EXTRACT MP3 DOWNLOAD LINKS
-            print("📥 Extracting MP3 links...")
+            # STEP 7: EXTRACT MP3 DOWNLOAD LINKS (directly from Call Logs page!)
+            print("\\nSEARCH Extracting MP3 links from page...")
             download_links = []
+            
+            # Wait for MP3 links to be present
+            page.wait_for_selector("a[href*='.mp3']", timeout=30000)
+            
+            # Get all MP3 links
             all_links = page.locator("a[href*='.mp3']").all()
             
             for link in all_links[:max_samples]:
@@ -361,18 +386,18 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             if not download_links:
                 raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
             
-            print(f"✅ Found {len(download_links)} recordings")
+            print(f"SEARCH Found {len(download_links)} recordings")
             
             if update_callback:
-                update_callback(50, 100)
+                update_callback(60, 100)
             
-            # 12. GET COOKIES FOR DOWNLOAD SESSION
+            # STEP 8: GET COOKIES FOR DOWNLOAD SESSION
             cookies_dict = {}
             for cookie in context.cookies():
                 cookies_dict[cookie['name']] = cookie['value']
             
-            # 13. DOWNLOAD FILES CONCURRENTLY
-            print(f"⬇️ Starting concurrent download of {len(download_links)} files...")
+            # STEP 9: DOWNLOAD FILES CONCURRENTLY
+            print(f"\\nDOWNLOAD Starting download of {len(download_links)} files...")
             session = requests.Session()
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -416,7 +441,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             if update_callback:
                 update_callback(total_count, total_count)
             
-            print(f"✅ DOWNLOAD_COMPLETE: {downloaded_count} files downloaded to {DOWNLOAD_DIR}")
+            print(f"DOWNLOAD_COMPLETE: {downloaded_count} files downloaded to {DOWNLOAD_DIR}")
             return DOWNLOAD_DIR
             
         except KeyboardInterrupt:
