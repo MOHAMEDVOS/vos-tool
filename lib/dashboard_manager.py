@@ -2638,6 +2638,9 @@ class DashboardManager:
                         'call_duration': record.get('Call Duration', ''),
                         'transcript': record.get('Transcription') or record.get('Transcript', 'N/A'),
                         'dialer_name': record.get('Dialer Name', ''),  # Save dialer name
+                        'timestamp': record.get('Timestamp', ''),  # CRITICAL: Save call timestamp from filename
+                        'phone_number': record.get('Phone Number', ''),  # Save phone number
+                        'disposition': record.get('Disposition', ''),  # Save disposition
                         'audit_timestamp': audit_timestamp
                     }
                     
