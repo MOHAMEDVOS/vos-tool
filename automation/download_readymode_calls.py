@@ -206,7 +206,8 @@ def get_driver(profile_dir: str | None = None):
     chrome_options.add_argument("--log-level=3")
     chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
     # Run in headless mode so Chrome can work inside Docker/RunPod without a display
-    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--disable-software-rasterizer")
     
     # Configure download preferences for headless mode
     # Note: Downloads are handled via requests library, but Chrome preferences ensure compatibility
@@ -220,7 +221,7 @@ def get_driver(profile_dir: str | None = None):
     chrome_options.add_experimental_option("prefs", prefs)
     
     # Add arguments to prevent port and resource conflicts for concurrency
-    chrome_options.add_argument("--remote-debugging-port=0")  # Random port
+    # chrome_options.add_argument("--remote-debugging-port=0")  # Removed to prevent startup crashes
     chrome_options.add_argument("--no-first-run")
     chrome_options.add_argument("--no-default-browser-check")
 
