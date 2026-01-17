@@ -339,11 +339,11 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
         try:
             # Login
             if update_callback:
-                update_callback(f"🔐 Logging in to {dialer_name}...")
+                update_callback(f"🔐 Logging in to {dialer_name}...", 0, 100)
             login_to_readymode(page, dialer_url, readymode_user, readymode_pass, cancellation_callback)
             
             if update_callback:
-                update_callback("✅ Login successful")
+                update_callback("✅ Login successful", 10, 100)
             
             # Navigate to agent or campaign stats
             if campaign_name:
