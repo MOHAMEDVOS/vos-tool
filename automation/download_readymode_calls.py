@@ -426,69 +426,12 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 except Exception as e:
                     print(f"[!] Failed to apply disposition filter: {e}")
 
-            # STEP 6.1.5: APPLY DURATION FILTER (UI level - Direct Port from Selenium)
+            # STEP 6.1.5: DURATION FILTER (UI interaction removed per user request - kept at post-download level)
+            """
             if min_duration is not None or max_duration is not None:
-                try:
-                    print(f"CONFIG Setting duration filter: {min_duration}-{max_duration}")
-                    
-                    # Wait for the dropdown
-                    page.wait_for_selector("#duration_filter", timeout=5000)
-                    
-                    # Setup prompt handling for "greater" filter
-                    # Selenium uses driver.switch_to.alert, Playwright uses event listener
-                    def on_dialog(dialog):
-                        try:
-                            if dialog.type == "prompt" or "duration" in dialog.message.lower():
-                                duration_value = f"{int(min_duration)} sec" if isinstance(min_duration, (int, float)) else "20 sec"
-                                print(f"CONFIG Entering duration into ReadyMode prompt: '{duration_value}'")
-                                dialog.accept(duration_value)
-                            else:
-                                dialog.accept()
-                        except:
-                            dialog.accept()
-                    
-                    page.on("dialog", on_dialog)
-                    
-                    # Map min/max to dropdown value with identical logic to Selenium
-                    duration_val = None
-                    if min_duration is not None and max_duration is not None:
-                        if min_duration == 30 and max_duration == 60:
-                            duration_val = "30-60"
-                            print("SUCCESS Set duration filter: 30-60 seconds")
-                        elif min_duration == 60 and max_duration == 600:
-                            duration_val = "60-600"
-                            print("SUCCESS Set duration filter: 60-600 seconds")
-                        else:
-                            # For custom ranges, try to find closest match or use "custom" (Selenium logic)
-                            print(f"WARNING Custom duration range {min_duration}-{max_duration}, trying to set in UI")
-                            # Try 30-60 first as default
-                            duration_val = "30-60"
-                            print("SUCCESS Used 30-60 as closest match for custom range")
-                    elif max_duration is not None:
-                        if max_duration == 30:
-                            duration_val = "0-30"
-                            print("SUCCESS Set duration filter: 0-30 seconds")
-                        else:
-                            duration_val = "less"
-                            print(f"SUCCESS Set duration filter: Less than {max_duration} seconds")
-                    elif min_duration is not None:
-                        duration_val = "greater"
-                        print(f"SUCCESS Set duration filter: Greater than {min_duration} seconds")
-                    
-                    if duration_val:
-                        page.select_option("#duration_filter", value=duration_val)
-                        time.sleep(2)
-                        print("SUCCESS Duration filter applied successfully")
-                    else:
-                        print(f"WARNING Could not determine duration filter value in UI, will filter after download")
-                except Exception as e:
-                    print(f"WARNING Could not set duration filter in UI: {e}")
-                finally:
-                    # Clean up dialog handler
-                    try:
-                        page.remove_listener("dialog", on_dialog)
-                    except:
-                        pass
+                # UI filtering is disabled to keep "All Duration" default
+                print(f"INFO Post-download duration filter active: {min_duration}-{max_duration}")
+            """
 
             # STEP 6.2: RE-APPLY AGENT FILTER (to handle page refresh issues)
             if agent and agent.strip().lower() not in ["any", "all users"]:
