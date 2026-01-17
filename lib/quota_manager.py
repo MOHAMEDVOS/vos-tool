@@ -685,8 +685,30 @@ class QuotaManager:
             user_assignment = quota_data.get("user_assignments", {}).get(username)
             
             if not user_assignment:
-                logger.warning(f"No quota assignment found for user {username}")
-                return True, f"No quota assignment found for user {username}, allowing usage"
+                logger.warning(f"No quota assignment found for user {username}. Attempting to auto-assign to 'admin'.")
+                # Attempt auto-heal: Assign to default 'admin' if exists
+                try:
+                    # Check if 'admin' exists in admin_limits
+                    admin_exists = quota_data.get("admin_limits", {}).get("admin")
+                    if admin_exists:
+                        # Auto-assign to admin with a sensible default
+                        self.assign_user_to_admin(username, "admin", daily_quota=1000)
+                        # Reload quota data to get the new assignment
+                        quota_data = self._load_quota_data()
+                        user_assignment = quota_data.get("user_assignments", {}).get(username)
+                        logger.info(f"Successfully auto-assigned user {username} to 'admin' with 1000 quota.")
+                    else:
+                        logger.error("Default 'admin' account not found. Cannot auto-assign.")
+                        # Still allow usage to avoid blocking operations, but log critical error
+                        return True, f"Warning: User {username} has no quota assignment (auto-assign failed)."
+                except Exception as e:
+                    logger.error(f"Failed to auto-assign user {username}: {e}")
+                    # Fail open to prevent blocking the user
+                    return True, f"Warning: User {username} has no quota assignment (auto-assign error)."
+            
+            if not user_assignment:
+                # Should be covered by above logic, but double check
+                return True, f"User {username} has no quota assignment, allowing usage."
             
             admin_username = user_assignment.get("assigned_to_admin")
             daily_quota = user_assignment.get("daily_quota", 0)
