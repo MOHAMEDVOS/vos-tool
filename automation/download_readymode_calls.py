@@ -48,17 +48,21 @@ def get_next_run_counter(agent_name: str, username: str, subfolder: str) -> int:
     """Get the next sequential run counter for a given agent/date combination."""
     import glob
     
+    # CRITICAL: Format agent name the same way as folder creation  
+    # (remove spaces to match format_agent_name_for_filename behavior)
+    formatted_agent_name = agent_name.strip().replace(" ", "")
+    
     today = datetime.now().strftime('%Y-%m-%d')
     from config import RECORDINGS_ROOT
     base_dir = str(Path(RECORDINGS_ROOT) / subfolder / username)
-    pattern = os.path.join(base_dir, f"{agent_name}-{today}_*")
+    pattern = os.path.join(base_dir, f"{formatted_agent_name}-{today}_*")
     matching_dirs = glob.glob(pattern)
     
     counters = []
     for dir_path in matching_dirs:
         dir_name = os.path.basename(dir_path)
         try:
-            after_date = dir_name.split(f"{agent_name}-{today}_")[1]
+            after_date = dir_name.split(f"{formatted_agent_name}-{today}_")[1]
             counter_str = after_date.split()[0]
             counter = int(counter_str)
             counters.append(counter)
@@ -66,6 +70,28 @@ def get_next_run_counter(agent_name: str, username: str, subfolder: str) -> int:
             continue
     
     return max(counters) + 1 if counters else 1
+
+
+def format_agent_name_for_filename(agent_name):
+    """
+    Format agent name for use in filenames (remove spaces for filesystem compatibility)
+    but keep the original format for display purposes.
+    """
+    # Remove spaces for filename to avoid filesystem issues
+    return agent_name.strip().replace(" ", "")
+
+
+def extract_dialer_name_from_url(dialer_url: str) -> str:
+    """Extract dialer name from ReadyMode URL."""
+    try:
+        if "://" in dialer_url:
+            # Extract subdomain from https://resva.readymode.com/
+            domain_part = dialer_url.split("://")[1]
+            dialer = domain_part.split(".")[0]
+            return dialer
+        return "custom"
+    except:
+        return "unknown"
 
 
 def login_to_readymode(page, dialer_url, readymode_user=None, readymode_pass=None, cancellation_callback=None):
