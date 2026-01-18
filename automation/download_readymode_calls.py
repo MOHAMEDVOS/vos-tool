@@ -356,32 +356,75 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 for attempt in range(3):
                     try:
                         print(f"Agent Filter Attempt {attempt + 1}/3")
+
+                        # 0. HANDLE BLOCKING POPUPS (Survey/NPS)
+                        # Check for common modal overlays and close them
+                        try:
+                            # Look for close buttons on common dialogs
+                            popups = page.locator("button.close, .modal-close, button[aria-label='Close'], .ui-dialog-titlebar-close")
+                            for i in range(popups.count()):
+                                if popups.nth(i).is_visible():
+                                    print("INFO Closing blocking popup/modal...")
+                                    popups.nth(i).click()
+                                    time.sleep(0.5)
+                            
+                            # Specific check for survey (NPS) if detected textually
+                            if page.is_visible("text=On a scale of 0-10"):
+                                print("INFO Detected NPS Survey. Attempting to close...")
+                                # Try clicking outside or finding a specific dismissal
+                                page.mouse.click(10, 10) 
+                                time.sleep(0.5)
+                        except:
+                            pass # Don't let popup closing crash the flow
                         
-                        # Wait for dropdown
-                        page.wait_for_selector("#restrict_uid", state="visible", timeout=10000)
-                        time.sleep(1)
+                        # 1. Wait for dropdown (Allow hidden state since logs say it's hidden)
+                        # The native <select> is hidden, replaced by a custom UI. 
+                        # We use state="attached" so we can manipulate it via JS even if hidden.
+                        page.wait_for_selector("#restrict_uid", state="attached", timeout=10000)
                         
-                        # Select agent with force option
-                        # Use label selection which is more robust for dropdowns
-                        page.select_option("#restrict_uid", label=agent.strip())
+                        # 2. Select Agent (JS Injection Method - Preferred for Hidden/Custom UI)
+                        # Since the element is hidden, page.select_option might fail or require force.
+                        # JS injection is cleaner here as it bypasses the UI layer entirely.
+                        print(f"Selecting agent '{agent}' via Direct JS...")
                         
-                        # Verify selection
-                        selected_value = page.eval_on_selector("#restrict_uid", "el => el.options[el.selectedIndex].text")
-                        if agent.strip() not in selected_value:
-                            print(f"WARNING Selection verification failed. Got '{selected_value}', expected '{agent}'")
-                            # If direct select failed, try JS approach as fallback
-                            print("Attempting JS fallback selection...")
-                            page.evaluate(f"""
+                        found_and_selected = page.evaluate(f"""
+                            () => {{
                                 const select = document.querySelector('#restrict_uid');
+                                if (!select) return false;
+                                
+                                let found = false;
                                 for(let i=0; i<select.options.length; i++) {{
                                     if(select.options[i].text.includes('{agent.strip()}')) {{
                                         select.selectedIndex = i;
-                                        select.dispatchEvent(new Event('change'));
+                                        select.dispatchEvent(new Event('change')); # Important: Trigger ReadyMode update
+                                        found = true;
                                         break;
                                     }}
                                 }}
-                            """)
-                            time.sleep(1)
+                                return found;
+                            }}
+                        """)
+                        
+                        if not found_and_selected:
+                            print(f"WARNING: Agent '{agent}' not found in dropdown list via JS.")
+                            # Fallback: Try Playwright's native select force (might work if our assumption about ID is wrong)
+                            try:
+                                page.select_option("#restrict_uid", label=agent.strip(), force=True)
+                            except:
+                                pass
+
+                        time.sleep(1)
+                        
+                        # 3. Verify selection
+                        # We check the property value, not visibility
+                        selected_value = page.eval_on_selector("#restrict_uid", "el => el.options[max(0, el.selectedIndex)].text")
+                        
+                        # Simple substring match usually enough
+                        if agent.strip() not in selected_value:
+                            print(f"WARNING Selection verification failed. Got '{selected_value}', expected '{agent}'")
+                            # If we failed, wait and retry loop
+                            time.sleep(2)
+                            continue 
                         
                         agent_selected = True
                         print(f"SUCCESS Agent filter selected: {agent}")
