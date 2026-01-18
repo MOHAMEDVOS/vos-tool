@@ -2922,10 +2922,16 @@ class DashboardManager:
                         combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
                     
                     return combined_df
+                else:
+                    # Return empty DataFrame if no results
+                    return pd.DataFrame()
                     
             except Exception as e:
                 logger.error(f"Error loading lite audit data from database: {e}")
                 raise  # Re-raise exception instead of falling back to JSON
+        
+        # If no database manager, return empty DataFrame
+        return pd.DataFrame()
     
     def clear_lite_audit_data(self, username: str = None):
         """Clear lite audit data for the specified user."""

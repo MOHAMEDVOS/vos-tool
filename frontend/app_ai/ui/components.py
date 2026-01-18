@@ -51,6 +51,10 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
                 st.session_state.get('username')
             )
             
+            # Ensure we have a valid DataFrame
+            if not isinstance(df, pd.DataFrame):
+                df = pd.DataFrame()
+            
             # Store in session state
             st.session_state.campaign_dashboard_data = df
             st.success(f"Loaded {len(df)} records for campaign '{selected_campaign}'")
@@ -58,6 +62,10 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
     # Display results if data is loaded
     if "campaign_dashboard_data" in st.session_state:
         df = st.session_state.campaign_dashboard_data
+        
+        # Ensure we have a valid DataFrame
+        if not isinstance(df, pd.DataFrame):
+            df = pd.DataFrame()
 
         if df.empty:
             st.warning("No data found for the selected date range.")
@@ -349,6 +357,10 @@ def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):
     # Get combined lite audit data from current user's audits
     df = dashboard_manager.get_combined_lite_audit_data(st.session_state.get('username'))
     
+    # Ensure we have a valid DataFrame
+    if df is None or not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame()
+    
     if df.empty:
         st.info("No lite audit data available. Run Lite Audits to see results here.")
         return
@@ -585,10 +597,25 @@ def show_actions_section(dashboard_manager):
     agent_df = dashboard_manager.get_combined_agent_audit_data(current_username)
     lite_df = dashboard_manager.get_combined_lite_audit_data(current_username)
     
+    # Ensure we have valid DataFrames
+    if not isinstance(agent_df, pd.DataFrame):
+        agent_df = pd.DataFrame()
+    if not isinstance(lite_df, pd.DataFrame):
+        lite_df = pd.DataFrame()
+    
     # Combine both dataframes
-    combined_df = pd.concat([agent_df, lite_df], ignore_index=True) if not agent_df.empty and not lite_df.empty else (
-        agent_df if not agent_df.empty else lite_df
-    )
+    if not agent_df.empty and not lite_df.empty:
+        combined_df = pd.concat([agent_df, lite_df], ignore_index=True)
+    elif not agent_df.empty:
+        combined_df = agent_df
+    elif not lite_df.empty:
+        combined_df = lite_df
+    else:
+        combined_df = pd.DataFrame()
+    
+    # Extra safety check
+    if combined_df is None or not isinstance(combined_df, pd.DataFrame):
+        combined_df = pd.DataFrame()
     
     if combined_df.empty:
         st.info("No audit data available. Run audits to see flagged calls that need attention.")
