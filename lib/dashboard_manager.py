@@ -1858,11 +1858,12 @@ class UserManager:
         if self.get_user_role(admin_username) != self.ROLE_ADMIN:
             return False, "Target user is not an Admin"
         
-        success = quota_manager.set_admin_limits(admin_username, max_users, daily_quota, owner_username)
-        if success:
+        try:
+            quota_manager.set_admin_limits(admin_username, max_users, daily_quota, owner_username)
             return True, f"Limits set for {admin_username}: {max_users} users, {daily_quota} daily quota"
-        else:
-            return False, "Failed to set admin limits"
+        except Exception as e:
+            logger.error(f"Error setting admin limits: {e}")
+            return False, f"Failed to set admin limits: {str(e)}"
     
     def get_all_admin_limits_as_owner(self, owner_username: str) -> Dict:
         """Owner gets all Admin limits and usage."""
