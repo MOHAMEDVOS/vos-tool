@@ -1109,7 +1109,10 @@ def show_settings_section():
                             for name, group in sharing_groups.items()
                             if isinstance(group, dict)
                         ])
-                        st.dataframe(df_groups, hide_index=True, width='stretch')
+                        if not df_groups.empty:
+                            st.dataframe(df_groups, hide_index=True, width='stretch')
+                        else:
+                            st.info("No valid sharing groups found.")
                     else:
                         st.info("No dashboard sharing groups found. All users are currently isolated.")
 
