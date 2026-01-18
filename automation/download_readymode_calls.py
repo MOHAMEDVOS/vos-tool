@@ -387,23 +387,23 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         # JS injection is cleaner here as it bypasses the UI layer entirely.
                         print(f"Selecting agent '{agent}' via Direct JS...")
                         
-                        found_and_selected = page.evaluate(f"""
-                            () => {{
+                        found_and_selected = page.evaluate("""
+                            (agentName) => {
                                 const select = document.querySelector('#restrict_uid');
                                 if (!select) return false;
                                 
                                 let found = false;
-                                for(let i=0; i<select.options.length; i++) {{
-                                    if(select.options[i].text.includes('{agent.strip()}')) {{
+                                for(let i=0; i<select.options.length; i++) {
+                                    if(select.options[i].text.includes(agentName)) {
                                         select.selectedIndex = i;
                                         select.dispatchEvent(new Event('change')); # Important: Trigger ReadyMode update
                                         found = true;
                                         break;
-                                    }}
-                                }}
+                                    }
+                                }
                                 return found;
-                            }}
-                        """)
+                            }
+                        """, agent.strip())
                         
                         if not found_and_selected:
                             print(f"WARNING: Agent '{agent}' not found in dropdown list via JS.")
@@ -582,20 +582,20 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         
                         # 2. Select via JS Injection
                         print(f"Re-selecting agent '{agent}' via Direct JS...")
-                        found_and_selected = page.evaluate(f"""
-                            () => {{
+                        found_and_selected = page.evaluate("""
+                            (agentName) => {
                                 const select = document.querySelector('#restrict_uid');
                                 if (!select) return false;
-                                for(let i=0; i<select.options.length; i++) {{
-                                    if(select.options[i].text.includes('{agent.strip()}')) {{
+                                for(let i=0; i<select.options.length; i++) {
+                                    if(select.options[i].text.includes(agentName)) {
                                         select.selectedIndex = i;
                                         select.dispatchEvent(new Event('change'));
                                         return true;
-                                    }}
-                                }}
+                                    }
+                                }
                                 return false;
-                            }}
-                        """)
+                            }
+                        """, agent.strip())
                         
                         if not found_and_selected:
                             print(f"WARNING: Agent '{agent}' not found for re-application.")
