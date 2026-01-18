@@ -1091,6 +1091,17 @@ def show_settings_section():
                 from lib.dashboard_manager import dashboard_manager
                 sharing_groups = dashboard_manager.get_sharing_groups()
                 all_users = user_manager.get_all_users()
+                
+                # Ensure sharing_groups is a dict and has valid structure
+                if not isinstance(sharing_groups, dict):
+                    sharing_groups = {}
+                else:
+                    # Clean up any invalid entries
+                    sharing_groups = {
+                        name: group 
+                        for name, group in sharing_groups.items() 
+                        if isinstance(group, dict)
+                    }
 
                 tab_overview, tab_manage, tab_create = st.tabs(["Overview", "Manage Groups", "Create Group"])
 
@@ -1139,9 +1150,14 @@ def show_settings_section():
                         st.info("No groups available to manage.")
                     else:
                         selected_group = st.selectbox("Select a group to manage", list(sharing_groups.keys()))
-                        group_info = sharing_groups[selected_group]
-
-                        st.markdown(f"**Members:** {', '.join(group_info['members'])}")
+                        group_info = sharing_groups.get(selected_group, {})
+                        
+                        # Safely get members with default empty list
+                        members_list = group_info.get("members", [])
+                        if not isinstance(members_list, list):
+                            members_list = []
+                        
+                        st.markdown(f"**Members:** {', '.join(members_list) if members_list else 'No members'}")
                         st.divider()
 
                         # Edit section
@@ -1151,10 +1167,10 @@ def show_settings_section():
                         with col1:
                             to_add = st.multiselect(
                                 "Add members",
-                                [u for u in all_users if u not in group_info["members"]],
+                                [u for u in all_users if u not in members_list],
                             )
                             if st.button("Add Selected Users"):
-                                updated = group_info["members"] + to_add
+                                updated = members_list + to_add
                                 dashboard_manager.update_sharing_group(selected_group, updated)
                                 st.success("Users added successfully.")
                                 st.rerun()
@@ -1162,10 +1178,10 @@ def show_settings_section():
                         with col2:
                             to_remove = st.multiselect(
                                 "Remove members",
-                                group_info["members"],
+                                members_list,
                             )
                             if st.button("Remove Selected Users"):
-                                updated = [u for u in group_info["members"] if u not in to_remove]
+                                updated = [u for u in members_list if u not in to_remove]
                                 dashboard_manager.update_sharing_group(selected_group, updated)
                                 st.success("Users removed successfully.")
                                 st.rerun()
@@ -1198,11 +1214,14 @@ def show_settings_section():
                                     st.rerun()
                                 else:
                                     st.error("Failed to create group.")
-
-            except ImportError:
-                st.error("Dashboard manager not available")
+            except KeyError as e:
+                st.error(f"Error loading dashboard sharing settings: {str(e)}")
+                logger.error(f"KeyError in dashboard sharing: {e}", exc_info=True)
+                st.info("Please try refreshing the page. If the issue persists, the sharing groups data may need to be reset.")
             except Exception as e:
                 st.error(f"Error loading dashboard sharing settings: {str(e)}")
+                logger.error(f"Error in dashboard sharing: {e}", exc_info=True)
+
 
     # -------------------- QUOTA MANAGEMENT TAB --------------------
     with quota_tab:
