@@ -346,46 +346,68 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     raise RuntimeError(error_msg) from e
             
             # STEP 6: AGENT FILTER (if not "All users")
+            # STEP 6: AGENT FILTER (if not "All users") - ROBUST IMPLEMENTATION
             if agent and agent.strip().lower() not in ["any", "all users"]:
-                agent_selected = False
-                try:
-                    print(f"\\n{'='*60}")
-                    print(f"SEARCH AGENT SELECTION DEBUG")
-                    print(f"{'='*60}")
-                    print(f"Looking for agent: '{agent}'")
-                    
-                    # Wait for dropdown
-                    page.wait_for_selector("#restrict_uid", timeout=10000)
-                    time.sleep(1)
-                    
-                    # Try to select agent
-                    try:
-                        page.select_option("#restrict_uid", label=agent.strip())
-                        agent_selected = True
-                        print(f"SUCCESS Agent filter applied: {agent}")
-                    except:
-                        print(f"WARNING Could not select agent '{agent}', continuing with all agents")
-                    
-                    # Wait for page to update
-                    if agent_selected:
-                        print("WAIT Waiting for page to refresh with filtered results...")
-                        time.sleep(3)
-                        try:
-                            page.wait_for_selector("a[href*='.mp3']", timeout=10000)
-                            print("SUCCESS Page updated with filtered results")
-                        except:
-                            print("WARNING No MP3 links found for this agent")
-                        
-                        print(f"\\n{'='*60}")
-                        print(f"SUCCESS AGENT FILTER APPLIED")
-                        print(f"   Selected: '{agent}'")
-                        print(f"{'='*60}")
+                print(f"\n{'='*60}")
+                print(f"Applying Agent Filter: '{agent}'")
+                print(f"{'='*60}")
                 
-                except Exception as e:
-                    print(f"WARNING Agent filter failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    print(f"WARNING Continuing with current filter state...\\n")
+                agent_selected = False
+                for attempt in range(3):
+                    try:
+                        print(f"Agent Filter Attempt {attempt + 1}/3")
+                        
+                        # Wait for dropdown
+                        page.wait_for_selector("#restrict_uid", state="visible", timeout=10000)
+                        time.sleep(1)
+                        
+                        # Select agent with force option
+                        # Use label selection which is more robust for dropdowns
+                        page.select_option("#restrict_uid", label=agent.strip())
+                        
+                        # Verify selection
+                        selected_value = page.eval_on_selector("#restrict_uid", "el => el.options[el.selectedIndex].text")
+                        if agent.strip() not in selected_value:
+                            print(f"WARNING Selection verification failed. Got '{selected_value}', expected '{agent}'")
+                            # If direct select failed, try JS approach as fallback
+                            print("Attempting JS fallback selection...")
+                            page.evaluate(f"""
+                                const select = document.querySelector('#restrict_uid');
+                                for(let i=0; i<select.options.length; i++) {{
+                                    if(select.options[i].text.includes('{agent.strip()}')) {{
+                                        select.selectedIndex = i;
+                                        select.dispatchEvent(new Event('change'));
+                                        break;
+                                    }}
+                                }}
+                            """)
+                            time.sleep(1)
+                        
+                        agent_selected = True
+                        print(f"SUCCESS Agent filter selected: {agent}")
+                        
+                        # Wait for page to update
+                        print("WAIT Waiting for page to refresh with filtered results...")
+                        time.sleep(3) # Initial wait for trigger
+                        try:
+                            # Wait for results to be visible (table row or mp3 link)
+                            page.wait_for_selector("a[href*='.mp3']", timeout=15000)
+                            print("SUCCESS Page updated with filtered results")
+                            break # Success!
+                        except:
+                             print("WARNING: No MP3 links found explicitly (could be 0 results), but filter applied.")
+                             break # Assume success if filter applied but no results
+
+                    except Exception as e:
+                        print(f"WARNING Agent filter attempt {attempt + 1} failed: {e}")
+                        time.sleep(2)
+                
+                if not agent_selected:
+                    error_msg = f"[!] CRITICAL: Failed to select agent '{agent}' after 3 attempts. Stopping to prevent invalid data download."
+                    print(error_msg)
+                    raise Exception(error_msg)
+
+                print(f"SUCCESS AGENT FILTER FINALIZED: '{agent}'\n")
             
             if update_callback:
                 update_callback(40, 100)
