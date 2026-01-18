@@ -488,19 +488,30 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         time.sleep(0.5)
                         
                         # 1. Open the dropdown
-                        # Wait for button to be stable
+                        # Button may be hidden, so use "attached" state and JS click
                         dropdown_selector = "button.ui-multiselect"
-                        page.wait_for_selector(dropdown_selector, state="visible", timeout=10000)
+                        page.wait_for_selector(dropdown_selector, state="attached", timeout=10000)
                         
-                        dropdown_btn = page.locator(dropdown_selector)
-                        dropdown_btn.scroll_into_view_if_needed(timeout=5000)
-                        dropdown_btn.click(force=True)
-                        time.sleep(1) # Wait for animation
+                        # Use JS to click the button (works even if hidden)
+                        dropdown_opened = page.evaluate("""
+                            () => {
+                                const btn = document.querySelector('button.ui-multiselect');
+                                if (!btn) return false;
+                                btn.click();
+                                return true;
+                            }
+                        """)
+                        
+                        if not dropdown_opened:
+                            raise Exception("Could not find disposition dropdown button")
+                        
+                        time.sleep(1)  # Wait for animation
                         
                         # Verify dropdown opened
                         if not page.is_visible("ul.ui-multiselect-checkboxes"):
                             print("Dropdown did not open, retrying click...")
-                            dropdown_btn.click(force=True)
+                            # Retry with JS
+                            page.evaluate("document.querySelector('button.ui-multiselect')?.click()")
                             time.sleep(1)
                         
                         if not page.is_visible("ul.ui-multiselect-checkboxes"):

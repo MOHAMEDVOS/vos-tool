@@ -1188,9 +1188,13 @@ def show_settings_section():
 
                         st.divider()
                         if st.button(f"Delete Group '{selected_group}'", type="secondary"):
-                            dashboard_manager.remove_sharing_group(selected_group)
-                            st.success(f"Group '{selected_group}' deleted.")
-                            st.rerun()
+                            if dashboard_manager.remove_sharing_group(selected_group):
+                                st.success(f"Group '{selected_group}' deleted successfully.")
+                                # Small delay to ensure DB propagation before reload
+                                time.sleep(1.0)
+                                st.rerun()
+                            else:
+                                st.error(f"Failed to delete group '{selected_group}'. Check logs.")
 
                 # -------------------- CREATE GROUP TAB --------------------
                 with tab_create:

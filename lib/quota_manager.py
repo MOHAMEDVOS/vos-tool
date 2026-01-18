@@ -477,8 +477,8 @@ class QuotaManager:
         
         try:
             query = """
-                INSERT INTO user_quota_assignments (user_username, assigned_to_admin, daily_quota, created_date)
-                VALUES (%s, %s, %s, CURRENT_DATE)
+                INSERT INTO user_quota_assignments (user_username, assigned_to_admin, daily_quota, created_at)
+                VALUES (%s, %s, %s, NOW())
                 ON CONFLICT (user_username) DO UPDATE SET
                     assigned_to_admin = EXCLUDED.assigned_to_admin,
                     daily_quota = EXCLUDED.daily_quota,

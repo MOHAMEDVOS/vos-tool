@@ -2082,25 +2082,45 @@ class DashboardManager:
     def remove_sharing_group(self, group_name: str) -> bool:
         """Remove a dashboard sharing group."""
         try:
+            logger.info(f"Attempting to remove sharing group: '{group_name}'")
             config = self._load_sharing_config()
             
             if group_name not in config["sharing_groups"]:
+                logger.warning(f"Group '{group_name}' not found in sharing config keys: {list(config['sharing_groups'].keys())}")
                 return False
             
-            group_members = config["sharing_groups"][group_name]["members"]
+            # Safely get members with default empty list
+            group_info = config["sharing_groups"][group_name]
+            group_members = group_info.get("members", []) if isinstance(group_info, dict) else []
             
             # Remove group
             del config["sharing_groups"][group_name]
+            logger.info(f"Group '{group_name}' removed from config structure.")
             
-            # Reset user modes to isolated
+            # Reset user modes to isolated (Explicit DB update)
             for member in group_members:
-                if member in config["user_dashboard_mode"]:
-                    del config["user_dashboard_mode"][member]
-            
+                try:
+                    self.set_user_dashboard_mode(member, "isolated")
+                    logger.info(f"Reset user {member} to isolated mode.")
+                except Exception as e:
+                    logger.error(f"Failed to reset user {member} mode: {e}")
+
             self._save_sharing_config(config)
+            logger.info(f"Sharing config saved after removal of '{group_name}'")
             return True
+        except KeyError as e:
+            logger.error(f"Error removing sharing group (missing key): {e}")
+            # Try to remove group anyway even if members key is missing
+            try:
+                if group_name in config["sharing_groups"]:
+                    del config["sharing_groups"][group_name]
+                    self._save_sharing_config(config)
+                    return True
+            except:
+                pass
+            return False
         except Exception as e:
-            logger.error(f"Error removing sharing group: {e}")
+            logger.error(f"Error removing sharing group: {e}", exc_info=True)
             return False
     
     def update_sharing_group(self, group_name: str, new_members: List[str]) -> bool:
