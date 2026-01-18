@@ -396,7 +396,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                 for(let i=0; i<select.options.length; i++) {
                                     if(select.options[i].text.includes(agentName)) {
                                         select.selectedIndex = i;
-                                        select.dispatchEvent(new Event('change')); # Important: Trigger ReadyMode update
+                                        select.dispatchEvent(new Event('change')); // Important: Trigger ReadyMode update
                                         found = true;
                                         break;
                                     }
