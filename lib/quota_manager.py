@@ -660,19 +660,28 @@ class QuotaManager:
             Tuple[bool, str]: (success, message)
         """
         try:
-            # Check if assignment exists first
+            # Check if assignment exists first (User)
             if not self._db_manager:
                 return False, "Database not available"
             
             check_query = "SELECT assigned_to_admin FROM user_quota_assignments WHERE user_username = %s"
             assignment = self._db_manager.execute_query(check_query, (username,), fetchone=True)
             
-            if not assignment:
-                return False, f"User '{username}' not found in quota assignments"
+            if assignment:
+                # Remove the assignment (User)
+                self.remove_user_from_admin(username)
+                return True, f"Quota assignment for user '{username}' removed successfully"
             
-            # Remove the assignment
-            self.remove_user_from_admin(username)
-            return True, f"Quota assignment for user '{username}' removed successfully"
+            # Check if admin limits exist (Admin)
+            check_admin_query = "SELECT admin_username FROM admin_limits WHERE admin_username = %s"
+            admin_assignment = self._db_manager.execute_query(check_admin_query, (username,), fetchone=True)
+            
+            if admin_assignment:
+                # Remove the assignment (Admin)
+                self.remove_admin_limits(username)
+                return True, f"Admin limits for user '{username}' removed successfully"
+                
+            return False, f"User '{username}' not found in user assignments or admin limits"
         except DatabaseUnavailableError as e:
             return False, f"Cannot remove quota assignment: Database not available"
         except DatabaseOperationError as e:
