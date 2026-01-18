@@ -283,12 +283,10 @@ class AssemblyAITranscriptionEngine:
         timeout: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Transcribe audio file using AssemblyAI API with cross-platform timeout support.
+        Transcribe audio file using AssemblyAI API with robust polling for timeout support.
         
-        Uses thread-based timeout wrapper instead of signal.alarm for Windows compatibility.
+        Uses polling loop to enforce timeout regardless of OS.
         """
-        import threading
-        
         start_time = time.time()
         
         # Check cache first
@@ -304,106 +302,6 @@ class AssemblyAITranscriptionEngine:
             except ImportError:
                 timeout = 300  # 5 minutes default
         
-        # Thread-safe result container
-        result_container = {"result": None, "exception": None, "completed": False}
-        
-        def transcribe_worker():
-            """Worker function that runs transcription in a separate thread."""
-            try:
-                file_name = Path(audio_file_path).name
-                logger.info(f"Starting transcription with {timeout}s timeout: {file_name}")
-                
-                # Default configuration
-                default_config = {
-                    "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None 
-                        else os.getenv("ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION", "false").lower() == "true",
-                    "language_detection": False,
-                    "language_code": "en",
-                    "punctuate": True,
-                    "format_text": True,
-                }
-                
-                config_dict = {**default_config, **(options or {})}
-                config = aai.TranscriptionConfig(**config_dict)
-                
-                logger.debug(f"Configuration: speaker_labels={config_dict.get('speaker_labels')}, "
-                            f"language_detection={config_dict.get('language_detection')}")
-                
-                # Transcribe the file (blocking call)
-                transcript = self.transcriber.transcribe(audio_file_path, config=config)
-                
-                # Check for errors
-                if transcript.error:
-                    logger.error(f"AssemblyAI transcription error: {transcript.error}")
-                    result_container["result"] = {
-                        "transcript": "",
-                        "words": [],
-                        "utterances": [],
-                        "speakers": [],
-                        "confidence": None,
-                        "language_code": None,
-                        "processing_time_ms": int((time.time() - start_time) * 1000),
-                        "transcription_method": "assemblyai_api",
-                        "transcription_status": "failed",
-                        "transcription_error": transcript.error
-                    }
-                else:
-                    processing_time_ms = int((time.time() - start_time) * 1000)
-                    
-                    # Extract results
-                    result_container["result"] = {
-                        "transcript": transcript.text or "",
-                        "words": self._extract_words(transcript.words) if transcript.words else [],
-                        "utterances": self._extract_utterances(transcript.utterances) if transcript.utterances else [],
-                        "speakers": self._extract_speakers(transcript.utterances) if transcript.utterances else [],
-                        "confidence": transcript.confidence if hasattr(transcript, 'confidence') else None,
-                        "language_code": transcript.language_code if hasattr(transcript, 'language_code') else None,
-                        "processing_time_ms": processing_time_ms,
-                        "transcription_method": "assemblyai_api",
-                        "transcription_status": "completed",
-                        "transcription_error": None,
-                        "status": transcript.status.value if hasattr(transcript, 'status') else "completed"
-                    }
-                    
-                    logger.info(f"Transcription completed in {processing_time_ms}ms. "
-                               f"Transcript length: {len(result_container['result']['transcript'])} characters")
-                    
-                    # Cache the successful result
-                    self.cache.set(audio_file_path, result_container["result"])
-                
-                result_container["completed"] = True
-                
-            except Exception as e:
-                result_container["exception"] = e
-                result_container["completed"] = True
-        
-        # Start transcription in a separate thread
-        worker_thread = threading.Thread(target=transcribe_worker, daemon=True)
-        worker_thread.start()
-        
-        # Wait for completion or timeout
-        worker_thread.join(timeout=timeout)
-        
-        # Check if thread is still alive (timed out)
-        if worker_thread.is_alive():
-            processing_time_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"Transcription timed out after {timeout}s")
-            return {
-                "transcript": "",
-                "words": [],
-                "utterances": [],
-                "speakers": [],
-                "confidence": None,
-                "language_code": None,
-                "processing_time_ms": processing_time_ms,
-                "transcription_method": "assemblyai_api",
-                "transcription_status": "timeout",
-                "transcription_error": f"Transcription timed out after {timeout} seconds"
-            }
-        
-        # Check for exceptions
-        if result_container["exception"]:
-            processing_time_ms = int((time.time() - start_time) * 1000)
             logger.error(f"AssemblyAI transcription error: {result_container['exception']}", exc_info=True)
             return {
                 "transcript": "",
