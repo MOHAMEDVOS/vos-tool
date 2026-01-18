@@ -412,8 +412,6 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             if update_callback:
                 update_callback(40, 100)
 
-            # STEP 6.1: APPLY DISPOSITION FILTER (Direct Port from Selenium)
-            if disposition:
             # STEP 6.1: APPLY DISPOSITION FILTER (Robust Implementation with Retries)
             if disposition:
                 print(f"\n{'='*60}")
