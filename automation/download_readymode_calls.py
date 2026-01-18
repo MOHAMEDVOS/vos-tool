@@ -466,6 +466,24 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     try:
                         print(f"Disposition Filter Attempt {attempt + 1}/3")
                         
+                        # 0. HANDLE BLOCKING POPUPS (Same as Agent Filter)
+                        try:
+                            # Look for close buttons on common dialogs
+                            popups = page.locator("button.close, .modal-close, button[aria-label='Close'], .ui-dialog-titlebar-close")
+                            for i in range(popups.count()):
+                                if popups.nth(i).is_visible():
+                                    print("INFO Closing blocking popup/modal...")
+                                    popups.nth(i).click()
+                                    time.sleep(0.5)
+                            
+                            # Specific check for survey (NPS)
+                            if page.is_visible("text=On a scale of 0-10"):
+                                print("INFO Detected NPS Survey. Attempting to close...")
+                                page.mouse.click(10, 10) 
+                                time.sleep(0.5)
+                        except:
+                            pass
+                        
                         # 1. Open the dropdown
                         # Wait for button to be stable
                         dropdown_selector = "button.ui-multiselect"
@@ -541,54 +559,82 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 print(f"INFO Post-download duration filter active: {min_duration}-{max_duration}")
             """
 
-            # STEP 6.2: RE-APPLY AGENT FILTER (to handle page refresh issues)
+            # STEP 6.2: RE-APPLY AGENT FILTER (Robust JS Implementation)
             if agent and agent.strip().lower() not in ["any", "all users"]:
-                try:
-                    print(f"\n{'='*60}")
-                    print(f"RE-APPLY AGENT FILTER (Post-other-filters)")
-                    print(f"{'='*60}")
-                    print(f"Re-applying agent: '{agent}'")
-
-                    # Wait for dropdown to be present and interactable
-                    page.wait_for_selector("#restrict_uid", timeout=10000)
-                    time.sleep(1)  # Give dropdown time to populate
-                    
-                    # Get all available options for debugging (EXACT MATCH of Selenium logs)
-                    options = page.locator("#restrict_uid option").all()
-                    available_options = [opt.text_content().strip() for opt in options]
-                    
-                    print(f"\n📋 RE-APPLY DROPDOWN CONTENTS ({len(available_options)} total options):")
-                    print("-" * 60)
-                    for i, opt in enumerate(available_options[:20], 1):  # Show first 20
-                        print(f"  {i:2d}. '{opt}'")
-                    if len(available_options) > 20:
-                        print(f"  ... and {len(available_options) - 20} more")
-                    print("-" * 60)
-
-                    # Strategy 1: Try exact match
-                    print(f"\nRE-APPLY STRATEGY 1: Exact Match")
-                    print(f"   Searching for: '{agent.strip()}'")
+                print(f"\n{'='*60}")
+                print(f"RE-APPLY AGENT FILTER (Post-other-filters)")
+                print(f"{'='*60}")
+                
+                reapply_success = False
+                for attempt in range(3):
                     try:
-                        page.select_option("#restrict_uid", label=agent.strip())
-                        print(f"   SUCCESS SUCCESS - Exact match found!")
+                        print(f"Re-Apply Agent Attempt {attempt + 1}/3")
                         
-                        # Wait for page refresh
-                        print(f"\n{'='*60}")
-                        print(f"SUCCESS AGENT FILTER RE-APPLIED")
-                        print(f"   Selected: '{agent.strip()}'")
-                        print(f"{'='*60}")
-                        print(f"WAIT Waiting for page to refresh with re-applied agent filter...")
+                        # Handle Popups (just in case)
+                        try:
+                            if page.is_visible("text=On a scale of 0-10"):
+                                page.mouse.click(10, 10)
+                                time.sleep(0.5)
+                        except: pass
+
+                        # 1. Wait for dropdown (attached/hidden ok)
+                        page.wait_for_selector("#restrict_uid", state="attached", timeout=10000)
+                        
+                        # 2. Select via JS Injection
+                        print(f"Re-selecting agent '{agent}' via Direct JS...")
+                        found_and_selected = page.evaluate(f"""
+                            () => {{
+                                const select = document.querySelector('#restrict_uid');
+                                if (!select) return false;
+                                for(let i=0; i<select.options.length; i++) {{
+                                    if(select.options[i].text.includes('{agent.strip()}')) {{
+                                        select.selectedIndex = i;
+                                        select.dispatchEvent(new Event('change'));
+                                        return true;
+                                    }}
+                                }}
+                                return false;
+                            }}
+                        """)
+                        
+                        if not found_and_selected:
+                            print(f"WARNING: Agent '{agent}' not found for re-application.")
+                            try:
+                                page.select_option("#restrict_uid", label=agent.strip(), force=True)
+                            except: pass
+
+                        time.sleep(1)
+                        
+                        # 3. Verify
+                        selected_value = page.eval_on_selector("#restrict_uid", "el => el.options[max(0, el.selectedIndex)].text")
+                        if agent.strip() not in selected_value:
+                            print(f"WARNING Re-apply verification failed. Got '{selected_value}'")
+                            time.sleep(2)
+                            continue
+                            
+                        print(f"SUCCESS Agent filter re-applied: {agent}")
+                        
+                        # 4. Wait for refresh
+                        print("WAIT Waiting for page to refresh...")
                         time.sleep(3)
                         try:
                             page.wait_for_selector("a[href*='.mp3']", timeout=10000)
-                            print(f"SUCCESS Page updated with re-applied agent filter")
+                            print("SUCCESS Page updated")
                         except:
-                            print(f"WARNING Re-applied filter but no results shown yet")
-                    except Exception as e1:
-                        print(f"   FAILED Failed: {type(e1).__name__}")
+                            print("WARNING No results after re-apply (normal if 0 results)")
+                        
+                        reapply_success = True
+                        break
+                        
+                    except Exception as e:
+                        print(f"WARNING Re-apply attempt {attempt+1} failed: {e}")
+                        time.sleep(2)
                 
-                except Exception as e:
-                    print(f"WARNING Failed to re-apply agent filter: {e}")
+                if not reapply_success:
+                    print(f"[!] WARNING: Failed to re-apply agent filter. Proceeding, but results might be mixed.")
+                    # We don't raise Exception here to avoid crashing the whole run at the end, 
+                    # as the primary filter *did* work earlier.
+
             
             if update_callback:
                 update_callback(50, 100)
