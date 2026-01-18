@@ -1146,6 +1146,20 @@ def show_settings_section():
 
                 # -------------------- MANAGE GROUPS TAB --------------------
                 with tab_manage:
+                    # Sync Button for Consistency
+                    col_sync, _ = st.columns([2, 5])
+                    with col_sync:
+                        if st.button("🔄 Sync User Statuses", help="Force database to match group definitions. Use if you see 'Isolated' incorrectly."):
+                            success, msg, count = dashboard_manager.sync_group_user_modes()
+                            if success:
+                                st.success(msg)
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                    
+                    st.divider()
+
                     if not sharing_groups:
                         st.info("No groups available to manage.")
                     else:

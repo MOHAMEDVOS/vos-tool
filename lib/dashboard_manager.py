@@ -2165,6 +2165,39 @@ class DashboardManager:
         except Exception as e:
             logger.error(f"Error updating sharing group: {e}")
             return False
+            
+    def sync_group_user_modes(self) -> Tuple[bool, str, int]:
+        """
+        Force sync user dashboard modes based on current group definitions.
+        Fixes inconsistencies where users are in a group but their mode is 'isolated'.
+        
+        Returns:
+            Tuple[bool, str, int]: (Success, Message, Count of updates)
+        """
+        try:
+            config = self._load_sharing_config()
+            sharing_groups = config.get("sharing_groups", {})
+            updates_count = 0
+            
+            # 1. Reset everyone to isolated first (verification step) - NO, too dangerous/slow
+            # Instead, just iterate groups and force-set members
+            
+            for group_name, group_info in sharing_groups.items():
+                members = group_info.get("members", [])
+                if not isinstance(members, list):
+                    continue
+                    
+                for member in members:
+                    try:
+                        self.set_user_dashboard_mode(member, group_name)
+                        updates_count += 1
+                    except Exception as e:
+                        logger.error(f"Failed to sync user {member}: {e}")
+            
+            return True, f"Synced {updates_count} user statuses from {len(sharing_groups)} groups.", updates_count
+        except Exception as e:
+            logger.error(f"Error syncing group modes: {e}")
+            return False, f"Sync failed: {str(e)}", 0
     
     def get_user_dashboard_mode(self, username: str) -> str:
         """Get dashboard mode for a user (isolated or group name)."""
