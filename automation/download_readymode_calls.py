@@ -392,39 +392,84 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
 
             # STEP 6.1: APPLY DISPOSITION FILTER (Direct Port from Selenium)
             if disposition:
-                try:
-                    print(f"\n{'='*60}")
-                    print(f"SUCCESS Disposition: {disposition}")
-                    print(f"{'='*60}")
-                    
-                    # 1. Open the dropdown
-                    dropdown_btn = page.locator("button.ui-multiselect")
-                    dropdown_btn.scroll_into_view_if_needed()
-                    dropdown_btn.click()
-                    time.sleep(0.5)
+            # STEP 6.1: APPLY DISPOSITION FILTER (Robust Implementation with Retries)
+            if disposition:
+                print(f"\n{'='*60}")
+                print(f"Applying Disposition Filter: {disposition}")
+                print(f"{'='*60}")
+                
+                filter_success = False
+                for attempt in range(3):
+                    try:
+                        print(f"Disposition Filter Attempt {attempt + 1}/3")
+                        
+                        # 1. Open the dropdown
+                        # Wait for button to be stable
+                        dropdown_selector = "button.ui-multiselect"
+                        page.wait_for_selector(dropdown_selector, state="visible", timeout=10000)
+                        
+                        dropdown_btn = page.locator(dropdown_selector)
+                        dropdown_btn.scroll_into_view_if_needed(timeout=5000)
+                        dropdown_btn.click(force=True)
+                        time.sleep(1) # Wait for animation
+                        
+                        # Verify dropdown opened
+                        if not page.is_visible("ul.ui-multiselect-checkboxes"):
+                            print("Dropdown did not open, retrying click...")
+                            dropdown_btn.click(force=True)
+                            time.sleep(1)
+                        
+                        if not page.is_visible("ul.ui-multiselect-checkboxes"):
+                             raise Exception("Dropdown menu failed to open")
 
-                    # 2. Click 'Uncheck all'
-                    uncheck_all = page.locator("a.ui-multiselect-none")
-                    uncheck_all.click()
-                    time.sleep(0.5)
+                        # 2. Click 'Uncheck all'
+                        uncheck_all = page.locator("a.ui-multiselect-none")
+                        uncheck_all.click()
+                        time.sleep(0.5)
 
-                    # 3. Check only the desired dispositions
-                    for dispo in disposition:
-                        # XPath matches the Selenium implementation precisely
-                        xpath = f"//ul[contains(@class, 'ui-multiselect-checkboxes')]//label[span[text()='{dispo}']]//input"
-                        checkbox = page.locator(xpath)
-                        try:
+                        # 3. Check only the desired dispositions
+                        for dispo in disposition:
+                            # XPath matches the Selenium implementation precisely
+                            xpath = f"//ul[contains(@class, 'ui-multiselect-checkboxes')]//label[span[text()='{dispo}']]//input"
+                            checkbox = page.locator(xpath)
+                            if not checkbox.is_visible():
+                                checkbox.scroll_into_view_if_needed()
+                            
                             if not checkbox.is_checked():
                                 checkbox.click()
+                                print(f"Checked disposition: {dispo}")
                             time.sleep(0.1)
-                        except Exception as dispo_err:
-                            print(f"WARNING Could not select disposition '{dispo}': {dispo_err}")
 
-                    # 4. Click outside to close the menu
-                    page.mouse.click(10, 10)
-                    time.sleep(0.2)
-                except Exception as e:
-                    print(f"[!] Failed to apply disposition filter: {e}")
+                        # 4. Click outside to close the menu and trigger refresh
+                        page.mouse.click(10, 10)
+                        
+                        # 5. Wait for results to reload
+                        print("WAIT Waiting for results to reload after disposition change...")
+                        # Wait for the loading overlay or for results to change table state
+                        time.sleep(2) # Initial waiting for trigger
+                        try:
+                            # Wait for a stable state - e.g. results table or mp3 links
+                            page.wait_for_selector("a[href*='.mp3']", timeout=15000)
+                            print("SUCCESS Results reloaded")
+                        except:
+                            print("WARNING: No results found after filter (or timeout waiting for load)")
+                        
+                        filter_success = True
+                        break # Success!
+
+                    except Exception as e:
+                        print(f"WARNING Disposition filter attempt {attempt + 1} failed: {e}")
+                        time.sleep(2) # Wait before retry
+                        # Try to recover state (click outside)
+                        try: page.mouse.click(10, 10)
+                        except: pass
+                
+                if not filter_success:
+                    error_msg = "[!] CRITICAL: Failed to apply disposition filter after 3 attempts. Stopping to prevent invalid data download."
+                    print(error_msg)
+                    raise Exception(error_msg)
+                
+                print(f"SUCCESS Disposition filter applied: {disposition}")
 
             # STEP 6.1.5: DURATION FILTER (UI interaction removed per user request - kept at post-download level)
             """
