@@ -131,11 +131,12 @@ except (ImportError, Exception) as e:
 
 # Set page configuration with favicon
 # Use the new Gemini-generated logo as favicon
-favicon_path = "favicon.png"
-if os.path.exists(favicon_path):
+# Use the new Gemini-generated logo as favicon
+favicon_path = Path(__file__).parent / "favicon.png"
+if favicon_path.exists():
     st.set_page_config(
         page_title="VOS",
-        page_icon=favicon_path,
+        page_icon=str(favicon_path),
         layout="wide"
     )
 else:
