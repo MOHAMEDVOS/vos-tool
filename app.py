@@ -1233,12 +1233,12 @@ def show_settings_section():
                         for admin_username, info in admin_limits.items():
                             admin_data.append({
                                 "Admin": admin_username,
-                                "Max Users": info["limits"]["max_users"],
-                                "Quota Pool": info["limits"]["daily_quota"],
-                                "Users Created": info["users_created"],
-                                "Remaining Slots": info["remaining_user_slots"],
-                                "Pool Usage": info["current_usage"],
-                                "Pool Remaining": info["remaining_quota"]
+                                "Max Users": info.get("limits", {}).get("max_users", 0),
+                                "Quota Pool": info.get("limits", {}).get("daily_quota", 0),
+                                "Users Created": info.get("user_count", 0),
+                                "Remaining Slots": info.get("limits", {}).get("max_users", 0) - info.get("user_count", 0),
+                                "Pool Usage": info.get("usage", {}).get("total_used", 0),
+                                "Pool Remaining": info.get("limits", {}).get("daily_quota", 0) - info.get("usage", {}).get("total_used", 0)
                             })
                         
                         if admin_data:
