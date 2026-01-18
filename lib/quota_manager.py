@@ -647,7 +647,7 @@ class QuotaManager:
             logger.error(f"Error removing user from admin: {e}")
             raise DatabaseOperationError(f"Cannot remove user: {e}")
     
-    def remove_quota_assignment(self, username: str):
+    def remove_quota_assignment(self, username: str) -> Tuple[bool, str]:
         """Remove a quota assignment for a username.
         
         This is useful for cleaning up ghost entries where a username appears in
@@ -655,8 +655,20 @@ class QuotaManager:
         
         Args:
             username: Username to remove
+        
+        Returns:
+            Tuple[bool, str]: (success, message)
         """
-        self.remove_user_from_admin(username)
+        try:
+            self.remove_user_from_admin(username)
+            return True, f"Quota assignment for user '{username}' removed successfully"
+        except DatabaseUnavailableError as e:
+            return False, f"Cannot remove quota assignment: Database not available"
+        except DatabaseOperationError as e:
+            return False, f"Cannot remove quota assignment: {str(e)}"
+        except Exception as e:
+            logger.error(f"Unexpected error removing quota assignment: {e}")
+            return False, f"Error removing quota assignment: {str(e)}"
     
     # ==================== USER OPERATIONS ====================
     
