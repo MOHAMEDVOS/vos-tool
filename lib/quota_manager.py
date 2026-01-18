@@ -690,16 +690,25 @@ class QuotaManager:
                 try:
                     # Check if 'admin' exists in admin_limits
                     admin_exists = quota_data.get("admin_limits", {}).get("admin")
+                    if not admin_exists:
+                        logger.warning("Default 'admin' account not found. Creating it...")
+                        # Auto-create admin group with high capacity
+                        self.set_admin_limits("admin", max_users=1000, daily_quota=1000000, owner_username="system")
+                        quota_data = self._load_quota_data()  # Reload to confirm creation
+                        admin_exists = quota_data.get("admin_limits", {}).get("admin")
+                    
                     if admin_exists:
-                        # Auto-assign to admin with a sensible default
-                        self.assign_user_to_admin(username, "admin", daily_quota=1000)
+                        # Auto-assign to admin
+                        # SPECIAL CASE: Give Mohamed Abdo unlimited (999999) quota, others 1000
+                        daily_limit = 999999 if username == "Mohamed Abdo" else 1000
+                        self.assign_user_to_admin(username, "admin", daily_quota=daily_limit)
+                        
                         # Reload quota data to get the new assignment
                         quota_data = self._load_quota_data()
                         user_assignment = quota_data.get("user_assignments", {}).get(username)
-                        logger.info(f"Successfully auto-assigned user {username} to 'admin' with 1000 quota.")
+                        logger.info(f"Successfully auto-assigned user {username} to 'admin' with {daily_limit} quota.")
                     else:
-                        logger.error("Default 'admin' account not found. Cannot auto-assign.")
-                        # Still allow usage to avoid blocking operations, but log critical error
+                        logger.error("Failed to create default 'admin' account. Cannot auto-assign.")
                         return True, f"Warning: User {username} has no quota assignment (auto-assign failed)."
                 except Exception as e:
                     logger.error(f"Failed to auto-assign user {username}: {e}")
