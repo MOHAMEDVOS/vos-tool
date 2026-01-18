@@ -13,6 +13,7 @@ import tempfile
 
 from audio_pipeline.detections import releasing_detection, late_hello_detection
 from lib.assemblyai_transcription import AssemblyAITranscriptionEngine
+from audio_pipeline.audio_processor import _shared_executor
 
 logger = logging.getLogger(__name__)
 
@@ -192,22 +193,21 @@ class OptimizedAudioProcessor:
             logger.error(f"Failed to create temp file: {e}")
             temp_file = None
         
-        # Parallel execution with ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            # Submit all tasks
-            future_releasing = executor.submit(releasing_detection, agent_audio)
-            future_late_hello = executor.submit(late_hello_detection, agent_audio, file_path.name)
-            
-            # AssemblyAI transcription task (if temp file available)
-            future_transcription = None
-            if temp_file:
-                transcription_engine = self._get_transcription_engine(user_api_key)
-                future_transcription = executor.submit(
-                    transcription_engine.transcribe_file,
-                    temp_file,
-                    enable_speaker_diarization=False,  # Faster
-                    timeout=180  # 3 minute timeout
-                )
+        # Parallel execution with SHARED _shared_executor
+        # Submit all tasks
+        future_releasing = _shared_executor.submit(releasing_detection, agent_audio)
+        future_late_hello = _shared_executor.submit(late_hello_detection, agent_audio, file_path.name)
+        
+        # AssemblyAI transcription task (if temp file available)
+        future_transcription = None
+        if temp_file:
+            transcription_engine = self._get_transcription_engine(user_api_key)
+            future_transcription = _shared_executor.submit(
+                transcription_engine.transcribe_file,
+                temp_file,
+                enable_speaker_diarization=False,  # Faster
+                timeout=180  # 3 minute timeout
+            )
             
             # Collect results
             result = {

@@ -321,16 +321,17 @@ class AgentOnlyTranscriptionEngine:
 class AgentOnlyRebuttalDetector:
     """Complete rebuttal detection system using AssemblyAI API for agent channel transcription."""
 
-    def __init__(self, api_key: Optional[str] = None, user_api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, user_api_key: Optional[str] = None, skip_database: bool = False):
         """
         Initialize agent-only rebuttal detector with AssemblyAI.
         
         Args:
             api_key: AssemblyAI API key (fallback if user_api_key is None)
             user_api_key: User's specific API key (takes precedence)
+            skip_database: If True, skip database queries for learned phrases (faster for batch processing)
         """
         self.transcription_engine = AgentOnlyTranscriptionEngine(api_key, user_api_key)
-        self.keyword_repo = KeywordRepository()
+        self.keyword_repo = KeywordRepository(skip_database=skip_database)
         self.semantic_engine = SemanticDetectionEngine(self.keyword_repo)
         self.formatter = OutputFormatter()
         # Add Egyptian accent correction for better accuracy with Egyptian-accented speech

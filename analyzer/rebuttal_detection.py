@@ -1355,11 +1355,17 @@ class PhoneticAdaptationLayer:
 class KeywordRepository:
     """Repository of rebuttal phrases organized by category."""
     
-    def __init__(self):
-        """Initialize repository and load learned phrases."""
+    def __init__(self, skip_database: bool = False):
+        """Initialize repository and load learned phrases.
+        
+        Args:
+            skip_database: If True, skip database queries and use only hardcoded + JSON phrases.
+                          Useful for batch processing to avoid connection pool exhaustion.
+        """
         self._learned_phrases_cache = None
         self._learned_phrases_timestamp = None
         self._learned_phrases_loaded_at = None
+        self._skip_database = skip_database
 
     REBUTTAL_PHRASES = {
         "OTHER_PROPERTY_FAMILY": [
@@ -1729,35 +1735,36 @@ class KeywordRepository:
             ):
                 return self._learned_phrases_cache
 
-            # Try to load from database first
-            try:
-                from lib.database import get_db_manager
-                db = get_db_manager()
-                
-                if db:
-                    query = "SELECT category, phrase FROM rebuttal_phrases ORDER BY category, phrase"
-                    results = db.execute_query(query, fetch=True)
+            # Try to load from database first (unless skip_database is True)
+            if not self._skip_database:
+                try:
+                    from lib.database import get_db_manager
+                    db = get_db_manager()
                     
-                    if results:
-                        learned_phrases = {}
-                        for row in results:
-                            category = row['category']
-                            phrase = row['phrase']
-                            if category not in learned_phrases:
-                                learned_phrases[category] = []
-                            learned_phrases[category].append(phrase)
+                    if db:
+                        query = "SELECT category, phrase FROM rebuttal_phrases ORDER BY category, phrase"
+                        results = db.execute_query(query, fetch=True)
                         
-                        # Cache the result
-                        self._learned_phrases_cache = learned_phrases
-                        self._learned_phrases_timestamp = None  # Database doesn't have mtime
-                        self._learned_phrases_loaded_at = time.time()
-                        
-                        logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
-                        return learned_phrases
-            except Exception as e:
-                logger.debug(f"Could not load from database: {e}, falling back to JSON")
-                # Fallback to JSON
-                pass
+                        if results:
+                            learned_phrases = {}
+                            for row in results:
+                                category = row['category']
+                                phrase = row['phrase']
+                                if category not in learned_phrases:
+                                    learned_phrases[category] = []
+                                learned_phrases[category].append(phrase)
+                            
+                            # Cache the result
+                            self._learned_phrases_cache = learned_phrases
+                            self._learned_phrases_timestamp = None  # Database doesn't have mtime
+                            self._learned_phrases_loaded_at = time.time()
+                            
+                            logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
+                            return learned_phrases
+                except Exception as e:
+                    logger.debug(f"Could not load from database: {e}, falling back to JSON")
+                    # Fallback to JSON
+                    pass
             
             # Fallback to JSON file
             from pathlib import Path

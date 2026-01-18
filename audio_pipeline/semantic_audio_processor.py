@@ -14,6 +14,7 @@ import threading
 
 from audio_pipeline.detections import releasing_detection, late_hello_detection
 from lib.assemblyai_transcription import AssemblyAITranscriptionEngine
+from audio_pipeline.audio_processor import _shared_executor
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class SemanticAudioProcessor:
         self._models_loaded = False
         
     def _ensure_models_loaded(self):
-        """Lazy-load semantic models only when needed."""
+        """Lazy-load semantic models only when needed using the singleton manager."""
         if self._models_loaded:
             return
             
@@ -41,20 +42,26 @@ class SemanticAudioProcessor:
             start_time = time.time()
             
             try:
-                # Import and initialize semantic engine
-                from analyzer.rebuttal_detection import SemanticDetectionEngine
-                from lib.keyword_repo import KeywordRepository
+                # Use singleton model manager for shared model instance
+                from models.manager import get_semantic_model
+                model, embeddings = get_semantic_model()
                 
-                keyword_repo = KeywordRepository()
-                self.semantic_engine = SemanticDetectionEngine(keyword_repo)
-                
-                # Pre-warm the models with a dummy transcript
-                dummy_transcript = "Hello, how are you today?"
-                self.semantic_engine.detect_rebuttals(dummy_transcript)
+                if model is None:
+                    logger.warning("Semantic model not available from singleton, using exact matching only")
+                    self.semantic_engine = None
+                else:
+                    # Initialize semantic detection engine
+                    from analyzer.rebuttal_detection import SemanticDetectionEngine, KeywordRepository
+                    
+                    keyword_repo = KeywordRepository()
+                    self.semantic_engine = SemanticDetectionEngine(keyword_repo)
+                    
+                    # Note: SemanticDetectionEngine.__init__ already calls get_semantic_model()
+                    # but we ensure it's loaded here and assigned to the processor
+                    
+                    logger.info(f"✅ Semantic models loaded from singleton in {time.time() - start_time:.2f}s")
                 
                 self._models_loaded = True
-                load_time = time.time() - start_time
-                logger.info(f"Semantic models loaded in {load_time:.2f}s")
                 
             except Exception as e:
                 logger.error(f"Failed to load semantic models: {e}")
@@ -220,22 +227,21 @@ class SemanticAudioProcessor:
             logger.error(f"Failed to create temp file: {e}")
             temp_file = None
         
-        # Parallel execution with ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            # Submit all tasks
-            future_releasing = executor.submit(releasing_detection, agent_audio)
-            future_late_hello = executor.submit(late_hello_detection, agent_audio, file_path.name)
-            
-            # AssemblyAI transcription task
-            future_transcription = None
-            if temp_file:
-                transcription_engine = self._get_transcription_engine(user_api_key)
-                future_transcription = executor.submit(
-                    transcription_engine.transcribe_file,
-                    temp_file,
-                    enable_speaker_diarization=False,
-                    timeout=180  # 3 minute timeout
-                )
+        # Parallel execution with SHARED _shared_executor
+        # Submit all tasks
+        future_releasing = _shared_executor.submit(releasing_detection, agent_audio)
+        future_late_hello = _shared_executor.submit(late_hello_detection, file_path.name)
+        
+        # AssemblyAI transcription task
+        future_transcription = None
+        if temp_file:
+            transcription_engine = self._get_transcription_engine(user_api_key)
+            future_transcription = _shared_executor.submit(
+                transcription_engine.transcribe_file,
+                temp_file,
+                enable_speaker_diarization=False,
+                timeout=180  # 3 minute timeout
+            )
             
             # Collect basic results first (fast)
             result = {
@@ -290,7 +296,7 @@ class SemanticAudioProcessor:
             if transcript and self.semantic_engine is not None:
                 try:
                     # Run semantic analysis in thread pool
-                    future_semantic = executor.submit(
+                    future_semantic = _shared_executor.submit(
                         self._fast_semantic_detection,
                         transcript
                     )

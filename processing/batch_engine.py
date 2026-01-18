@@ -19,6 +19,9 @@ from audio_pipeline.detections import IntroductionClassifier
 
 FORCED_MAX_WORKERS = 5
 
+# Shared executor pool for async batch processing to avoid resource exhaustion
+_batch_executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="BatchProc")
+
 
 class BatchProcessor:
     """
@@ -352,13 +355,9 @@ class BatchProcessor:
             
             # Create semaphore to limit concurrent AssemblyAI API calls
             semaphore = asyncio.Semaphore(self.max_workers)
-            logger.info(f"Semaphore initialized with {self.max_workers} max workers (available: {semaphore._value})")
+            logger.info(f"Semaphore initialized with {self.max_workers} max workers")
             
-            # CRITICAL FIX: Use a shared executor pool for the entire batch to avoid nested executor deadlocks
-            # The default executor can get exhausted when process_single_file uses ThreadPoolExecutor internally
-            # A shared executor prevents deadlocks and resource exhaustion
-            import concurrent.futures
-            batch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers * 2)
+            # Using SHARED _batch_executor to avoid nested deadlock hangs on Windows
             
             async def process_single_file_async(file_path: Path) -> dict:
                 """Process a single file with async transcription."""
@@ -367,7 +366,7 @@ class BatchProcessor:
                         loop = asyncio.get_event_loop()
                         result = await asyncio.wait_for(
                             loop.run_in_executor(
-                                batch_executor,
+                                _batch_executor,
                                 self.audio_processor.process_single_file,
                                 file_path,
                                 additional_metadata,
@@ -432,9 +431,6 @@ class BatchProcessor:
                                 f"(avg: {avg_time:.1f}s/file, semaphore: {semaphore_available}/{self.max_workers}, "
                                 f"active tasks: {active_tasks})"
                             )
-                            if completed_count == 23:
-                                logger.info(f"DEBUG: At record 23 - semaphore state: {semaphore_available}, active tasks: {active_tasks}, "
-                                          f"total tasks: {len(tasks)}, completed: {completed_count}")
                             print(f"Async Progress: {completed_count}/{len(batch_files)} files processed ({completed_count/len(batch_files)*100:.0f}%)")
                         
                         # Update overall progress for UI after each file
@@ -487,9 +483,8 @@ class BatchProcessor:
                     logger.info(f"Batch {batch_num}: Cleaned up {len(incomplete_tasks)} incomplete tasks")
             
             finally:
-                # Shutdown batch executor to free resources
-                batch_executor.shutdown(wait=True)
-                logger.debug(f"Batch {batch_num} executor shutdown complete")
+                # No longer shutting down shared executor here
+                pass
             
             batch_time = time.time() - start_time
             logger.info(f"Async batch {batch_num} completed in {batch_time:.1f}s")

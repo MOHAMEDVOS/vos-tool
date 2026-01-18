@@ -484,6 +484,9 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         except:
                             pass
                         
+                        # Small wait to ensure page is ready after popup handling
+                        time.sleep(0.5)
+                        
                         # 1. Open the dropdown
                         # Wait for button to be stable
                         dropdown_selector = "button.ui-multiselect"
@@ -570,17 +573,28 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     try:
                         print(f"Re-Apply Agent Attempt {attempt + 1}/3")
                         
-                        # Handle Popups (just in case)
+                        # Handle Popups (comprehensive - match main Agent Filter)
                         try:
+                            # Look for close buttons on common dialogs
+                            popups = page.locator("button.close, .modal-close, button[aria-label='Close'], .ui-dialog-titlebar-close")
+                            for i in range(popups.count()):
+                                if popups.nth(i).is_visible():
+                                    print("INFO Closing blocking popup/modal...")
+                                    popups.nth(i).click()
+                                    time.sleep(0.5)
+                            
+                            # Specific check for survey (NPS)
                             if page.is_visible("text=On a scale of 0-10"):
-                                page.mouse.click(10, 10)
+                                print("INFO Detected NPS Survey. Attempting to close...")
+                                page.mouse.click(10, 10) 
                                 time.sleep(0.5)
-                        except: pass
+                        except:
+                            pass  # Don't let popup closing crash the flow
 
                         # 1. Wait for dropdown (attached/hidden ok)
                         page.wait_for_selector("#restrict_uid", state="attached", timeout=10000)
                         
-                        # 2. Select via JS Injection
+                        # 2. Select via JS Injection (ONLY method - no fallback)
                         print(f"Re-selecting agent '{agent}' via Direct JS...")
                         found_and_selected = page.evaluate("""
                             (agentName) => {
@@ -599,9 +613,9 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         
                         if not found_and_selected:
                             print(f"WARNING: Agent '{agent}' not found for re-application.")
-                            try:
-                                page.select_option("#restrict_uid", label=agent.strip(), force=True)
-                            except: pass
+                            # Don't use fallback - JS injection is the only reliable method
+                            time.sleep(2)
+                            continue  # Retry the loop instead of using broken fallback
 
                         time.sleep(1)
                         

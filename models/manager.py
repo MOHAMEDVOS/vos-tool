@@ -9,16 +9,12 @@ logger = logging.getLogger(__name__)
 
 _WHISPER_MODEL = None
 _SEMANTIC_MODEL = None
-_SEMANTIC_MODEL_LOCK = threading.Lock()
+_SEMANTIC_MODEL_LOCK = threading.RLock()
 _SEMANTIC_EMBEDDINGS = None
 
 
 def get_semantic_model():
     """Get or create the global semantic model instance (thread-safe singleton)."""
-    # TEMPORARILY DISABLED: Semantic model downloads are blocking transcription
-    logger.warning("Semantic model loading disabled - semantic rebuttal matching unavailable")
-    return None, None
-    
     global _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
     if _SEMANTIC_MODEL is not None:
@@ -29,18 +25,37 @@ def get_semantic_model():
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
         try:
-            logger.info("🔄 [SINGLETON] Loading Sentence Transformer model...")
+            logger.info("[SINGLETON] Loading Sentence Transformer model (all-mpnet-base-v2)...")
             from sentence_transformers import SentenceTransformer
             from analyzer.rebuttal_detection import KeywordRepository
+            from huggingface_hub import snapshot_download
+            import os
 
             # Auto-detect GPU for Sentence Transformers
             import torch
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
             logger.info(f"Loading Sentence Transformer on {device}")
-            _SEMANTIC_MODEL = SentenceTransformer('all-mpnet-base-v2', device=device)
-            logger.info("✅ [SINGLETON] Sentence Transformer model loaded successfully")
+            
+            # Prefer local cache to avoid hanging on slow network connections
+            model_id = 'sentence-transformers/all-mpnet-base-v2'
+            try:
+                # Check for existing local snapshot
+                logger.info("Checking for local model snapshot...")
+                local_path = snapshot_download(
+                    model_id, 
+                    local_files_only=True,
+                    # We don't want to check for updates here, just get what we have
+                )
+                logger.info(f"Using cached model from: {local_path}")
+                _SEMANTIC_MODEL = SentenceTransformer(local_path, device=device)
+            except Exception as e:
+                logger.info(f"Model not found in cache or cache error ({e}). Attempting download...")
+                # Download if not found locally
+                _SEMANTIC_MODEL = SentenceTransformer('all-mpnet-base-v2', device=device)
+            
+            logger.info("[SINGLETON] Sentence Transformer model ready")
 
-            logger.info("🔄 [SINGLETON] Precomputing phrase embeddings...")
+            logger.info("[SINGLETON] Precomputing phrase embeddings...")
             repo = KeywordRepository()
             all_phrases = []
             phrase_metadata = []
@@ -56,12 +71,14 @@ def get_semantic_model():
                 'metadata': phrase_metadata
             }
 
-            logger.info(f"✅ [SINGLETON] Computed embeddings for {len(all_phrases)} phrases")
+            logger.info(f"[SINGLETON] Computed embeddings for {len(all_phrases)} phrases")
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
         except Exception as e:
-            logger.error(f"❌ [SINGLETON] Failed to load semantic model: {e}")
-            logger.warning("🔄 [SINGLETON] Semantic matching will be unavailable")
+            import traceback
+            logger.error(f"[SINGLETON] Failed to load semantic model: {e}")
+            logger.error(traceback.format_exc())
+            logger.warning("[SINGLETON] Semantic matching will be unavailable")
             _SEMANTIC_MODEL = None
             _SEMANTIC_EMBEDDINGS = None
             return None, None

@@ -13,6 +13,7 @@ import tempfile
 
 from audio_pipeline.detections import releasing_detection, late_hello_detection
 from lib.agent_only_detector import AgentOnlyTranscriptionEngine
+from audio_pipeline.audio_processor import _shared_executor
 
 logger = logging.getLogger(__name__)
 
@@ -189,20 +190,19 @@ class FastAudioProcessor:
             logger.error(f"Failed to create temp file: {e}")
             temp_file = None
         
-        # Parallel execution with ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            # Submit all tasks
-            future_releasing = executor.submit(releasing_detection, agent_audio)
-            future_late_hello = executor.submit(late_hello_detection, agent_audio, file_path.name)
-            
-            # Transcription task (if temp file available)
-            future_transcription = None
-            if temp_file:
-                transcription_engine = self._get_transcription_engine(user_api_key)
-                future_transcription = executor.submit(
-                    transcription_engine.transcribe_agent_only, 
-                    temp_file
-                )
+        # Parallel execution with SHARED _shared_executor
+        # Submit all tasks
+        future_releasing = _shared_executor.submit(releasing_detection, agent_audio)
+        future_late_hello = _shared_executor.submit(late_hello_detection, agent_audio, file_path.name)
+        
+        # Transcription task (if temp file available)
+        future_transcription = None
+        if temp_file:
+            transcription_engine = self._get_transcription_engine(user_api_key)
+            future_transcription = _shared_executor.submit(
+                transcription_engine.transcribe_agent_only, 
+                temp_file
+            )
             
             # Collect results
             result = {
