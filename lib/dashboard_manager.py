@@ -2069,9 +2069,13 @@ class DashboardManager:
                 "last_modified": str(datetime.now())
             }
             
-            # Update user dashboard modes
+            # Update user dashboard modes (Explicit DB update)
             for member in members:
-                config["user_dashboard_mode"][member] = group_name
+                try:
+                    self.set_user_dashboard_mode(member, group_name)
+                    logger.info(f"Set user {member} to mode: {group_name}")
+                except Exception as e:
+                    logger.error(f"Failed to set user {member} mode: {e}")
             
             self._save_sharing_config(config)
             return True
@@ -2138,14 +2142,22 @@ class DashboardManager:
             config["sharing_groups"][group_name]["last_modified"] = str(datetime.now())
             
             # Update user dashboard modes
-            # Remove old members
+            # Remove old members (Reset to isolated)
             for member in old_members:
-                if member in config["user_dashboard_mode"]:
-                    del config["user_dashboard_mode"][member]
+                if member not in new_members:
+                    try:
+                        self.set_user_dashboard_mode(member, "isolated")
+                        logger.info(f"Reset removed member {member} to isolated")
+                    except Exception as e:
+                        logger.error(f"Failed to reset user {member} mode: {e}")
             
-            # Add new members
+            # Add new members (Set to group)
             for member in new_members:
-                config["user_dashboard_mode"][member] = group_name
+                try:
+                    self.set_user_dashboard_mode(member, group_name)
+                    logger.info(f"Set user {member} to mode: {group_name}")
+                except Exception as e:
+                    logger.error(f"Failed to set user {member} mode: {e}")
             
             self._save_sharing_config(config)
             return True
