@@ -1101,11 +1101,12 @@ def show_settings_section():
                         df_groups = pd.DataFrame([
                             {
                                 "Group Name": name,
-                                "Members": ", ".join(group["members"]),
-                                "Created By": group["created_by"],
-                                "Date": group["created_date"],
+                                "Members": ", ".join(group.get("members", [])),
+                                "Created By": group.get("created_by", "Unknown"),
+                                "Date": group.get("created_date", "Unknown"),
                             }
                             for name, group in sharing_groups.items()
+                            if isinstance(group, dict)
                         ])
                         st.dataframe(df_groups, hide_index=True, width='stretch')
                     else:
