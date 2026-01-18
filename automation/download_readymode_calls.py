@@ -417,7 +417,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         
                         # 3. Verify selection
                         # We check the property value, not visibility
-                        selected_value = page.eval_on_selector("#restrict_uid", "el => el.options[max(0, el.selectedIndex)].text")
+                        selected_value = page.eval_on_selector("#restrict_uid", "el => el.options[Math.max(0, el.selectedIndex)].text")
                         
                         # Simple substring match usually enough
                         if agent.strip() not in selected_value:
@@ -606,7 +606,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         time.sleep(1)
                         
                         # 3. Verify
-                        selected_value = page.eval_on_selector("#restrict_uid", "el => el.options[max(0, el.selectedIndex)].text")
+                        selected_value = page.eval_on_selector("#restrict_uid", "el => el.options[Math.max(0, el.selectedIndex)].text")
                         if agent.strip() not in selected_value:
                             print(f"WARNING Re-apply verification failed. Got '{selected_value}'")
                             time.sleep(2)
