@@ -88,6 +88,7 @@ COPY models/ /app/models/
 COPY ui/ /app/ui/
 COPY tools/ /app/tools/
 COPY automation/ /app/automation/
+COPY favicon.png /app/
 
 # Create Streamlit config directory and file
 RUN mkdir -p /root/.streamlit && \
