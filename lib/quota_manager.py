@@ -540,7 +540,7 @@ class QuotaManager:
             return [
                 username
                 for username, data in user_assignments.items()
-                if data.get("assigned_to_admin") == admin_username
+                if data.get("assigned_to_admin") == admin_username and username != admin_username
             ]
             
         except Exception as e:
@@ -591,7 +591,7 @@ class QuotaManager:
             total_assigned_quota = 0
             
             for username, data in user_assignments.items():
-                if data.get("assigned_to_admin") == admin_username:
+                if data.get("assigned_to_admin") == admin_username and username != admin_username:
                     user_info = data.copy()
                     user_info['username'] = username
                     detailed_users.append(user_info)
@@ -636,35 +636,41 @@ class QuotaManager:
             logger.error(f"Error adjusting user quota: {e}")
             raise DatabaseOperationError(f"Cannot adjust user quota: {e}")
     
-    def remove_user_from_admin(self, username: str, admin_username: str = None):
+    def remove_user_from_admin(self, username: str, admin_username: str = None) -> Tuple[bool, str]:
         """Remove a user from an admin's quota management (when user is deleted).
         
         Args:
             username: Username to remove
             admin_username: Optional admin username for verification
+            
+        Returns:
+            Tuple[bool, str]: (Success, Message)
         """
         if not self._db_manager:
-            raise DatabaseUnavailableError("Cannot remove user: Database not available")
+            return False, "Database not available"
         
         try:
             if admin_username:
                 # Remove specific user from specific admin
                 delete_query = "DELETE FROM user_quota_assignments WHERE user_username = %s AND assigned_to_admin = %s"
                 self._db_manager.execute_query(delete_query, (username, admin_username))
+                msg = f"User {username} removed from admin {admin_username} quota"
             else:
                 # Remove user from all admins
                 delete_query = "DELETE FROM user_quota_assignments WHERE user_username = %s"
                 self._db_manager.execute_query(delete_query, (username,))
+                msg = f"User {username} removed from valid quota assignments"
             
             # Clean up usage records
             delete_usage = "DELETE FROM user_usage WHERE user_username = %s"
             self._db_manager.execute_query(delete_usage, (username,))
             
             logger.info(f"Removed user {username} from quota management")
+            return True, msg
             
         except Exception as e:
             logger.error(f"Error removing user from admin: {e}")
-            raise DatabaseOperationError(f"Cannot remove user: {e}")
+            return False, f"Failed to remove quota assignment: {str(e)}"
     
     def remove_quota_assignment(self, username: str) -> Tuple[bool, str]:
         """Remove a quota assignment for a username.

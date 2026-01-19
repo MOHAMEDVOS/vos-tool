@@ -1927,7 +1927,7 @@ class UserManager:
         # Also check created_by field for users not in quota system
         all_users = self.get_all_users()
         for username, user_data in all_users.items():
-            if user_data.get('created_by') == admin_username and username not in created_users:
+            if user_data.get('created_by') == admin_username and username not in created_users and username != admin_username:
                 created_users.append(username)
         
         return created_users
