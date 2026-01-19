@@ -297,11 +297,77 @@ class AssemblyAITranscriptionEngine:
         # Get timeout from config if not provided
         if timeout is None:
             try:
-                from backend.core.config import settings
-                timeout = settings.ASSEMBLYAI_TRANSCRIPTION_TIMEOUT
-            except ImportError:
-                timeout = 300  # 5 minutes default
+                # Use string-based access or default to avoid import errors
+                timeout = int(os.environ.get("ASSEMBLYAI_TRANSCRIPTION_TIMEOUT", 300))
+            except (ValueError, TypeError):
+                timeout = 300
+
+        # Container for results
+        result_container = {"result": None, "exception": None}
+
+        try:
+            # Configure settings
+            config_params = {
+                "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None else os.getenv("ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION", "true").lower() == "true",
+                "language_detection": True,
+                "punctuate": True,
+                "format_text": True,
+            }
+            
+            # Merge with user provided options
+            if options:
+                config_params.update(options)
+                
+            config = aai.TranscriptionConfig(**config_params)
+            
+            logger.info(f"Transcribing file: {audio_file_path} (timeout: {timeout}s)")
+            
+            # Submit for transcription
+            transcript_submission = self.transcriber.submit(audio_file_path, config=config)
+            transcript_id = transcript_submission.id
+            
+            # Poll for completion
+            poll_interval = 2.0
+            elapsed = 0.0
+            
+            while elapsed < timeout:
+                transcript = aai.Transcript.get_by_id(transcript_id)
+                
+                if transcript.status == aai.TranscriptStatus.completed:
+                    processing_time_ms = int((time.time() - start_time) * 1000)
+                    
+                    # Extract results
+                    result = {
+                        "transcript": transcript.text or "",
+                        "words": self._extract_words(transcript.words) if transcript.words else [],
+                        "utterances": self._extract_utterances(transcript.utterances) if transcript.utterances else [],
+                        "speakers": self._extract_speakers(transcript.utterances) if transcript.utterances else [],
+                        "confidence": transcript.confidence if hasattr(transcript, 'confidence') else None,
+                        "language_code": transcript.language_code if hasattr(transcript, 'language_code') else None,
+                        "processing_time_ms": processing_time_ms,
+                        "transcription_method": "assemblyai_api",
+                        "transcription_status": "completed"
+                    }
+                    
+                    # Cache successful result
+                    self.cache.set(audio_file_path, result)
+                    
+                    result_container["result"] = result
+                    break
+                    
+                elif transcript.status == aai.TranscriptStatus.error:
+                     raise Exception(f"Transcription failed: {transcript.error}")
+                
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+            
+            if result_container["result"] is None and elapsed >= timeout:
+                raise TimeoutError(f"Transcription timed out after {timeout} seconds")
+
+        except Exception as e:
+            result_container["exception"] = e
         
+        if result_container["exception"]:
             logger.error(f"AssemblyAI transcription error: {result_container['exception']}", exc_info=True)
             return {
                 "transcript": "",
