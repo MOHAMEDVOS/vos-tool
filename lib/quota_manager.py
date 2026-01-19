@@ -540,7 +540,7 @@ class QuotaManager:
             return [
                 username
                 for username, data in user_assignments.items()
-                if data.get("assigned_to_admin") == admin_username and username != admin_username
+                if data.get("assigned_to_admin") == admin_username and username.lower() != admin_username.lower()
             ]
             
         except Exception as e:
@@ -591,7 +591,7 @@ class QuotaManager:
             total_assigned_quota = 0
             
             for username, data in user_assignments.items():
-                if data.get("assigned_to_admin") == admin_username and username != admin_username:
+                if data.get("assigned_to_admin") == admin_username and username.lower() != admin_username.lower():
                     user_info = data.copy()
                     user_info['username'] = username
                     detailed_users.append(user_info)
