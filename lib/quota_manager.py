@@ -467,16 +467,19 @@ class QuotaManager:
             logger.error(f"Error checking if admin can create user: {e}")
             return False, f"Error checking quota limits: {str(e)}"
     
-    def assign_user_to_admin(self, username: str, admin_username: str, daily_quota: int):
+    def assign_user_to_admin(self, username: str, admin_username: str, daily_quota: int) -> Tuple[bool, str]:
         """Admin assigns a user with specific quota.
         
         Args:
             username: Username to assign
             admin_username: Admin who is assigning the user
             daily_quota: Daily quota for this user
+            
+        Returns:
+            Tuple[bool, str]: (Success, Message)
         """
         if not self._db_manager:
-            raise DatabaseUnavailableError("Cannot assign user: Database not available")
+            return False, "Database not available"
         
         try:
             query = """
@@ -491,10 +494,11 @@ class QuotaManager:
             self._db_manager.execute_query(query, (username, admin_username, daily_quota))
             
             logger.info(f"Assigned user {username} to admin {admin_username} with quota {daily_quota}")
+            return True, f"User {username} assigned to {admin_username} with daily quota {daily_quota}"
             
         except Exception as e:
             logger.error(f"Error assigning user to admin: {e}")
-            raise DatabaseOperationError(f"Cannot assign user: {e}")
+            return False, f"Failed to assign user quota: {str(e)}"
     
     def can_admin_assign_quota(self, admin_username: str, requested_quota: int) -> bool:
         """Check if Admin has enough quota to assign.
