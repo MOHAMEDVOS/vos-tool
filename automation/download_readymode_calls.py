@@ -271,12 +271,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
         
         try:
             # STEP 1: LOGIN
-            if update_callback:
-                update_callback(0, 100)
             login_to_readymode(page, dialer_url, readymode_user, readymode_pass, cancellation_callback)
             
-            if update_callback:
-                update_callback(10, 100)
             
             # STEP 2: CLICK CALL LOGS LINK
             print("SUCCESS Clicked Call Logs")
@@ -330,8 +326,6 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 except:
                     print("WARNING No MP3 links yet (will check after agent filter)")
             
-            if update_callback:
-                update_callback(30, 100)
             
             # STEP 5: CAMPAIGN FILTER (if provided)
             if campaign_name:
@@ -452,9 +446,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
 
                 print(f"SUCCESS AGENT FILTER FINALIZED: '{agent}'\n")
             
-            if update_callback:
-                update_callback(40, 100)
-
+            
             # STEP 6.1: APPLY DISPOSITION FILTER (Robust Implementation with Retries)
             if disposition:
                 print(f"\n{'='*60}")
@@ -661,8 +653,6 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     # as the primary filter *did* work earlier.
 
             
-            if update_callback:
-                update_callback(50, 100)
             
             # STEP 7: EXTRACT MP3 DOWNLOAD LINKS WITH PAGINATION
             # All modes paginate through pages to collect max_samples
@@ -816,9 +806,6 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
             
             print(f"\\nSEARCH Collected {len(download_tasks)} total links across {page_number} pages")
-            
-            if update_callback:
-                update_callback(60, 100)
             
             # STEP 8: GET COOKIES FOR DOWNLOAD SESSION
             cookies_dict = {}
