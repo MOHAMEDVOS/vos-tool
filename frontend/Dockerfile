@@ -72,7 +72,7 @@ ENV PYTHONUNBUFFERED=1 \
     STREAMLIT_SERVER_FILE_WATCHER_TYPE=none \
     # Prevent HuggingFace from downloading models during build
     HF_HOME=/tmp/.cache/huggingface \
-    TRANSFORMERS_CACHE=/tmp/.cache/transformers
+    HF_HUB_CACHE=/tmp/.cache/huggingface/hub
 
 # Copy only required frontend code (excludes archive/, test files, etc. via .dockerignore)
 COPY frontend/ /app/frontend/
