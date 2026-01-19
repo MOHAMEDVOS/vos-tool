@@ -221,6 +221,7 @@ class AgentOnlyTranscriptionEngine:
 
             # Transcribe with fast-path settings (no diarization for speed)
             # Disable language detection to avoid failures on low/zero-speech clips
+            # Pass timeout explicitly to ensure consistent behavior
             result = self.local_engine.assemblyai_engine.transcribe_file(
                 audio_file_path,
                 enable_speaker_diarization=False,  # Disabled for faster processing
