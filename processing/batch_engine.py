@@ -1207,25 +1207,17 @@ def get_batch_processor(username: Optional[str] = None) -> BatchProcessor:
     if user_key not in _batch_processors:
         with _batch_processor_lock:
             if user_key not in _batch_processors:
-                # Get worker allocation for this user
-                if username:
-                    try:
-                        from backend.services.worker_pool_manager import get_worker_pool_manager
-                        pool_manager = get_worker_pool_manager()
-                        max_workers = pool_manager.get_workers_for_user(username)
-                        logger.info(f"Creating BatchProcessor for user {username} with {max_workers} workers")
-                    except Exception as e:
-                        logger.warning(f"Could not get worker pool manager: {e}, using default workers")
-                        max_workers = None
-                else:
-                    max_workers = None
-
+                # Use forced max workers for stability
                 max_workers = FORCED_MAX_WORKERS
                 
+                # Log that we are using the forced limit
+                logger.info(f"Using forced max workers: {max_workers}")
+
                 _batch_processors[user_key] = BatchProcessor(max_workers=max_workers)
                 logger.info(f"Created BatchProcessor instance for {user_key}")
 
     processor = _batch_processors[user_key]
+    # Ensure worker count is enforced even if cached
     if processor.max_workers != FORCED_MAX_WORKERS:
         processor.max_workers = FORCED_MAX_WORKERS
 
