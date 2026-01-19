@@ -1843,7 +1843,13 @@ class UserManager:
             daily_quota_pool = limits.get("total_daily_quota", max_users * daily_quota_per_user)
             
             assigned_quota = raw_info.get("total_assigned_quota", 0)
-            admin_personal_usage = 0 # Placeholder for now
+            
+            # Usage calculations
+            usage = raw_info.get("usage", {})
+            admin_personal_usage = usage.get("total_used", 0)
+            
+            users_usage_map = usage.get("users_usage", {})
+            users_total_usage = sum(users_usage_map.values())
             
             return {
                 "users_created": user_count,
@@ -1851,6 +1857,7 @@ class UserManager:
                 "remaining_user_slots": max(0, max_users - user_count),
                 "quota_assigned_to_users": assigned_quota,
                 "admin_personal_usage": admin_personal_usage,
+                "users_total_usage": users_total_usage,
                 "daily_quota_pool": daily_quota_pool,
                 "remaining_quota": max(0, daily_quota_pool - (assigned_quota + admin_personal_usage)),
                 "raw": raw_info # Keep raw just in case
