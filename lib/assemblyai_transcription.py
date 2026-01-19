@@ -274,7 +274,6 @@ class AssemblyAITranscriptionEngine:
         
         logger.info("AssemblyAI transcription engine initialized")
     
-    @retry_api_call(max_retries=3, backoff_factor=2)
     def transcribe_file(
         self, 
         audio_file_path: str, 
@@ -322,8 +321,24 @@ class AssemblyAITranscriptionEngine:
             
             logger.info(f"Transcribing file: {audio_file_path} (timeout: {timeout}s)")
             
-            # Submit for transcription
-            transcript_submission = self.transcriber.submit(audio_file_path, config=config)
+            # Submit for transcription with local retry for connection issues
+            transcript_submission = None
+            submission_error = None
+            for attempt in range(3):
+                try:
+                    transcript_submission = self.transcriber.submit(audio_file_path, config=config)
+                    break
+                except Exception as e:
+                    submission_error = e
+                    # Only retry connection/server errors, not logic/auth errors
+                    error_str = str(e).lower()
+                    if '401' in error_str or '403' in error_str:
+                        raise # Auth error, don't retry
+                    time.sleep(1)
+            
+            if not transcript_submission:
+                raise Exception(f"Failed to submit to AssemblyAI after 3 attempts: {submission_error}")
+
             transcript_id = transcript_submission.id
             
             # Poll for completion
@@ -331,8 +346,15 @@ class AssemblyAITranscriptionEngine:
             elapsed = 0.0
             
             while elapsed < timeout:
-                transcript = aai.Transcript.get_by_id(transcript_id)
-                
+                try:
+                    transcript = aai.Transcript.get_by_id(transcript_id)
+                except Exception as e:
+                    # Ignore transient network errors during polling
+                    logger.warning(f"Transient error polling AssemblyAI: {e}")
+                    time.sleep(poll_interval)
+                    elapsed += poll_interval
+                    continue
+
                 if transcript.status == aai.TranscriptStatus.completed:
                     processing_time_ms = int((time.time() - start_time) * 1000)
                     
