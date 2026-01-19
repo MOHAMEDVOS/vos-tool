@@ -1920,12 +1920,18 @@ class UserManager:
         """Get list of users created by specific Admin (includes quota and non-quota users)."""
         created_users = []
         
+        # Get all valid users for verification (filter out orphans)
+        all_users = self.get_all_users()
+        
         # First, get users from quota system
         if QUOTA_SYSTEM_AVAILABLE:
-            created_users.extend(quota_manager.get_admin_created_users(admin_username))
+            quota_users = quota_manager.get_admin_created_users(admin_username)
+            # Only add if they actually exist in the system
+            for username in quota_users:
+                if username in all_users:
+                    created_users.append(username)
         
         # Also check created_by field for users not in quota system
-        all_users = self.get_all_users()
         for username, user_data in all_users.items():
             if user_data.get('created_by') == admin_username and username not in created_users and username != admin_username:
                 created_users.append(username)
