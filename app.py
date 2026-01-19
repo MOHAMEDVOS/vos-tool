@@ -1459,6 +1459,9 @@ def show_settings_section():
             # Get created users
             created_users = user_manager.get_admin_created_users(current_username)
             
+            if not created_users:
+                st.info("You haven't created any users yet.")
+            
             if created_users:
                 st.markdown("#### Your Created Users")
                 
@@ -1478,28 +1481,30 @@ def show_settings_section():
                 if user_quota_data:
                     df_users = pd.DataFrame(user_quota_data)
                     st.dataframe(df_users, hide_index=True, width='stretch')
+                else:
+                    st.info("No users found with active quota assignments.")
+                
+                # User management actions
+                st.markdown("#### User Actions")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**Individual User Management**")
+                    selected_user = st.selectbox("Select User to Manage", created_users, key="manage_user_select")
                     
-                    # User management actions
-                    st.markdown("#### User Actions")
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("**Individual User Management**")
-                        selected_user = st.selectbox("Select User to Manage", created_users, key="manage_user_select")
-                        
-                        # Edit User button
-                        if st.button("Edit Selected User", key="admin_edit_user", type="primary"):
-                            st.session_state['show_edit_user'] = True
-                            st.session_state['edit_user_target'] = selected_user
-                            st.rerun()
-                    
-                    with col2:
-                        st.markdown("**Quota Management**")
-                        st.caption("Redistribute quota between all your users")
-                        if st.button("Redistribute Quota", key="redistribute_quota", type="primary"):
-                            st.session_state['show_redistribution'] = True
-                            st.session_state['show_manual_redistribution'] = True
-                            st.rerun()
+                    # Edit User button
+                    if st.button("Edit Selected User", key="admin_edit_user", type="primary"):
+                        st.session_state['show_edit_user'] = True
+                        st.session_state['edit_user_target'] = selected_user
+                        st.rerun()
+                
+                with col2:
+                    st.markdown("**Quota Management**")
+                    st.caption("Redistribute quota between all your users")
+                    if st.button("Redistribute Quota", key="redistribute_quota", type="primary"):
+                        st.session_state['show_redistribution'] = True
+                        st.session_state['show_manual_redistribution'] = True
+                        st.rerun()
                 
                 # Edit User Interface
                 if st.session_state.get('show_edit_user', False):
