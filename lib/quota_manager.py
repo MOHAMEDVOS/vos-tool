@@ -577,14 +577,26 @@ class QuotaManager:
             
             admin_limits = quota_data.get("admin_limits", {}).get(admin_username, {})
             admin_usage = usage_data.get("admin_usage", {}).get(admin_username, {})
-            users = self.get_admin_created_users(admin_username)
+            
+            # Get detailed users and calculate assigned quota
+            user_assignments = quota_data.get("user_assignments", {})
+            detailed_users = []
+            total_assigned_quota = 0
+            
+            for username, data in user_assignments.items():
+                if data.get("assigned_to_admin") == admin_username:
+                    user_info = data.copy()
+                    user_info['username'] = username
+                    detailed_users.append(user_info)
+                    total_assigned_quota += data.get("daily_quota", 0)
             
             return {
                 "limits": admin_limits,
                 "usage": admin_usage,
-                "users": users,
-                "user_count": len(users),
-                "max_users": admin_limits.get("max_users", 0)
+                "users": detailed_users,
+                "user_count": len(detailed_users),
+                "max_users": admin_limits.get("max_users", 0),
+                "total_assigned_quota": total_assigned_quota
             }
             
         except Exception as e:

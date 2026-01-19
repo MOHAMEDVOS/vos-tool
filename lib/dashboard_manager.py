@@ -1824,7 +1824,38 @@ class UserManager:
             return {"error": "User is not an Admin"}
         
         try:
-            return quota_manager.get_admin_dashboard_info(admin_username)
+            raw_info = quota_manager.get_admin_dashboard_info(admin_username)
+            if not raw_info:
+                return {"error": "No quota information found"}
+
+            # Map raw info to UI-expected format
+            user_count = raw_info.get("user_count", 0)
+            max_users = raw_info.get("max_users", 0)
+            
+            # Pool calculations
+            limits = raw_info.get("limits", {})
+            daily_quota_per_user = limits.get("daily_quota", 0)
+            
+            # Logic: Total Pool = Max Users * Per User Quota? 
+            # Or is 'daily_quota' the total pool?
+            # Based on quota_manager._load_quota_data:
+            # "total_daily_quota": max_users * daily_quota
+            daily_quota_pool = limits.get("total_daily_quota", max_users * daily_quota_per_user)
+            
+            assigned_quota = raw_info.get("total_assigned_quota", 0)
+            admin_personal_usage = 0 # Placeholder for now
+            
+            return {
+                "users_created": user_count,
+                "max_users": max_users,
+                "remaining_user_slots": max(0, max_users - user_count),
+                "quota_assigned_to_users": assigned_quota,
+                "admin_personal_usage": admin_personal_usage,
+                "daily_quota_pool": daily_quota_pool,
+                "remaining_quota": max(0, daily_quota_pool - (assigned_quota + admin_personal_usage)),
+                "raw": raw_info # Keep raw just in case
+            }
+            
         except Exception as e:
             logger.error(f"Error getting admin quota info for {admin_username}: {e}")
             return {"error": f"Unable to load quota information: {str(e)}"}
