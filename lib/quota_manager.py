@@ -439,30 +439,33 @@ class QuotaManager:
     
     # ==================== ADMIN OPERATIONS ====================
     
-    def can_admin_create_user(self, admin_username: str) -> bool:
+    def can_admin_create_user(self, admin_username: str) -> Tuple[bool, str]:
         """Check if Admin can create another user.
         
         Args:
             admin_username: Username of the admin
             
         Returns:
-            True if admin can create more users, False otherwise
+            Tuple[bool, str]: (Success, Message)
         """
         try:
             quota_data = self._load_quota_data()
             admin_limits = quota_data.get("admin_limits", {}).get(admin_username, {})
             
             if not admin_limits:
-                return False
+                return False, f"Admin '{admin_username}' has no quota limits defined"
             
             max_users = admin_limits.get("max_users", 0)
             current_users = len(self.get_admin_created_users(admin_username))
             
-            return current_users < max_users
+            if current_users >= max_users:
+                return False, f"User limit reached ({current_users}/{max_users})"
+            
+            return True, "User creation allowed"
             
         except Exception as e:
             logger.error(f"Error checking if admin can create user: {e}")
-            return False
+            return False, f"Error checking quota limits: {str(e)}"
     
     def assign_user_to_admin(self, username: str, admin_username: str, daily_quota: int):
         """Admin assigns a user with specific quota.
