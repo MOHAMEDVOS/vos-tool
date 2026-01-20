@@ -75,543 +75,6 @@ def show_audit_section(
 
     ffmpeg_ok = _maybe_set_ffmpeg_converter()
 
-    # Initialize worker state for Agent Audit (if not present)
-    if "agent_worker_state" not in st.session_state:
-        st.session_state.agent_worker_state = {
-            "status": "idle",
-            "phase": None,
-            "downloaded": 0,
-            "total": 0,
-            "message": "",
-            "start_time": None,
-            "elapsed_time": 0,
-        }
-    if "agent_cancel_event" not in st.session_state:
-        st.session_state.agent_cancel_event = threading.Event()
-    if "agent_worker_thread" not in st.session_state:
-        st.session_state.agent_worker_thread = None
-
-    # Initialize worker state for Upload Audit (if not present)
-    if "upload_worker_state" not in st.session_state:
-        st.session_state.upload_worker_state = {
-            "status": "idle",
-            "message": "",
-            "downloaded": 0,
-            "total": 0,
-            "df": None
-        }
-    if "upload_cancel_event" not in st.session_state:
-        st.session_state.upload_cancel_event = threading.Event()
-    if "upload_worker_thread" not in st.session_state:
-        st.session_state.upload_worker_thread = None
-
-    def _run_upload_audit_worker(
-        temp_path_str,
-        campaign_name,
-        current_username,
-        user_api_key,
-        api_key_source,
-        worker_state,
-        cancel_event,
-        show_flagged_only=False
-    ):
-        import traceback
-        import time as time_module
-        import shutil
-        from pathlib import Path
-
-        try:
-            start_time = time_module.time()
-            worker_state["status"] = "running"
-            worker_state["message"] = "Initializing analysis..."
-            worker_state["downloaded"] = 0
-            worker_state["total"] = 0
-            
-            metadata = {
-                "dialer_name": "upload",
-                "API Key Source": api_key_source,
-            }
-
-            def analyze_progress(done, total, message=None):
-                worker_state["downloaded"] = int(done)
-                worker_state["total"] = int(total)
-                worker_state["message"] = message if message else f"Analyzing: {done}/{total}"
-                worker_state["elapsed_time"] = time_module.time() - start_time
-                if cancel_event.is_set():
-                    raise KeyboardInterrupt("cancelled")
-
-            df = batch_analyze_folder_fast(
-                temp_path_str,
-                progress_callback=analyze_progress,
-                additional_metadata=metadata,
-                show_all_results=True,
-                username=current_username,
-                user_api_key=user_api_key,
-            )
-
-            # Filter to flagged calls only if requested (after getting all results with transcription)
-            if show_flagged_only and not df.empty:
-                # Build mask for flagged calls (calls with detected issues)
-                masks = []
-                if 'Releasing Detection' in df.columns:
-                    masks.append(df['Releasing Detection'] == 'Yes')
-                if 'Late Hello Detection' in df.columns:
-                    masks.append(df['Late Hello Detection'] == 'Yes')
-                if 'Rebuttal Detection' in df.columns:
-                    masks.append(df['Rebuttal Detection'] == 'No')
-                
-                # Combine all masks with OR logic
-                if masks:
-                    flagged_mask = masks[0]
-                    for mask in masks[1:]:
-                        flagged_mask = flagged_mask | mask
-                    df = df[flagged_mask].copy()
-
-            # Tag results for clarity
-            if not df.empty:
-                df["Audit Type"] = "Upload Audit"
-                if campaign_name:
-                    df["Campaign"] = campaign_name
-                
-                # Save results to dashboard
-                worker_state["message"] = "Saving results..."
-                if campaign_name and campaign_name.strip():
-                    dashboard_manager.save_campaign_audit_results(
-                        df, campaign_name.strip(), current_username
-                    )
-                else:
-                    dashboard_manager.save_agent_audit_results(
-                        df, current_username
-                    )
-
-            worker_state["df"] = df
-            worker_state["status"] = "completed"
-            
-            # Clean up temp files
-            try:
-                shutil.rmtree(temp_path_str, ignore_errors=True)
-            except:
-                pass
-
-        except KeyboardInterrupt:
-            worker_state["status"] = "cancelled"
-            try:
-                shutil.rmtree(temp_path_str, ignore_errors=True)
-            except:
-                pass
-        except Exception as e:
-            worker_state["status"] = "error"
-            worker_state["error_message"] = str(e)
-            worker_state["traceback"] = traceback.format_exc()
-            try:
-                shutil.rmtree(temp_path_str, ignore_errors=True)
-            except:
-                pass
-
-    def _run_agent_audit_worker(
-        ready_url,
-        agent_name,
-        start_date,
-        end_date,
-        selected_dispositions,
-        min_duration,
-        max_duration,
-        max_samples,
-        audit_mode,
-        current_username_local,
-        rm_user,
-        rm_pass,
-        worker_state,
-        cancel_event,
-        driver_storage,
-        user_api_key,
-        api_key_source
-    ):
-        import traceback
-        import time as time_module
-        from pathlib import Path
-
-        try:
-            start_time = time_module.time()
-            worker_state["status"] = "running"
-            worker_state["phase"] = "download"
-            worker_state["downloaded"] = 0
-            worker_state["total"] = max_samples
-            worker_state["start_time"] = start_time
-            worker_state["message"] = "Starting download..."
-
-            effective_min_duration = min_duration
-            effective_max_duration = max_duration
-            if audit_mode == "heavy":
-                if effective_min_duration is None or effective_min_duration < 20:
-                    effective_min_duration = 20
-                if effective_max_duration is not None and effective_max_duration < effective_min_duration:
-                    effective_max_duration = None
-
-            def check_cancellation():
-                return cancel_event.is_set()
-
-            def download_update(downloaded, total):
-                worker_state["phase"] = "download"
-                worker_state["downloaded"] = int(downloaded) if isinstance(downloaded, (int, float)) else 0
-                worker_state["total"] = int(total) if isinstance(total, (int, float)) else max_samples
-                worker_state["message"] = f"Downloading: {worker_state['downloaded']}/{worker_state['total']}"
-                worker_state["elapsed_time"] = time_module.time() - start_time
-
-            downloaded_path_str = download_all_call_recordings(
-                ready_url,
-                agent=agent_name,
-                start_date=start_date,
-                end_date=end_date,
-                max_samples=max_samples,
-                update_callback=download_update,
-                disposition=selected_dispositions,
-                min_duration=effective_min_duration,
-                max_duration=effective_max_duration,
-                username=current_username_local,
-                readymode_user=rm_user,
-                readymode_pass=rm_pass,
-                cancellation_callback=check_cancellation,
-                driver_storage=driver_storage,
-            )
-
-            if cancel_event.is_set():
-                worker_state["status"] = "cancelled"
-                return
-
-            worker_state["phase"] = "analyze"
-            worker_state["message"] = "Processing audio files..."
-            
-            dialer_name = extract_dialer_name_from_url(ready_url)
-            from config import RECORDINGS_ROOT
-            recordings_base = Path(RECORDINGS_ROOT)
-
-            def _list_mp3_files(folder: Path):
-                try:
-                    return [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() == ".mp3"]
-                except Exception:
-                    return []
-
-            agent_name_lower = agent_name.lower()
-            all_users_mode = agent_name_lower.strip() in ["all users", "all user", "all"]
-            target_folder = None
-            files = []
-
-            # Priority 1: Use the explicit download path
-            if downloaded_path_str:
-                explicit_path = Path(downloaded_path_str)
-                if explicit_path.exists() and explicit_path.is_dir():
-                    target_folder = explicit_path
-                    files = _list_mp3_files(target_folder)
-
-            # Priority 2: Fallback search (simplified for worker)
-            if not files and recordings_base.exists():
-                auditor_dir = recordings_base / "Agent" / current_username_local
-                if auditor_dir.exists():
-                    subdirs = [d for d in auditor_dir.iterdir() if d.is_dir()]
-                    matching_subdirs = []
-                    formatted_agent = agent_name_lower.replace(" ", "")
-                    for d in subdirs:
-                        if all_users_mode or agent_name_lower in d.name.lower() or formatted_agent in d.name.lower().replace(" ", ""):
-                            if _list_mp3_files(d):
-                                matching_subdirs.append(d)
-                    if matching_subdirs:
-                        matching_subdirs.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-                        target_folder = matching_subdirs[0]
-                        files = _list_mp3_files(target_folder)
-
-            if not files:
-                worker_state["status"] = "error"
-                worker_state["error_type"] = "no_files"
-                worker_state["error_message"] = f"No files found for agent '{agent_name}'"
-                return
-
-            metadata = {
-                "dialer_name": dialer_name,
-                "API Key Source": api_key_source,
-            }
-
-            def analyze_progress(done, total, message=None):
-                worker_state["phase"] = "analyze"
-                worker_state["downloaded"] = int(done)
-                worker_state["total"] = int(total)
-                worker_state["message"] = message if message else f"Analyzing: {done}/{total}"
-                worker_state["elapsed_time"] = time_module.time() - start_time
-                if cancel_event.is_set():
-                    raise KeyboardInterrupt("cancelled")
-
-            if audit_mode == "heavy":
-                df = batch_analyze_folder_fast(
-                    str(target_folder),
-                    progress_callback=analyze_progress,
-                    additional_metadata=metadata,
-                    show_all_results=True,
-                    username=current_username_local,
-                    user_api_key=user_api_key,
-                )
-                if not df.empty:
-                    df["Audit Type"] = "Heavy Audit"
-            else:
-                df = batch_analyze_folder_lite(
-                    str(target_folder),
-                    progress_callback=analyze_progress,
-                    additional_metadata=metadata,
-                    username=current_username_local,
-                    user_api_key=user_api_key,
-                )
-                if not df.empty:
-                    df["Audit Type"] = "Lite Audit"
-
-            worker_state["message"] = "Saving results..."
-            if not df.empty:
-                if audit_mode == "heavy":
-                    dashboard_manager.save_agent_audit_results(df, current_username_local)
-                else:
-                    dashboard_manager.save_lite_audit_results(df, current_username_local)
-                dashboard_manager.increment_daily_download_count(current_username_local, len(df))
-                worker_state["record_count"] = len(df)
-            
-            worker_state["status"] = "completed"
-            worker_state["df_empty"] = bool(df.empty)
-
-        except KeyboardInterrupt:
-            worker_state["status"] = "cancelled"
-        except Exception as e:
-            worker_state["status"] = "error"
-            worker_state["error_message"] = str(e)
-            worker_state["traceback"] = traceback.format_exc()
-
-    def _run_campaign_audit_worker(
-        ready_url,
-        campaign_name,
-        start_date,
-        end_date,
-        selected_dispositions,
-        min_duration,
-        max_duration,
-        max_samples,
-        audit_type,
-        current_username_local,
-        rm_user,
-        rm_pass,
-        worker_state,
-        cancel_event,
-        driver_storage,
-    ):
-        import traceback
-        import time as time_module
-
-        try:
-            start_time = time_module.time()
-            
-            worker_state["status"] = "running"
-            worker_state["phase"] = "download"
-            worker_state["downloaded"] = 0
-            worker_state["total"] = max_samples
-            worker_state["start_time"] = start_time
-
-            effective_min_duration = min_duration
-            effective_max_duration = max_duration
-            if audit_type == "Heavy Audit":
-                if effective_min_duration is None or effective_min_duration < 20:
-                    effective_min_duration = 20
-                if effective_max_duration is not None and effective_max_duration < effective_min_duration:
-                    effective_max_duration = None
-
-            def check_cancellation():
-                return cancel_event.is_set()
-
-            def download_update(downloaded, total):
-                worker_state["phase"] = "download"
-                worker_state["downloaded"] = int(downloaded) if isinstance(downloaded, (int, float)) else 0
-                worker_state["total"] = int(total) if isinstance(total, (int, float)) else max_samples
-                # Update elapsed time for ETA calculation
-                worker_state["elapsed_time"] = time_module.time() - start_time
-
-            worker_state["phase"] = "download"
-
-            download_all_call_recordings(
-                ready_url,
-                agent="all users",
-                campaign_name=campaign_name,
-                start_date=start_date,
-                end_date=end_date,
-                max_samples=max_samples,
-                update_callback=download_update,
-                disposition=selected_dispositions,
-                min_duration=effective_min_duration,
-                max_duration=effective_max_duration,
-                username=current_username_local,
-                readymode_user=rm_user,
-                readymode_pass=rm_pass,
-                cancellation_callback=check_cancellation,
-                driver_storage=driver_storage,
-            )
-
-            if cancel_event.is_set():
-                worker_state["status"] = "cancelled"
-                return
-
-            worker_state["phase"] = "analyze"
-
-            dialer_name = extract_dialer_name_from_url(ready_url)
-
-            # Use absolute paths from config to ensure correct location
-            from config import RECORDINGS_ROOT
-            search_paths = [
-                RECORDINGS_ROOT / "Campaign" / current_username_local,
-                RECORDINGS_ROOT / "Campaign",
-                RECORDINGS_ROOT,
-            ]
-
-            target_folder = None
-            files = []
-
-            candidate_dirs = []
-            for base_path in search_paths:
-                if not base_path.exists():
-                    continue
-                for entry in base_path.iterdir():
-                    if not entry.is_dir():
-                        continue
-                    if campaign_name.lower() in entry.name.lower():
-                        mp3_files = list(entry.rglob("*.mp3"))
-                        if mp3_files:
-                            candidate_dirs.append((entry.stat().st_mtime, entry, mp3_files))
-
-            if candidate_dirs:
-                candidate_dirs.sort(key=lambda x: x[0], reverse=True)
-                _, target_folder, files = candidate_dirs[0]
-
-            if not files:
-                worker_state["status"] = "error"
-                worker_state["error_type"] = "no_files"
-                worker_state["error_message"] = f"No MP3 files found for campaign '{campaign_name}' in any search location"
-                return
-
-            metadata = {
-                "dialer_name": dialer_name,
-                "date": datetime.now().strftime("%Y-%m-%d"),
-            }
-
-            df = None
-
-            try:
-                if audit_type == "Heavy Audit":
-                    def analyze_progress(done, total, message=None):
-                        worker_state["phase"] = "analyze"
-                        worker_state["downloaded"] = int(done) if isinstance(done, (int, float)) else 0
-                        worker_state["total"] = int(total) if isinstance(total, (int, float)) else len(files)
-                        if message:
-                            worker_state["message"] = message
-                        else:
-                            worker_state["message"] = f"Analyzing: {worker_state['downloaded']}/{worker_state['total']}"
-                        # Update elapsed time for ETA calculation
-                        worker_state["elapsed_time"] = time_module.time() - start_time
-                        # Allow cancellation during analysis
-                        if cancel_event.is_set():
-                            raise KeyboardInterrupt("cancelled by user during analysis")
-
-                    df = batch_analyze_folder_fast(
-                        str(target_folder),
-                        progress_callback=analyze_progress,
-                        additional_metadata=metadata,
-                        show_all_results=True,
-                    )
-                    if not df.empty:
-                        df["Audit Type"] = "Heavy Audit"
-                else:
-                    processed_count = 0
-                    total_files = len(files)
-
-                    def lite_progress_callback(completed, total, message=None):
-                        nonlocal processed_count
-                        processed_count += 1
-                        worker_state["phase"] = "analyze"
-                        worker_state["downloaded"] = int(processed_count)
-                        worker_state["total"] = int(total_files)
-                        if message:
-                            worker_state["message"] = message
-                        else:
-                            worker_state["message"] = f"Analyzing: {worker_state['downloaded']}/{worker_state['total']}"
-                        # Update elapsed time for ETA calculation
-                        worker_state["elapsed_time"] = time_module.time() - start_time
-                        # Allow cancellation during lite analysis
-                        if cancel_event.is_set():
-                            raise KeyboardInterrupt("cancelled by user during analysis")
-
-                    df = batch_analyze_folder_lite(
-                        str(target_folder),
-                        progress_callback=lite_progress_callback,
-                        additional_metadata=metadata,
-                    )
-                    if not df.empty:
-                        df["Audit Type"] = "Lite Audit"
-            except Exception as e:
-                error_msg = f"Error during {audit_type} processing: {str(e)}\n\n{traceback.format_exc()}"
-                worker_state["status"] = "error"
-                worker_state["error_type"] = "processing"
-                worker_state["error_message"] = error_msg
-                return
-
-            if df is None:
-                worker_state["status"] = "error"
-                worker_state["error_type"] = "processing"
-                worker_state["error_message"] = "No analysis results DataFrame created"
-                return
-
-            worker_state["record_count"] = int(len(df))
-
-            if not df.empty:
-                dashboard_manager.save_campaign_audit_results(
-                    df, campaign_name, current_username_local
-                )
-                dashboard_manager.increment_daily_download_count(
-                    current_username_local, len(df)
-                )
-
-            worker_state["status"] = "completed"
-            worker_state["df_empty"] = bool(df.empty)
-        except KeyboardInterrupt:
-            worker_state["status"] = "cancelled"
-        except ReadyModeLoginError as login_error:
-            worker_state["status"] = "error"
-            worker_state["error_type"] = "login"
-            worker_state["error_message"] = str(login_error)
-        except ReadyModeNoCallsError as no_calls_error:
-            worker_state["status"] = "error"
-            worker_state["error_type"] = "no_calls"
-            worker_state["error_message"] = str(no_calls_error)
-        except Exception as e:
-            error_message = str(e)
-            lower = error_message.lower()
-            worker_state["status"] = "error"
-            if "[!] campaign" in lower and "not found" in lower:
-                worker_state["error_type"] = "campaign_not_found"
-            elif "NO_AVAILABLE_ADMIN_LICENSES" in error_message:
-                worker_state["error_type"] = "license"
-            elif any(
-                keyword in lower
-                for keyword in [
-                    "no such window",
-                    "web view not found",
-                    "chrome",
-                    "webdriver",
-                    "session info",
-                    "stacktrace",
-                    "gethandleverifier",
-                ]
-            ):
-                worker_state["error_type"] = "browser"
-            else:
-                worker_state["error_type"] = "generic"
-            worker_state["error_message"] = error_message
-            worker_state["traceback"] = traceback.format_exc()
-        finally:
-            # Playwright handles browser cleanup automatically
-            # No manual process management or driver.quit() needed
-            logger.info("Download worker completed - Playwright handles cleanup")
-
     # Progress tracker helper
     def _create_progress_tracker():
         status_text = st.empty()
@@ -725,49 +188,88 @@ def show_audit_section(
                         "System resources may be insufficient for transcription. "
                         "Results may be incomplete."
                     )
-                
-                # Create persistent temp directory
-                from config import RECORDINGS_ROOT
-                
-                base_temp = RECORDINGS_ROOT if RECORDINGS_ROOT and Path(RECORDINGS_ROOT).exists() else tempfile.gettempdir()
-                upload_dir = Path(base_temp) / "Uploads" / current_username / f"req_{int(time.time())}"
-                upload_dir.mkdir(parents=True, exist_ok=True)
-                
-                # Save uploaded files
-                for f in uploaded_files:
-                    (upload_dir / f.name).write_bytes(f.getbuffer())
-                
-                # Initialize worker state
-                user_api_key, api_key_source = _get_user_assemblyai_api_key(current_username)
-                st.session_state.upload_cancel_event.clear()
-                st.session_state.upload_worker_state = {
-                    "status": "running",
-                    "message": "Starting analysis...",
-                    "downloaded": 0,
-                    "total": len(uploaded_files),
-                    "df": None,
-                    "start_time": time.time(),
-                    "elapsed_time": 0,
-                }
-                
-                # Start background thread
-                worker_thread = threading.Thread(
-                    target=_run_upload_audit_worker,
-                    args=(
-                        str(upload_dir),
-                        campaign_name,
-                        current_username,
-                        user_api_key,
-                        api_key_source,
-                        st.session_state.upload_worker_state,
-                        st.session_state.upload_cancel_event,
-                        show_flagged_only,
-                    ),
-                    daemon=True
-                )
-                st.session_state.upload_worker_thread = worker_thread
-                worker_thread.start()
-                st.rerun()
+
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    temp_path = Path(tmpdir)
+                    for f in uploaded_files:
+                        (temp_path / f.name).write_bytes(f.getbuffer())
+
+                    with st.spinner(f"Analyzing {len(uploaded_files)} files..."):
+                        # Use the fast analyzer with upload metadata
+                        # Always use show_all_results=True to match Agent Audit and Campaign Audit behavior
+                        # This ensures transcription is always included in results
+                        user_api_key, api_key_source = _get_user_assemblyai_api_key(current_username)
+                        metadata = {
+                            "dialer_name": "upload",
+                            "API Key Source": api_key_source,
+                        }
+                        df = batch_analyze_folder_fast(
+                            str(temp_path),
+                            additional_metadata=metadata,
+                            show_all_results=True,
+                            username=current_username,
+                            user_api_key=user_api_key,
+                        )
+                        
+                        # Filter to flagged calls only if requested (after getting all results with transcription)
+                        if show_flagged_only and not df.empty:
+                            # Filter to only show calls with issues
+                            # Build mask for flagged calls (calls with detected issues)
+                            masks = []
+                            
+                            if 'Releasing Detection' in df.columns:
+                                masks.append(df['Releasing Detection'] == 'Yes')
+                            if 'Late Hello Detection' in df.columns:
+                                masks.append(df['Late Hello Detection'] == 'Yes')
+                            if 'Rebuttal Detection' in df.columns:
+                                masks.append(df['Rebuttal Detection'] == 'No')
+                            
+                            # Combine all masks with OR logic
+                            if masks:
+                                flagged_mask = masks[0]
+                                for mask in masks[1:]:
+                                    flagged_mask = flagged_mask | mask
+                                df = df[flagged_mask].copy()
+                        st.session_state["upload_results"] = df
+
+                        # Save to Dashboard if results found
+                        if not df.empty:
+                            try:
+                                dashboard_formatted_df = df
+
+                                current_username = st.session_state.get(
+                                    "username", "Unknown"
+                                )
+
+                                if campaign_name.strip():
+                                    # Save as campaign audit
+                                    dashboard_manager.save_campaign_audit_results(
+                                        dashboard_formatted_df,
+                                        campaign_name.strip(),
+                                        current_username,
+                                    )
+                                else:
+                                    # Save as agent audit
+                                    dashboard_manager.save_agent_audit_results(
+                                        dashboard_formatted_df,
+                                        current_username,
+                                    )
+
+                                # Clear dashboard cache to force refresh
+                                if "dashboard_cache_timestamp" in st.session_state:
+                                    del st.session_state["dashboard_cache_timestamp"]
+
+                            except Exception as conv_error:
+                                st.error(
+                                    f"**Save Failed!** Error during saving: {str(conv_error)}"
+                                )
+                                st.write("DataFrame preview:")
+                                st.dataframe(df.head())
+
+                        else:
+                            st.warning(
+                                "No results to save - dataframe was empty after analysis"
+                            )
 
                 if "upload_results" in st.session_state:
                     df = st.session_state["upload_results"]
@@ -981,92 +483,6 @@ def show_audit_section(
             unsafe_allow_html=True,
         )
 
-        # Progress display for background worker
-        worker_state = st.session_state.agent_worker_state
-        if worker_state and worker_state.get("status") in ("running", "starting"):
-            if AUTOREFRESH_AVAILABLE:
-                st_autorefresh(interval=2000, key="agent_audit_autorefresh", limit=None)
-            
-            st.markdown("---")
-            st.markdown(f"## AGENT AUDIT STATUS: {agent_name}")
-            
-            phase = worker_state.get("phase", "")
-            message = worker_state.get("message", "")
-            downloaded = worker_state.get("downloaded", 0)
-            total = worker_state.get("total", 0)
-            
-            # Display phase information
-            phase_display = "Downloading calls..." if phase == "download" else "Analyzing calls..."
-            st.info(f"🔄 **{phase_display}** - {message}")
-            
-            # Display progress bar
-            progress_value = 0.0
-            if total and total > 0:
-                progress_value = max(0.0, min(float(downloaded) / float(total), 1.0))
-            st.progress(progress_value)
-            
-            # Cancel button
-            if st.button("Cancel Audit", key="cancel_agent_audit_worker"):
-                st.session_state.agent_cancel_event.set()
-                st.warning("Stop signal sent. Finishing current file...")
-            
-            st.markdown("---")
-            
-        elif worker_state and worker_state.get("status") == "completed":
-            st.success(f"Audit completed! Processed {worker_state.get('record_count', 0)} records.")
-            if st.button("Clear and Restart", key="clear_agent_audit_success"):
-                st.session_state.agent_worker_state["status"] = "idle"
-                st.rerun()
-                
-        elif worker_state and worker_state.get("status") == "error":
-            st.error(f"Audit failed: {worker_state.get('error_message')}")
-            if st.button("Clear and Retry", key="clear_agent_audit_error"):
-                st.session_state.agent_worker_state["status"] = "idle"
-                st.rerun()
-
-        # Progress display for Upload background worker
-        upload_worker_state = st.session_state.upload_worker_state
-        if upload_worker_state and upload_worker_state.get("status") in ("running", "starting"):
-            if AUTOREFRESH_AVAILABLE:
-                st_autorefresh(interval=2000, key="upload_audit_autorefresh", limit=None)
-            
-            st.markdown("---")
-            st.markdown("## UPLOAD ANALYSIS STATUS")
-            
-            message = upload_worker_state.get("message", "")
-            downloaded = upload_worker_state.get("downloaded", 0)
-            total = upload_worker_state.get("total", 0)
-            
-            st.info(f"🔄 **Processing uploaded files...** - {message}")
-            
-            # Display progress bar
-            progress_value = 0.0
-            if total and total > 0:
-                progress_value = max(0.0, min(float(downloaded) / float(total), 1.0))
-            st.progress(progress_value)
-            
-            # Cancel button
-            if st.button("Cancel Upload Analysis", key="cancel_upload_audit_worker"):
-                st.session_state.upload_cancel_event.set()
-                st.warning("Stop signal sent. Finishing current file...")
-            
-            st.markdown("---")
-            
-        elif upload_worker_state and upload_worker_state.get("status") == "completed":
-            df = upload_worker_state.get("df")
-            if df is not None:
-                st.session_state["upload_results"] = df
-                st.success(f"Analysis completed! Processed {len(df)} files.")
-                # Automatically move results to session state and reset worker
-                st.session_state.upload_worker_state["status"] = "idle"
-                st.rerun()
-                
-        elif upload_worker_state and upload_worker_state.get("status") == "error":
-            st.error(f"Analysis failed: {upload_worker_state.get('error_message')}")
-            if st.button("Clear and Retry", key="clear_upload_audit_error"):
-                st.session_state.upload_worker_state["status"] = "idle"
-                st.rerun()
-
         # Check for stale cancelled state and clear it (runs on every page load, not just button clicks)
         if st.session_state.get("agent_audit_cancelled_status", False):
             # Clear cancelled state if it exists (user may have navigated away after cancelling)
@@ -1275,55 +691,841 @@ def show_audit_section(
                             f"🔄 Audit in progress: {restored_progress}/{restored_total if restored_total else '?'} files processed. Continuing..."
                         )
 
-                        # Get user-specific ReadyMode credentials
-                        rm_user, rm_pass = get_user_readymode_credentials(current_username_local)
-                        
-                        # Initialize and start background worker
-                        st.session_state.agent_cancel_event.clear()
-                        user_api_key, api_key_source = _get_user_assemblyai_api_key(current_username_local)
-                        
-                        st.session_state.agent_worker_state = {
-                            "status": "running",
-                            "phase": "download",
-                            "downloaded": 0,
-                            "total": max_samples,
-                            "message": "Starting...",
-                            "start_time": time.time(),
-                            "elapsed_time": 0,
-                        }
+                    # Progress tracker helper (survives Streamlit reruns)
+                    def _create_persistent_progress_tracker():
+                        # Mark that audit is in progress
+                        st.session_state.audit_in_progress_state = True
 
-                        # Clear driver storage before starting fresh
+                        # Create placeholders that will be recreated on reruns
+                        status_text_local = st.empty()
+                        progress_bar_placeholder = st.empty()
+
+                        # Initialize progress bar
+                        with progress_bar_placeholder:
+                            progress_bar_local = st.progress(0)
+
+                        # Store placeholders in session state for recovery on reruns
+                        st.session_state.audit_status_placeholder = status_text_local
+                        st.session_state.audit_progress_placeholder = (
+                            progress_bar_placeholder
+                        )
+
+                        def update_progress_local(downloaded, total):
+                            try:
+                                # Store progress in session state to persist across reruns
+                                st.session_state.audit_progress_downloaded = downloaded
+                                st.session_state.audit_progress_total = (
+                                    total if total else downloaded
+                                )
+
+                                # Calculate ratio
+                                ratio_local = (
+                                    downloaded / total if total and total > 0 else 0
+                                )
+                                ratio_local = min(max(ratio_local, 0.0), 1.0)
+
+                                # Recreate progress bar if placeholder exists (survives reruns)
+                                if "audit_progress_placeholder" in st.session_state:
+                                    with st.session_state.audit_progress_placeholder.container():
+                                        st.progress(ratio_local)
+
+                                # Update status text (survives reruns)
+                                if "audit_status_placeholder" in st.session_state:
+                                    if (
+                                        isinstance(downloaded, (int, float))
+                                        and isinstance(total, (int, float))
+                                        and total
+                                    ):
+                                        st.session_state.audit_status_placeholder.text(
+                                            f"Analyzing: {int(min(downloaded, total))}/{int(total)} files"
+                                        )
+                                    else:
+                                        st.session_state.audit_status_placeholder.text(
+                                            f"Analyzing: {downloaded} files"
+                                        )
+
+                            except Exception:
+                                # Silently handle errors - progress updates shouldn't crash the app
+                                pass
+
+                            # Also try to update the original progress bar if still valid
+                            try:
+                                progress_bar_local.progress(ratio_local)
+                                if (
+                                    isinstance(downloaded, (int, float))
+                                    and isinstance(total, (int, float))
+                                    and total
+                                ):
+                                    status_text_local.text(
+                                        f"Analyzing: {int(min(downloaded, total))}/{int(total)} files"
+                                    )
+                                else:
+                                    status_text_local.text(
+                                        f"Analyzing: {downloaded} files"
+                                    )
+                            except Exception:
+                                pass  # Original elements may be cleared on rerun - that's okay
+
+                        return status_text_local, progress_bar_local, update_progress_local
+
+                    (
+                        status_text,
+                        progress_bar,
+                        update_progress,
+                    ) = _create_persistent_progress_tracker()
+
+                    # Initialize cancellation flag and driver storage for Agent Audit
+                    if "agent_audit_cancelled" not in st.session_state:
+                        st.session_state.agent_audit_cancelled = False
+                    if "agent_audit_driver_storage" not in st.session_state:
                         st.session_state.agent_audit_driver_storage = {}
 
-                        # Start background thread
-                        worker_thread = threading.Thread(
-                            target=_run_agent_audit_worker,
-                            args=(
-                                READYMODE_URL,
-                                agent_name,
-                                start_date,
-                                end_date,
-                                selected_dispositions,
-                                min_duration,
-                                max_duration,
-                                max_samples,
-                                audit_mode,
-                                current_username_local,
-                                rm_user,
-                                rm_pass,
-                                st.session_state.agent_worker_state,
-                                st.session_state.agent_cancel_event,
-                                st.session_state.agent_audit_driver_storage,
-                                user_api_key,
-                                api_key_source
-                            ),
-                            daemon=True
+                    # Cancel button for Agent Audit
+                    cancel_col, _ = st.columns([1, 5])
+                    with cancel_col:
+                        cancel_agent_audit = st.button(
+                            "Cancel", key="cancel_agent_audit", type="secondary"
                         )
-                        st.session_state.agent_worker_thread = worker_thread
-                        worker_thread.start()
-                        st.rerun()
+                        if cancel_agent_audit:
+                            st.session_state.agent_audit_cancelled = True
+                            # Close Chrome driver if it exists - use aggressive termination
+                            if "driver" in st.session_state.agent_audit_driver_storage:
+                                try:
+                                    driver = st.session_state.agent_audit_driver_storage[
+                                        "driver"
+                                    ]
+                                    profile_dir = st.session_state.agent_audit_driver_storage.get(
+                                        "profile_dir"
+                                    )
+                                    try:
+                                        driver.quit()
+                                    except Exception:
+                                        pass
+                                    try:
+                                        import shutil, time as _time
+
+                                        if profile_dir and Path(profile_dir).exists():
+                                            for _ in range(5):
+                                                try:
+                                                    shutil.rmtree(profile_dir, ignore_errors=True)
+                                                    break
+                                                except Exception:
+                                                    _time.sleep(1)
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    pass
+
+                            # Clear stored driver reference to prevent reuse
+                            st.session_state.agent_audit_driver_storage = {}
+
+                            # Clear audit flag state
+                            st.session_state.audit_in_progress = False
+                            if "audit_in_progress_state" in st.session_state:
+                                del st.session_state.audit_in_progress_state
+
+                            # Clear any stored progress info
+                            for key in [
+                                "audit_status_placeholder",
+                                "audit_progress_placeholder",
+                                "audit_progress_downloaded",
+                                "audit_progress_total",
+                                "audit_download_status",
+                                "audit_in_progress_state",
+                            ]:
+                                if key in st.session_state:
+                                    del st.session_state[key]
+
+                            # Set cancelled status flag (similar to Campaign Audit's worker_state["status"] = "cancelled")
+                            # This flag will be checked on next page load to clear any stale state
+                            st.session_state.agent_audit_cancelled_status = True
+                            
+                            # Clear the cancellation flag itself (it was set to True to signal cancellation, now clear it)
+                            st.session_state.agent_audit_cancelled = False
+                            
+                            # Force a rerun so UI reflects cancelled state and returns to initial screen immediately
+                            st.rerun()
+
+                    # TODO: wire in the heavy/lite audit logic (this wrapper currently manages UI and state)
+
+                    try:
+                        # DOWNLOAD PHASE
+                        status_text.text("Downloading call recordings from ReadyMode...")
+
+                        # Reset cancellation flag at start
+                        st.session_state.agent_audit_cancelled = False
+
+                        try:
+                            # Download with progress callback
+                            effective_min_duration = min_duration
+                            effective_max_duration = max_duration
+                            if audit_mode == "heavy":
+                                if (
+                                    effective_min_duration is None
+                                    or effective_min_duration < 20
+                                ):
+                                    effective_min_duration = 20
+                                if (
+                                    effective_max_duration is not None
+                                    and effective_max_duration < effective_min_duration
+                                ):
+                                    effective_max_duration = None
+                                status_text.text(
+                                    "Downloading call recordings from ReadyMode... (Heavy Audit mode)"
+                                )
+
+                            # Cancellation callback
+                            def check_cancellation():
+                                return st.session_state.get(
+                                    "agent_audit_cancelled", False
+                                )
+
+                            downloaded_path_str = download_all_call_recordings(
+                                ready_url,
+                                agent=agent_name,
+                                start_date=start_date,
+                                end_date=end_date,
+                                max_samples=max_samples,
+                                update_callback=update_progress,
+                                disposition=selected_dispositions,
+                                min_duration=effective_min_duration,
+                                max_duration=effective_max_duration,
+                                username=current_username_local,
+                                readymode_user=rm_user,
+                                readymode_pass=rm_pass,
+                                cancellation_callback=check_cancellation,
+                                driver_storage=st.session_state.agent_audit_driver_storage,
+                            )
+
+                            status_text.text(
+                                "Download completed. Starting analysis..."
+                            )
+                            # Store status in session state instead of st.info to prevent rerun
+                            st.session_state.audit_download_status = (
+                                "✅ Download phase completed. Now processing audio files with AI analysis..."
+                            )
+
+                        except KeyboardInterrupt as cancel_error:
+                            # Handle cancellation
+                            if "cancelled" in str(cancel_error).lower():
+                                status_text.text("Download cancelled by user")
+                                st.warning(
+                                    "Agent Audit cancelled. Chrome browser closed."
+                                )
+                                st.session_state.audit_in_progress = False
+                                st.session_state.agent_audit_driver_storage.clear()
+                                st.session_state.agent_audit_cancelled = False
+                                raise  # Re-raise to exit the try block
+                            else:
+                                raise
+                        except ReadyModeLoginError as login_error:
+                            status_text.text(str(login_error))
+                            st.error(str(login_error))
+                            st.session_state.audit_in_progress = False
+                            st.session_state.agent_audit_driver_storage.clear()
+                            return
+                        except ReadyModeNoCallsError as no_calls_error:
+                            status_text.text(str(no_calls_error))
+                            st.warning(str(no_calls_error))
+                            st.session_state.audit_in_progress = False
+                            st.session_state.agent_audit_driver_storage.clear()
+                            return
+
+                        except Exception as download_error:
+                            logger.error(f"Download failed: {download_error}", exc_info=True)
+                            
+                            # Check if we managed to explore/create the directory at least
+                            # We can't easily know the exact folder name here without repeating logic, 
+                            # but we can decide to stop if the error looks fatal.
+                            
+                            error_str = str(download_error).lower()
+                            fatal_errors = [
+                                "chromedriver", "chrome not reachable", "binary", 
+                                "executable", "path", "connection refused"
+                            ]
+                            
+                            if any(err in error_str for err in fatal_errors):
+                                status_text.text(f"Critical error: {str(download_error)}")
+                                st.error(f"Automation System Error: {str(download_error)}")
+                                st.info("This indicates a missing browser or driver configuration on the server.")
+                                st.session_state.audit_in_progress = False
+                                return
+
+                            status_text.text(
+                                f"Download interrupted: {str(download_error)}"
+                            )
+                            st.warning(f"Download issue: {str(download_error)}")
+                            st.session_state.audit_download_status = (
+                                "Attempting to proceed with any files that were downloaded..."
+                            )
+                            # Continue to analysis ONLY if we have files... 
+                            # But we check for files in the next block anyway.
+                            downloaded_path_str = None  # Reset path if download failed
+
+                        # ANALYSIS PHASE
+                        status_text.text(
+                            "🔄 Processing audio files with AI analysis..."
+                        )
+                        # Don't use st.info() here as it can trigger reruns - use status_text instead
+
+                        dialer_name = extract_dialer_name_from_url(ready_url)
+
+                        from config import RECORDINGS_ROOT
+                        recordings_base = Path(RECORDINGS_ROOT)
 
 
+                        def _list_mp3_files(folder: Path):
+                            try:
+                                return [
+                                    f
+                                    for f in folder.iterdir()
+                                    if f.is_file() and f.suffix.lower() == ".mp3"
+                                ]
+                            except Exception as e:
+                                logger.error(f"Error listing MP3 files in {folder}: {e}")
+                                return []
+                        
+                        agent_name_lower = agent_name.lower()
+                        all_users_mode = agent_name_lower.strip() in [
+                            "all users",
+                            "all user",
+                            "all",
+                        ]
+                        
+                        target_folder = None
+                        files = []
+
+                        # PRIORITY 1: Use the explicit download path returned by the downloader
+                        if 'downloaded_path_str' in locals() and downloaded_path_str:
+                            try:
+                                explicit_path = Path(downloaded_path_str)
+                                if explicit_path.exists() and explicit_path.is_dir():
+                                    target_folder = explicit_path
+                                    files = _list_mp3_files(target_folder)
+                                    # Fallback: if no files found in returned dir (rare), try searching
+                                    if not files:
+                                        logger.warning(f"No files found in returned path {target_folder}, falling back to search")
+                                        target_folder = None
+                            except Exception as e:
+                                logger.error(f"Error using returned download path: {e}")
+                                target_folder = None
+
+                        # PRIORITY 2: Fallback search (only if no explicit path or explicit path empty)
+                        if not target_folder and recordings_base.exists():
+                            # Logic for finding latest folder if we didn't get it from downloader
+                            all_dirs = [
+                                d for d in recordings_base.rglob("*") if d.is_dir()
+                            ]
+                            recent_cutoff = time.time() - (24 * 3600)
+                            
+                            candidate_dirs = []
+
+                            for d in all_dirs:
+                                folder_name_lower = d.name.lower()
+                                if d.stat().st_mtime > recent_cutoff:
+                                    # Relaxed matching: check if name parts match (handles "Mohammed" vs "Mohamed" etc.)
+                                    # or check if folder starts with formatted name (no spaces)
+                                    formatted_agent = agent_name_lower.replace(" ", "")
+                                    
+                                    if (all_users_mode or 
+                                        agent_name_lower in folder_name_lower or 
+                                        formatted_agent in folder_name_lower.replace(" ", "")):
+                                        
+                                        mp3_files = _list_mp3_files(d)
+                                        if mp3_files:
+                                            candidate_dirs.append(
+                                                (d, mp3_files, d.stat().st_mtime)
+                                            )
+
+                            if candidate_dirs:
+                                candidate_dirs.sort(
+                                    key=lambda x: x[2], reverse=True
+                                )
+                                target_folder, files, _ = candidate_dirs[0]
+                            else:
+                                auditor_dir = recordings_base / "Agent" / current_username_local
+                                if auditor_dir.exists():
+                                    subdirs = [
+                                        d
+                                        for d in auditor_dir.iterdir()
+                                        if d.is_dir()
+                                    ]
+                                    if all_users_mode:
+                                        matching_subdirs = [
+                                            d for d in subdirs if _list_mp3_files(d)
+                                        ]
+                                    else:
+                                        formatted_agent = agent_name_lower.replace(" ", "")
+                                        matching_subdirs = []
+                                        for d in subdirs:
+                                            d_name_clean = d.name.lower().replace(" ", "")
+                                            if agent_name_lower in d.name.lower() or formatted_agent in d_name_clean:
+                                                matching_subdirs.append(d)
+                                            
+                                    if matching_subdirs:
+                                        matching_subdirs.sort(
+                                            key=lambda x: x.stat().st_mtime,
+                                            reverse=True,
+                                        )
+                                        target_folder = matching_subdirs[0]
+                                        files = _list_mp3_files(target_folder)
+
+                        if not files and recordings_base.exists():
+                            all_mp3s = [
+                                f
+                                for f in recordings_base.rglob("*")
+                                if f.is_file() and f.suffix.lower() == ".mp3"
+                            ]
+                            if all_mp3s:
+                                if all_users_mode:
+                                    all_mp3s.sort(
+                                        key=lambda f: f.stat().st_mtime,
+                                        reverse=True,
+                                    )
+                                    target_folder = all_mp3s[0].parent
+                                    files = _list_mp3_files(target_folder)
+                                else:
+                                    agent_files = [
+                                        f
+                                        for f in all_mp3s
+                                        if agent_name_lower in f.parent.name.lower()
+                                    ]
+                                    if agent_files:
+                                        agent_files.sort(
+                                            key=lambda f: f.stat().st_mtime,
+                                            reverse=True,
+                                        )
+                                        target_folder = agent_files[0].parent
+                                        files = _list_mp3_files(target_folder)
+
+                        if not files:
+                            st.error(
+                                f"No files found for agent '{agent_name}'"
+                            )
+                            st.write("Troubleshooting steps:")
+                            st.write(
+                                "1. Confirm the download step completed successfully"
+                            )
+                            st.write(
+                                "2. Verify the folder exists under Recordings/Agent/"
+                            )
+                            st.write(
+                                "3. Check local permissions on the Recordings directory"
+                            )
+                            st.write(
+                                "4. Refresh the page and retry once the folder is visible"
+                            )
+                            # End the audit cleanly instead of crashing the app
+                            st.session_state.audit_in_progress = False
+                            if "audit_in_progress_state" in st.session_state:
+                                del st.session_state["audit_in_progress_state"]
+                            return
+
+                        # Analyze files based on audit mode
+                        user_api_key, api_key_source = _get_user_assemblyai_api_key(current_username_local)
+                        metadata = {
+                            "dialer_name": dialer_name,
+                            "API Key Source": api_key_source,
+                        }
+
+                        if audit_mode == "heavy":
+                            df = batch_analyze_folder_fast(
+                                str(target_folder),
+                                progress_callback=update_progress,
+                                additional_metadata=metadata,
+                                show_all_results=True,
+                                username=current_username_local,
+                                user_api_key=user_api_key,
+                            )
+                            # Tag results with audit type for dashboard/CSV clarity
+                            if not df.empty:
+                                df["Audit Type"] = "Heavy Audit"
+                        else:  # lite mode
+                            df = batch_analyze_folder_lite(
+                                str(target_folder),
+                                progress_callback=update_progress,
+                                additional_metadata=metadata,
+                                username=current_username_local,
+                                user_api_key=user_api_key,
+                            )
+                            # Tag results with audit type for dashboard/CSV clarity
+                            if not df.empty:
+                                df["Audit Type"] = "Lite Audit"
+
+                        # Complete the processing progress
+                        try:
+                            progress_bar.progress(1.0)
+                            status_text.text("Processing complete! Saving results...")
+                        except Exception:
+                            # Update session state placeholders if original ones were cleared on rerun
+                            if "audit_progress_placeholder" in st.session_state:
+                                with st.session_state.audit_progress_placeholder.container():
+                                    st.progress(1.0)
+                            if "audit_status_placeholder" in st.session_state:
+                                st.session_state.audit_status_placeholder.text(
+                                    "Processing complete! Saving results..."
+                                )
+
+                        # Save results based on audit mode (DEFERRED: after processing completes)
+                        current_username_local = st.session_state.get(
+                            "username", "Auditor1"
+                        )
+
+                        # Show save progress indicator
+                        save_start_time = time.time()
+                        if not df.empty:
+                            try:
+                                if "audit_status_placeholder" in st.session_state:
+                                    st.session_state.audit_status_placeholder.text(
+                                        f"Saving {len(df)} results to dashboard..."
+                                    )
+                            except Exception:
+                                pass
+                            
+                            logger.info(f"Starting dashboard save for {len(df)} records (audit mode: {audit_mode})")
+                            
+                            if audit_mode == "heavy":
+                                dashboard_manager.save_agent_audit_results(
+                                    df, current_username_local
+                                )
+                                dashboard_manager.increment_daily_download_count(
+                                    current_username_local, len(df)
+                                )
+                            else:  # lite mode
+                                dashboard_manager.save_lite_audit_results(
+                                    df, current_username_local
+                                )
+                                dashboard_manager.increment_daily_download_count(
+                                    current_username_local, len(df)
+                                )
+                            
+                            save_elapsed = time.time() - save_start_time
+                            logger.info(f"Dashboard save completed in {save_elapsed:.2f}s for {len(df)} records")
+                            
+                            if save_elapsed > 10:
+                                logger.warning(f"Dashboard save took {save_elapsed:.2f}s (slow, consider optimization)")
+                        else:
+                            logger.warning("No results to save (empty DataFrame)")
+
+                        # Update status to show completion
+                        try:
+                            status_text.text("Save complete!")
+                        except Exception:
+                            if "audit_status_placeholder" in st.session_state:
+                                st.session_state.audit_status_placeholder.text("Save complete!")
+
+                        st.success(
+                            f"AGENT {mode_name.upper()} AUDIT COMPLETE! Processed {len(df) if not df.empty else 0} calls successfully!"
+                        )
+
+                        # Show results summary
+                        if not df.empty:
+                            st.info(
+                                f"Results saved to dashboard: {len(df)} calls analyzed"
+                            )
+                        else:
+                            st.warning("No calls were processed successfully.")
+
+                        # Clear audit in-progress flag and clean up session state
+                        st.session_state.audit_in_progress = False  # ✅ Clear main flag so new audit can start
+                        if "audit_in_progress_state" in st.session_state:
+                            del st.session_state.audit_in_progress_state
+                        if "audit_progress_downloaded" in st.session_state:
+                            del st.session_state.audit_progress_downloaded
+                        if "audit_progress_total" in st.session_state:
+                            del st.session_state.audit_progress_total
+                        if "audit_download_status" in st.session_state:
+                            del st.session_state.audit_download_status
+                        if "audit_status_placeholder" in st.session_state:
+                            del st.session_state.audit_status_placeholder
+                        if "audit_progress_placeholder" in st.session_state:
+                            del st.session_state.audit_progress_placeholder
+                        # Clear driver storage to ensure clean state
+                        st.session_state.agent_audit_driver_storage = {}
+                        if "agent_audit_cancelled" in st.session_state:
+                            del st.session_state.agent_audit_cancelled
+
+                    except KeyboardInterrupt as cancel_error:
+                        # Handle cancellation
+                        if "cancelled" in str(cancel_error).lower():
+                            status_text.text("Download cancelled by user")
+                            st.warning(
+                                "Agent Audit cancelled. Chrome browser closed."
+                            )
+                            st.session_state.audit_in_progress = False
+                            st.session_state.agent_audit_driver_storage.clear()
+                            st.session_state.agent_audit_cancelled = False
+                        else:
+                            raise
+                    except Exception as e:
+                        error_message = str(e).lower()
+
+                        # Handle missing campaign case explicitly
+                        if "[!] campaign" in error_message and "not found" in error_message:
+                            # Surface the exact message like: [!] Campaign 'Pacers' not found
+                            st.error(str(e))
+                            st.info(
+                                "Please check that the campaign name matches exactly as it appears in ReadyMode."
+                            )
+                        # Check for license error specifically first
+                        elif "NO_AVAILABLE_ADMIN_LICENSES" in str(e):
+                            st.error("**ADMIN LICENSE UNAVAILABLE**")
+                            st.warning(
+                                "**No available admin licenses at this time.**"
+                            )
+                            st.info(
+                                "Please wait until another admin signs out before retrying the automation."
+                            )
+                        else:
+                            # Always show the real backend error message in the UI
+                            st.error(f"PROCESSING FAILED: {str(e)}")
+                            if any(
+                                keyword in error_message
+                                for keyword in [
+                                    "no such window",
+                                    "web view not found",
+                                    "chrome",
+                                    "webdriver",
+                                    "session info",
+                                    "stacktrace",
+                                    "gethandleverifier",
+                                ]
+                            ):
+                                st.info(
+                                    "This looks like a browser / automation error. Please verify Chrome and WebDriver are installed and accessible on the server."
+                                )
+                            else:
+                                st.info(
+                                    "Check your ReadyMode connection, filters, and credentials, then try again."
+                                )
+
+                        # Always provide technical details so backend errors are visible for debugging
+                        with st.expander("Technical details (backend error)"):
+                            st.write(f"**Error type:** {type(e).__name__}")
+                            st.code("".join(traceback.format_exception(type(e), e, e.__traceback__)))
+
+    def _run_campaign_audit_worker(
+        ready_url,
+        campaign_name,
+        start_date,
+        end_date,
+        selected_dispositions,
+        min_duration,
+        max_duration,
+        max_samples,
+        audit_type,
+        current_username_local,
+        rm_user,
+        rm_pass,
+        worker_state,
+        cancel_event,
+        driver_storage,
+    ):
+        import traceback
+        import time as time_module
+
+        try:
+            start_time = time_module.time()
+            
+            worker_state["status"] = "running"
+            worker_state["phase"] = "download"
+            worker_state["downloaded"] = 0
+            worker_state["total"] = max_samples
+            worker_state["start_time"] = start_time
+
+            effective_min_duration = min_duration
+            effective_max_duration = max_duration
+            if audit_type == "Heavy Audit":
+                if effective_min_duration is None or effective_min_duration < 20:
+                    effective_min_duration = 20
+                if effective_max_duration is not None and effective_max_duration < effective_min_duration:
+                    effective_max_duration = None
+
+            def check_cancellation():
+                return cancel_event.is_set()
+
+            def download_update(downloaded, total):
+                worker_state["phase"] = "download"
+                worker_state["downloaded"] = int(downloaded) if isinstance(downloaded, (int, float)) else 0
+                worker_state["total"] = int(total) if isinstance(total, (int, float)) else max_samples
+                # Update elapsed time for ETA calculation
+                worker_state["elapsed_time"] = time_module.time() - start_time
+
+            worker_state["phase"] = "download"
+
+            download_all_call_recordings(
+                ready_url,
+                agent="all users",
+                campaign_name=campaign_name,
+                start_date=start_date,
+                end_date=end_date,
+                max_samples=max_samples,
+                update_callback=download_update,
+                disposition=selected_dispositions,
+                min_duration=effective_min_duration,
+                max_duration=effective_max_duration,
+                username=current_username_local,
+                readymode_user=rm_user,
+                readymode_pass=rm_pass,
+                cancellation_callback=check_cancellation,
+                driver_storage=driver_storage,
+            )
+
+            if cancel_event.is_set():
+                worker_state["status"] = "cancelled"
+                return
+
+            worker_state["phase"] = "analyze"
+
+            dialer_name = extract_dialer_name_from_url(ready_url)
+
+            # Use absolute paths from config to ensure correct location
+            from config import RECORDINGS_ROOT
+            search_paths = [
+                RECORDINGS_ROOT / "Campaign" / current_username_local,
+                RECORDINGS_ROOT / "Campaign",
+                RECORDINGS_ROOT,
+            ]
+
+            target_folder = None
+            files = []
+
+            candidate_dirs = []
+            for base_path in search_paths:
+                if not base_path.exists():
+                    continue
+                for entry in base_path.iterdir():
+                    if not entry.is_dir():
+                        continue
+                    if campaign_name.lower() in entry.name.lower():
+                        mp3_files = list(entry.rglob("*.mp3"))
+                        if mp3_files:
+                            candidate_dirs.append((entry.stat().st_mtime, entry, mp3_files))
+
+            if candidate_dirs:
+                candidate_dirs.sort(key=lambda x: x[0], reverse=True)
+                _, target_folder, files = candidate_dirs[0]
+
+            if not files:
+                worker_state["status"] = "error"
+                worker_state["error_type"] = "no_files"
+                worker_state["error_message"] = f"No MP3 files found for campaign '{campaign_name}' in any search location"
+                return
+
+            metadata = {
+                "dialer_name": dialer_name,
+                "date": datetime.now().strftime("%Y-%m-%d"),
+            }
+
+            df = None
+
+            try:
+                if audit_type == "Heavy Audit":
+                    def analyze_progress(done, total):
+                        worker_state["phase"] = "analyze"
+                        worker_state["downloaded"] = int(done) if isinstance(done, (int, float)) else 0
+                        worker_state["total"] = int(total) if isinstance(total, (int, float)) else len(files)
+                        # Update elapsed time for ETA calculation
+                        worker_state["elapsed_time"] = time_module.time() - start_time
+                        # Allow cancellation during analysis
+                        if cancel_event.is_set():
+                            raise KeyboardInterrupt("cancelled by user during analysis")
+
+                    df = batch_analyze_folder_fast(
+                        str(target_folder),
+                        progress_callback=analyze_progress,
+                        additional_metadata=metadata,
+                        show_all_results=True,
+                    )
+                    if not df.empty:
+                        df["Audit Type"] = "Heavy Audit"
+                else:
+                    processed_count = 0
+                    total_files = len(files)
+
+                    def lite_progress_callback(completed, total):
+                        nonlocal processed_count
+                        processed_count += 1
+                        worker_state["phase"] = "analyze"
+                        worker_state["downloaded"] = int(processed_count)
+                        worker_state["total"] = int(total_files)
+                        # Update elapsed time for ETA calculation
+                        worker_state["elapsed_time"] = time_module.time() - start_time
+                        # Allow cancellation during lite analysis
+                        if cancel_event.is_set():
+                            raise KeyboardInterrupt("cancelled by user during analysis")
+
+                    df = batch_analyze_folder_lite(
+                        str(target_folder),
+                        progress_callback=lite_progress_callback,
+                        additional_metadata=metadata,
+                    )
+                    if not df.empty:
+                        df["Audit Type"] = "Lite Audit"
+            except Exception as e:
+                error_msg = f"Error during {audit_type} processing: {str(e)}\n\n{traceback.format_exc()}"
+                worker_state["status"] = "error"
+                worker_state["error_type"] = "processing"
+                worker_state["error_message"] = error_msg
+                return
+
+            if df is None:
+                worker_state["status"] = "error"
+                worker_state["error_type"] = "processing"
+                worker_state["error_message"] = "No analysis results DataFrame created"
+                return
+
+            worker_state["record_count"] = int(len(df))
+
+            if not df.empty:
+                dashboard_manager.save_campaign_audit_results(
+                    df, campaign_name, current_username_local
+                )
+                dashboard_manager.increment_daily_download_count(
+                    current_username_local, len(df)
+                )
+
+            worker_state["status"] = "completed"
+            worker_state["df_empty"] = bool(df.empty)
+        except KeyboardInterrupt:
+            worker_state["status"] = "cancelled"
+        except ReadyModeLoginError as login_error:
+            worker_state["status"] = "error"
+            worker_state["error_type"] = "login"
+            worker_state["error_message"] = str(login_error)
+        except ReadyModeNoCallsError as no_calls_error:
+            worker_state["status"] = "error"
+            worker_state["error_type"] = "no_calls"
+            worker_state["error_message"] = str(no_calls_error)
+        except Exception as e:
+            error_message = str(e)
+            lower = error_message.lower()
+            worker_state["status"] = "error"
+            if "[!] campaign" in lower and "not found" in lower:
+                worker_state["error_type"] = "campaign_not_found"
+            elif "NO_AVAILABLE_ADMIN_LICENSES" in error_message:
+                worker_state["error_type"] = "license"
+            elif any(
+                keyword in lower
+                for keyword in [
+                    "no such window",
+                    "web view not found",
+                    "chrome",
+                    "webdriver",
+                    "session info",
+                    "stacktrace",
+                    "gethandleverifier",
+                ]
+            ):
+                worker_state["error_type"] = "browser"
+            else:
+                worker_state["error_type"] = "generic"
+            worker_state["error_message"] = error_message
+            worker_state["traceback"] = traceback.format_exc()
+        finally:
+            # Playwright handles browser cleanup automatically
+            # No manual process management or driver.quit() needed
+            logger.info("Download worker completed - Playwright handles cleanup")
 
     # --- Campaign Audit Tab ---
     if current_user_role in [user_manager.ROLE_OWNER, user_manager.ROLE_ADMIN]:
@@ -1566,11 +1768,9 @@ def show_audit_section(
                         # Fallback: Show message if autorefresh not available
                         st.warning("⚠️ Auto-refresh not available. Progress updates may be delayed. Install: `pip install streamlit-autorefresh`")
                     
-                    # Display phase/message information
-                    current_message = worker_state.get("message")
+                    # Display phase information
                     phase_display = "Downloading calls..." if phase == "download" else "Analyzing calls..."
-                    display_text = current_message if current_message else phase_display
-                    st.info(f"🔄 **{display_text}**")
+                    st.info(f"🔄 **{phase_display}**")
                     
                     # Display progress bar with real-time updates
                     progress_bar = st.progress(progress_value)

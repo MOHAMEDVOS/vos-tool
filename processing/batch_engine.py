@@ -19,17 +19,9 @@ from audio_pipeline.detections import IntroductionClassifier
 
 # Helper to attach Streamlit context to threads
 def _run_with_context(func, *args, **kwargs):
-    # Extract context if passed as a keyword argument (and remove it so it's not passed to func)
-    ctx = kwargs.pop('streamlit_ctx', None)
-    
     try:
         from streamlit.runtime.scriptrunner import add_script_run_ctx
-        # If context was provided explicitly, use it
-        if ctx:
-            add_script_run_ctx(ctx=ctx)
-        else:
-            # Fallback to auto-detection (may not work in threads)
-            add_script_run_ctx()
+        add_script_run_ctx()
     except (ImportError, ModuleNotFoundError):
         pass
     except Exception as e:
@@ -120,9 +112,7 @@ class BatchProcessor:
         """
         import logging
         import time
-        import time
         from concurrent.futures import TimeoutError
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
         
         logger = logging.getLogger(__name__)
         
@@ -191,11 +181,8 @@ class BatchProcessor:
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 # Submit batch for processing
                 futures = {}
-                # Capture current context to pass to threads
-                ctx = get_script_run_ctx()
-                
                 for file_path in batch_files:
-                    future = executor.submit(_run_with_context, self.audio_processor.process_single_file, file_path, additional_metadata, False, username, user_api_key, streamlit_ctx=ctx)
+                    future = executor.submit(_run_with_context, self.audio_processor.process_single_file, file_path, additional_metadata, False, username, user_api_key)
                     futures[future] = file_path
                 
                 # Collect results with timeout protection (per-file only)
@@ -226,12 +213,7 @@ class BatchProcessor:
 
                         # Update overall progress for UI after each file
                         if progress_callback:
-                            try:
-                                # Try calling with filename first
-                                progress_callback(completed_global, total_files, message=f"Processed {file_path.name}")
-                            except TypeError:
-                                # Fallback to standard (done, total)
-                                progress_callback(completed_global, total_files)
+                            progress_callback(completed_global, total_files)
 
                     except TimeoutError:
                         file_path = futures[future]
@@ -249,10 +231,7 @@ class BatchProcessor:
 
                         # Update overall progress for UI after each file
                         if progress_callback:
-                            try:
-                                progress_callback(completed_global, total_files, message=f"Timeout: {file_path.name}")
-                            except TypeError:
-                                progress_callback(completed_global, total_files)
+                            progress_callback(completed_global, total_files)
 
                     except Exception as e:
                         file_path = futures[future]
@@ -338,13 +317,6 @@ class BatchProcessor:
 
         audio_files = self.find_audio_files(folder_path)
         
-        # Capture current context to pass to async threads
-        try:
-            from streamlit.runtime.scriptrunner import get_script_run_ctx
-            current_ctx = get_script_run_ctx()
-        except ImportError:
-            current_ctx = None
-        
         if not audio_files:
             return []
         
@@ -399,32 +371,21 @@ class BatchProcessor:
             
             # Using SHARED _batch_executor to avoid nested deadlock hangs on Windows
             
-            # CRITICAL FIX: Wrap coroutines in tasks before using as_completed()
-            # asyncio.as_completed() requires tasks, not coroutines
-            # Also import functools for partial application
-            import functools
-            
             async def process_single_file_async(file_path: Path) -> dict:
                 """Process a single file with async transcription."""
                 async with semaphore:
                     try:
                         loop = asyncio.get_event_loop()
-                        # Use partial to pass kwargs to _run_with_context since run_in_executor doesn't support them
-                        func = functools.partial(
-                            _run_with_context,
-                            self.audio_processor.process_single_file,
-                            file_path,
-                            additional_metadata,
-                            False,
-                            username,
-                            user_api_key,
-                            streamlit_ctx=current_ctx
-                        )
-                        
                         result = await asyncio.wait_for(
                             loop.run_in_executor(
                                 _batch_executor,
-                                func
+                                _run_with_context,
+                                self.audio_processor.process_single_file,
+                                file_path,
+                                additional_metadata,
+                                False,
+                                username,
+                                user_api_key,
                             ),
                             timeout=timeout_per_file
                         )
@@ -487,10 +448,7 @@ class BatchProcessor:
                         
                         # Update overall progress for UI after each file
                         if progress_callback:
-                            try:
-                                progress_callback(completed_global, total_files, message=f"Processed {file_path.name}")
-                            except TypeError:
-                                progress_callback(completed_global, total_files)
+                            progress_callback(completed_global, total_files)
                             
                     except asyncio.TimeoutError:
                         elapsed_time = time.time() - batch_start
