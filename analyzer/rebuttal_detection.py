@@ -7,7 +7,9 @@ import time
 import logging
 import os
 import json
+import hashlib
 import re  # Required for regex operations in transcription quality assessment
+from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 from pydub import AudioSegment
 import numpy as np
@@ -44,6 +46,72 @@ logger = logging.getLogger(__name__)
 LLAMA_AVAILABLE = False
 llama_rebuttal_detection = None
 logger.info("🚫 LLaMA classifier disabled (removed - experimental feature)")
+
+
+class RebuttalCache:
+    """File-based cache for rebuttal analysis results."""
+
+    def __init__(self, cache_dir=".cache/rebuttals", ttl_days=30):
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.ttl_days = ttl_days
+        self.enabled = os.getenv('REBUTTAL_CACHE_ENABLED', 'true').lower() == 'true'
+
+        if self.enabled:
+            logger.info(f"Rebuttal analysis cache enabled: {self.cache_dir} (TTL: {ttl_days} days)")
+        else:
+            logger.info("Rebuttal analysis cache disabled")
+
+    def _get_transcript_hash(self, transcript: str) -> str:
+        """Get MD5 hash of the transcript for cache key."""
+        return hashlib.md5(transcript.encode('utf-8')).hexdigest()
+
+    def get(self, transcript: str) -> Optional[Dict[str, Any]]:
+        """Get cached rebuttal analysis if it exists and is not expired."""
+        if not self.enabled:
+            return None
+
+        try:
+            transcript_hash = self._get_transcript_hash(transcript)
+            cache_file = self.cache_dir / f"{transcript_hash}.json"
+
+            if not cache_file.exists():
+                return None
+
+            # Check expiration
+            cache_age = datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
+            if cache_age > timedelta(days=self.ttl_days):
+                cache_file.unlink()  # Delete expired cache
+                logger.debug(f"Rebuttal cache expired for transcript hash: {transcript_hash}")
+                return None
+
+            # Load cached result
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                cached_data = json.load(f)
+
+            logger.info(f"✅ Rebuttal Cache HIT for transcript hash: {transcript_hash}")
+            return cached_data
+
+        except Exception as e:
+            logger.warning(f"Rebuttal cache read error: {e}")
+            return None
+
+    def set(self, transcript: str, result: Dict[str, Any]):
+        """Cache the rebuttal analysis result."""
+        if not self.enabled:
+            return
+
+        try:
+            transcript_hash = self._get_transcript_hash(transcript)
+            cache_file = self.cache_dir / f"{transcript_hash}.json"
+
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(result, f, indent=2)
+
+            logger.info(f"💾 Cached rebuttal analysis for transcript hash: {transcript_hash}")
+
+        except Exception as e:
+            logger.warning(f"Rebuttal cache write error: {e}")
 
 class DataIngestionLayer:
     """Handles input validation and preprocessing."""
@@ -2373,6 +2441,7 @@ class RebuttalDetectionModule:
                 self.accent_correction_enabled = persistent_app_settings.is_accent_correction_enabled()
             except Exception:
                 pass
+        self.rebuttal_cache = RebuttalCache()
 
     def _assess_transcription_quality(self, transcript: str) -> Dict[str, Any]:
         """Assess transcription quality to identify potential false negatives."""
@@ -2543,8 +2612,17 @@ class RebuttalDetectionModule:
 
             # 5. Semantic Detection (on agent transcript only)
             logger.debug("Step 5: Semantic detection")
-            matches = self.detection_engine.detect_rebuttals(corrected_transcript)
-            logger.debug(f"Found {len(matches)} rebuttal matches")
+
+            # Check cache for existing rebuttal analysis
+            cached_rebuttal = self.rebuttal_cache.get(corrected_transcript)
+            if cached_rebuttal:
+                matches = cached_rebuttal.get('matches', [])
+                logger.debug(f"Found {len(matches)} cached rebuttal matches")
+            else:
+                matches = self.detection_engine.detect_rebuttals(corrected_transcript)
+                logger.debug(f"Found {len(matches)} rebuttal matches")
+                # Cache the new result
+                self.rebuttal_cache.set(corrected_transcript, {'matches': matches})
 
             # 6. Determine Result
             if matches:

@@ -1,0 +1,10 @@
+# VOS Tool - Frontend Dependencies
+# This file is managed by pip-tools. To update, edit this file
+# and then run 'pip-compile-multi' to regenerate requirements files.
+
+-c requirements.txt
+
+# ==================== Frontend-Specific Dependencies ====================
+streamlit>=1.28.0
+streamlit-autorefresh>=1.0.0
+playwright>=1.40.0

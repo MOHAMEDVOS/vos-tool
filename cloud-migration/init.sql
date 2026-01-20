@@ -215,21 +215,35 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_sessions_username ON user_sessions(username);
 CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON user_sessions(session_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON user_sessions(expires_at);
+-- Added composite index for session validation
+CREATE INDEX IF NOT EXISTS idx_sessions_user_active ON user_sessions(username, is_active, expires_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_username ON audit_logs(username);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_call_recordings_uploaded_by ON call_recordings(uploaded_by);
 CREATE INDEX IF NOT EXISTS idx_call_recordings_call_date ON call_recordings(call_date);
 CREATE INDEX IF NOT EXISTS idx_call_recordings_analysis_status ON call_recordings(analysis_status);
+-- Added index for campaign filtering
+CREATE INDEX IF NOT EXISTS idx_call_recordings_campaign ON call_recordings(campaign);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_recording_id ON analysis_results(recording_id);
 CREATE INDEX IF NOT EXISTS idx_analysis_results_analysis_type ON analysis_results(analysis_type);
 CREATE INDEX IF NOT EXISTS idx_quota_usage_username_date ON quota_usage(username, date);
 CREATE INDEX IF NOT EXISTS idx_agent_audit_results_username ON agent_audit_results(username);
 CREATE INDEX IF NOT EXISTS idx_agent_audit_results_created_at ON agent_audit_results(created_at);
+-- Added index for agent filtering
+CREATE INDEX IF NOT EXISTS idx_agent_audit_results_agent_name ON agent_audit_results(agent_name);
+-- Added composite index for common queries
+CREATE INDEX IF NOT EXISTS idx_agent_audit_results_user_created ON agent_audit_results(username, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_lite_audit_results_username ON lite_audit_results(username);
 CREATE INDEX IF NOT EXISTS idx_lite_audit_results_created_at ON lite_audit_results(created_at);
+-- Added index for agent filtering
+CREATE INDEX IF NOT EXISTS idx_lite_audit_results_agent_name ON lite_audit_results(agent_name);
+-- Added composite index for common queries
+CREATE INDEX IF NOT EXISTS idx_lite_audit_results_user_created ON lite_audit_results(username, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_campaign_audit_results_username ON campaign_audit_results(username);
 CREATE INDEX IF NOT EXISTS idx_campaign_audit_results_campaign ON campaign_audit_results(campaign_name);
 CREATE INDEX IF NOT EXISTS idx_campaign_audit_results_created_at ON campaign_audit_results(created_at);
+-- Added composite index for common queries
+CREATE INDEX IF NOT EXISTS idx_campaign_audit_results_campaign_user_created ON campaign_audit_results(campaign_name, username, created_at DESC);
 
 -- Indexes for phrase tables
 CREATE INDEX IF NOT EXISTS idx_rebuttal_phrases_category ON rebuttal_phrases(category);

@@ -1,0 +1,14 @@
+# VOS Tool - Backend Dependencies
+# This file is managed by pip-tools. To update, edit this file
+# and then run 'pip-compile-multi' to regenerate requirements files.
+
+-c requirements.txt
+
+# ==================== Backend-Specific Dependencies ====================
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-multipart>=0.0.6
+PyJWT>=2.8.0
+python-dotenv>=1.0.0

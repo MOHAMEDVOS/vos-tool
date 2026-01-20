@@ -91,10 +91,25 @@ async def health_check():
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Global exception handler."""
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    logger.error(
+        f"Unhandled exception for request: {request.method} {request.url}",
+        exc_info=True,
+        extra={
+            "request_details": {
+                "method": request.method,
+                "url": str(request.url),
+                "headers": dict(request.headers),
+            }
+        },
+    )
+    if settings.DEBUG:
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error", "error": str(exc)},
+        )
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"}
+        content={"detail": "Internal server error"},
     )
 
 
