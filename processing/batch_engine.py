@@ -1217,10 +1217,6 @@ def get_batch_processor(username: Optional[str] = None) -> BatchProcessor:
                 logger.info(f"Created BatchProcessor instance for {user_key}")
 
     processor = _batch_processors[user_key]
-    # Ensure worker count is enforced even if cached
-    if processor.max_workers != FORCED_MAX_WORKERS:
-        processor.max_workers = FORCED_MAX_WORKERS
-
     return processor
 
 def batch_analyze_folder(folder_path: str, username: Optional[str] = None, user_api_key: Optional[str] = None, additional_metadata: Optional[dict] = None) -> pd.DataFrame:
