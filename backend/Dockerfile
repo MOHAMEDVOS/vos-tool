@@ -11,12 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
+COPY requirements.txt /app/requirements.txt
 COPY requirements-backend.txt /app/requirements-backend.txt
 
 # Install Python dependencies
-# Install CPU-only PyTorch (only torch, not torchvision/torchaudio - saves ~500MB-1GB)
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir --user -r /app/requirements.txt && \
     pip install --no-cache-dir --user -r /app/requirements-backend.txt && \
     # Clean up pip cache and unnecessary files
     pip cache purge && \
@@ -82,7 +82,6 @@ COPY backend/services/ /app/backend/services/
 COPY backend/models/ /app/backend/models/
 COPY backend/__init__.py /app/backend/__init__.py
 COPY backend/main.py /app/backend/main.py
-COPY backend/requirements.txt /app/backend/requirements.txt
 # Verify backend/models was copied correctly
 RUN ls -la /app/backend/models/ && \
     test -f /app/backend/models/__init__.py && \
