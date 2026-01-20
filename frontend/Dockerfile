@@ -11,13 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
-COPY requirements-frontend.txt /app/requirements-frontend.txt
+COPY requirements-production.txt /app/requirements-production.txt
 
 # Install Python dependencies
 # Install CPU-only PyTorch (only torch, not torchvision/torchaudio - saves ~500MB-1GB)
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --user torch --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir --user -r /app/requirements-frontend.txt && \
+    pip install --no-cache-dir --user -r /app/requirements-production.txt && \
     # Clean up pip cache and unnecessary files
     pip cache purge && \
     find /root/.local -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null || true && \
