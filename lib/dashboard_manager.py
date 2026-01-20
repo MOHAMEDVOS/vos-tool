@@ -2498,7 +2498,8 @@ class DashboardManager:
         self.agent_audit_file = self.agent_audit_dir / f"agent_audits_{username}.json"
         
         # Initialize file if it doesn't exist
-        if not self.agent_audit_file.exists():
+        # Initialize file if it doesn't exist (ONLY if database is not available)
+        if not self._db_manager and not self.agent_audit_file.exists():
             initial_data = {
                 'login_timestamp': datetime.now().isoformat(),
                 'audit_results': []

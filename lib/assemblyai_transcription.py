@@ -142,6 +142,11 @@ class TranscriptionCache:
     
     def _get_file_hash(self, file_path: str) -> str:
         """Get MD5 hash of audio file for cache key."""
+        # Check if file exists first to avoid race conditions with temp files
+        path_obj = Path(file_path)
+        if not path_obj.exists():
+            return None
+            
         md5 = hashlib.md5()
         try:
             with open(file_path, 'rb') as f:
