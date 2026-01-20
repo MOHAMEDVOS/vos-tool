@@ -226,7 +226,12 @@ class BatchProcessor:
 
                         # Update overall progress for UI after each file
                         if progress_callback:
-                            progress_callback(completed_global, total_files)
+                            try:
+                                # Try calling with filename first
+                                progress_callback(completed_global, total_files, message=f"Processed {file_path.name}")
+                            except TypeError:
+                                # Fallback to standard (done, total)
+                                progress_callback(completed_global, total_files)
 
                     except TimeoutError:
                         file_path = futures[future]
@@ -244,7 +249,10 @@ class BatchProcessor:
 
                         # Update overall progress for UI after each file
                         if progress_callback:
-                            progress_callback(completed_global, total_files)
+                            try:
+                                progress_callback(completed_global, total_files, message=f"Timeout: {file_path.name}")
+                            except TypeError:
+                                progress_callback(completed_global, total_files)
 
                     except Exception as e:
                         file_path = futures[future]
@@ -479,7 +487,10 @@ class BatchProcessor:
                         
                         # Update overall progress for UI after each file
                         if progress_callback:
-                            progress_callback(completed_global, total_files)
+                            try:
+                                progress_callback(completed_global, total_files, message=f"Processed {file_path.name}")
+                            except TypeError:
+                                progress_callback(completed_global, total_files)
                             
                     except asyncio.TimeoutError:
                         elapsed_time = time.time() - batch_start
