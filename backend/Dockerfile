@@ -105,7 +105,7 @@ COPY tools/ /app/tools/
 COPY automation/ /app/automation/
 
 # Cache-bust for schema files: change this value to force Railway to rebuild the schema COPY layer.
-ARG SCHEMA_CACHEBUST=2026-01-02-001
+ARG SCHEMA_CACHEBUST=2026-01-22-001
 RUN echo "Schema cachebust=${SCHEMA_CACHEBUST}"
 
 COPY cloud-migration/init.sql /app/cloud-migration/init.sql
