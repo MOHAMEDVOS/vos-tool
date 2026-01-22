@@ -44,6 +44,7 @@ assemblyai>=0.48.0  # Cloud-based transcription (replaces local Whisper/Vosk)
 # ==================== Automation (ReadyMode Integration) ====================
 selenium>=4.15.0
 webdriver-manager>=4.0.0
+playwright>=1.40.0
 
 # ==================== Security ====================
 cryptography>=41.0.0  # Encryption for sensitive data (lib/security_utils.py)

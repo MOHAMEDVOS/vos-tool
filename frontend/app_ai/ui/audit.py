@@ -1998,13 +1998,17 @@ def show_audit_section(
                                 ),
                                 daemon=True,
                             )
+                            
+                            # Add Streamlit context to background thread to silence warnings
+                            try:
+                                from streamlit.runtime.scriptrunner import add_script_run_ctx
+                                add_script_run_ctx(worker_thread)
+                            except Exception:
+                                pass
+                                
                             worker_thread.start()
                             st.session_state.campaign_worker_thread = worker_thread
 
-                            st.rerun()
-
-
-                            st.session_state.campaign_worker_thread = worker_thread
-
+                            # Rerun once to update UI status
                             st.rerun()
 

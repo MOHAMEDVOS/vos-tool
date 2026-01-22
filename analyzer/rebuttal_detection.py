@@ -1848,6 +1848,7 @@ class SemanticDetectionEngine:
         self.semantic_model = None
         self.phrase_embeddings = None
         self.semantic_threshold = 0.68
+        self._initialization_attempted = False
         if persistent_app_settings is not None:
             try:
                 configured_threshold = persistent_app_settings.get_semantic_threshold()
@@ -1856,17 +1857,36 @@ class SemanticDetectionEngine:
                 logger.warning("Failed to load semantic threshold from settings; using default 0.68")
         self.semantic_threshold = max(0.5, min(self.semantic_threshold, 0.9))
 
-        # Use singleton pattern to get the semantic model
-        logger.info("Initializing semantic detection engine with singleton model...")
-        self.semantic_model, self.phrase_embeddings = _get_semantic_model()
+        # We no longer load models eagerly in __init__ to prevent OOM stalls on startup
+        logger.info("Semantic detection engine created (Lazy Loading enabled)")
 
-        if self.semantic_model is None:
-            logger.warning("Semantic model not available from singleton, using exact matching only")
-        else:
-            logger.info("✅ Semantic detection engine initialized with model and embeddings")
+    def _lazy_initialize_models(self):
+        """Load models only when needed (on first detection call)."""
+        if self._initialization_attempted:
+            return
+            
+        self._initialization_attempted = True
+        logger.info("Lazily initializing semantic detection engine with singleton model...")
+        
+        try:
+            # Use singleton pattern to get the semantic model
+            self.semantic_model, self.phrase_embeddings = _get_semantic_model()
+
+            if self.semantic_model is None:
+                logger.warning("Semantic model not available from singleton, manual fallback to exact matching")
+            else:
+                logger.info("✅ Semantic detection engine lazy-initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to lazy-load semantic model: {e}")
+            self.semantic_model = None
+            self.phrase_embeddings = None
 
     def detect_rebuttals(self, transcript: str) -> List[Dict[str, Any]]:
-        """Detect all matching rebuttal phrases using exact, semantic, and LLaMA (for complex cases)."""
+        """Detect all matching rebuttal phrases using exact and semantic matching (Lazy Load enabled)."""
+        # Lazy initialization: Load heavy models only if we actually have a transcript to analyze
+        if not self._initialization_attempted and transcript and len(transcript.strip()) > 0:
+            self._lazy_initialize_models()
+            
         logger.info(f"🔍 Starting rebuttal detection on transcript: '{transcript[:100]}...'")
         matches = []
         transcript_lower = transcript.lower()

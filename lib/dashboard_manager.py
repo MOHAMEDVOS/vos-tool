@@ -172,249 +172,7 @@ def convert_detection_to_string(value: Any, default: str = "No") -> str:
         return default
 
 
-def safe_json_write(file_path: Path, data: Any, max_retries: int = 3, retry_delay: float = 0.1) -> bool:
-    """
-    ⚠️  DEPRECATED: This function is for migration/backward compatibility ONLY.
-    
-    NEW CODE SHOULD USE DATABASE OPERATIONS EXCLUSIVELY.
-    This function will be removed in a future version after migration is complete.
-    
-    Safely write JSON data to file with file locking and atomic writes.
-    
-    This function prevents race conditions when multiple processes try to write
-    to the same JSON file simultaneously. It uses:
-    1. File locking to ensure only one process writes at a time
-    2. Atomic writes (write to temp file, then rename) to prevent corruption
-    3. Retry logic for transient lock failures
-    4. Migration read-only mode check
-    
-    Args:
-        file_path: Path to the JSON file to write
-        data: Data to write (will be JSON serialized)
-        max_retries: Maximum number of retry attempts if lock fails
-        retry_delay: Delay between retries in seconds
-        
-    Returns:
-        True if write succeeded, False otherwise
-    """
-    # Log deprecation warning
-    logger.warning(
-        f"⚠️  DEPRECATED: safe_json_write() called for {file_path}. "
-        "Use database operations instead. This function is for migration compatibility only."
-    )
-    # Check if migration is in progress (read-only mode)
-    try:
-        from lib.migration_lock import is_application_read_only
-        if is_application_read_only():
-            logger.warning(f"Write blocked: Migration in progress - cannot write to {file_path}")
-            return False
-    except ImportError:
-        # Migration lock system not available, continue normally
-        pass
-    temp_file = None
-    file_handle = None
-    
-    try:
-        # Ensure parent directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Create temporary file in same directory (for atomic rename)
-        temp_file = file_path.with_suffix(file_path.suffix + '.tmp')
-        
-        # Retry loop for file locking
-        for attempt in range(max_retries):
-            try:
-                # Open temp file for writing
-                file_handle = open(temp_file, 'w', encoding='utf-8')
-                
-                # Lock the file (cross-platform)
-                try:
-                    if os.name == 'posix' and HAS_FCNTL:  # Unix/Linux/Mac
-                        fcntl.flock(file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    elif os.name == 'nt' and HAS_MSVCRT:  # Windows
-                        msvcrt.locking(file_handle.fileno(), msvcrt.LK_NBLCK, 1)
-                except NameError:
-                    # fcntl or msvcrt not available - continue without locking
-                    pass
-                
-                # Write JSON data
-                json.dump(data, file_handle, indent=2, default=str, ensure_ascii=False)
-                file_handle.flush()
-                os.fsync(file_handle.fileno())  # Force write to disk
-                
-                # Unlock before closing
-                try:
-                    if os.name == 'posix' and HAS_FCNTL:
-                        fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-                    elif os.name == 'nt' and HAS_MSVCRT:
-                        msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
-                except (NameError, OSError):
-                    pass
-                
-                file_handle.close()
-                file_handle = None
-                
-                # Atomic rename: temp file -> final file
-                # This ensures the file is never in a partially-written state
-                os.replace(temp_file, file_path)
-                
-                return True
-                
-            except (IOError, OSError) as e:
-                # Lock failed or other I/O error - retry if attempts remaining
-                if file_handle:
-                    try:
-                        if os.name == 'posix' and HAS_FCNTL:
-                            fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-                        elif os.name == 'nt' and HAS_MSVCRT:
-                            msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
-                        file_handle.close()
-                    except:
-                        pass
-                    file_handle = None
-                
-                if attempt < max_retries - 1:
-                    logger.warning(f"File lock failed for {file_path}, retrying ({attempt + 1}/{max_retries}): {e}")
-                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
-                else:
-                    logger.error(f"Failed to acquire file lock for {file_path} after {max_retries} attempts: {e}")
-                    return False
-                    
-    except Exception as e:
-        logger.error(f"Error writing JSON file {file_path}: {e}", exc_info=True)
-        return False
-        
-    finally:
-        # Cleanup: close file handle and remove temp file if rename failed
-        if file_handle:
-            try:
-                if os.name == 'posix' and HAS_FCNTL:
-                    fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-                elif os.name == 'nt' and HAS_MSVCRT:
-                    msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
-                file_handle.close()
-            except:
-                pass
-        
-        if temp_file and temp_file.exists():
-            try:
-                temp_file.unlink()  # Remove temp file if it still exists
-            except:
-                pass
-    
-    return False
-
-
-def safe_json_read(file_path: Path, default: Any = None, max_retries: int = 3) -> Any:
-    """
-    ⚠️  DEPRECATED: This function is for migration/backward compatibility ONLY.
-    
-    NEW CODE SHOULD USE DATABASE OPERATIONS EXCLUSIVELY.
-    This function will be removed in a future version after migration is complete.
-    
-    Safely read JSON file with file locking.
-    
-    This function prevents reading a file while it's being written,
-    which could result in reading corrupted or incomplete data.
-    
-    Args:
-        file_path: Path to the JSON file to read
-        default: Default value to return if file doesn't exist or read fails
-        max_retries: Maximum number of retry attempts if lock fails
-        
-    Returns:
-        Parsed JSON data, or default value if read fails
-    """
-    # Log deprecation warning
-    logger.warning(
-        f"⚠️  DEPRECATED: safe_json_read() called for {file_path}. "
-        "Use database operations instead. This function is for migration compatibility only."
-    )
-    if not file_path.exists():
-        return default if default is not None else {}
-    
-    file_handle = None
-    
-    try:
-        for attempt in range(max_retries):
-            try:
-                file_handle = open(file_path, 'r', encoding='utf-8')
-                
-                # Lock for reading (shared lock on Unix, exclusive on Windows)
-                try:
-                    if os.name == 'posix' and HAS_FCNTL:
-                        fcntl.flock(file_handle.fileno(), fcntl.LOCK_SH)  # Shared lock for reading
-                    elif os.name == 'nt' and HAS_MSVCRT:
-                        msvcrt.locking(file_handle.fileno(), msvcrt.LK_LOCK, 1)
-                except (NameError, OSError):
-                    pass
-                
-                # Read and parse JSON
-                data = json.load(file_handle)
-                
-                # Unlock
-                try:
-                    if os.name == 'posix' and HAS_FCNTL:
-                        fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-                    elif os.name == 'nt' and HAS_MSVCRT:
-                        msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
-                except (NameError, OSError):
-                    pass
-                
-                file_handle.close()
-                file_handle = None
-                
-                return data
-                
-            except (IOError, OSError) as e:
-                if file_handle:
-                    try:
-                        if os.name == 'posix':
-                            fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-                        elif os.name == 'nt':
-                            msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
-                        file_handle.close()
-                    except:
-                        pass
-                    file_handle = None
-                
-                if attempt < max_retries - 1:
-                    time.sleep(0.1 * (attempt + 1))
-                else:
-                    logger.error(f"Failed to read JSON file {file_path}: {e}")
-                    return default if default is not None else {}
-                    
-            except json.JSONDecodeError as e:
-                if file_handle:
-                    try:
-                        if os.name == 'posix':
-                            fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-                        elif os.name == 'nt':
-                            msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
-                        file_handle.close()
-                    except:
-                        pass
-                    file_handle = None
-                
-                logger.error(f"JSON decode error reading {file_path}: {e}")
-                return default if default is not None else {}
-                
-    except Exception as e:
-        logger.error(f"Error reading JSON file {file_path}: {e}", exc_info=True)
-        return default if default is not None else {}
-        
-    finally:
-        if file_handle:
-            try:
-                if os.name == 'posix' and HAS_FCNTL:
-                    fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-                elif os.name == 'nt' and HAS_MSVCRT:
-                    msvcrt.locking(file_handle.fileno(), msvcrt.LK_UNLCK, 1)
-                file_handle.close()
-            except:
-                pass
-    
-    return default if default is not None else {}
+# safe_json_write and safe_json_read have been removed as part of Phase 3 database migration.
 
 
 class TransactionManager:
@@ -2494,17 +2252,8 @@ class DashboardManager:
             else:
                 username = 'default_user'
 
-        # Each user gets their own isolated dashboard file
+        # Each user gets their own isolated dashboard file (DEPRECATED: Use DB instead)
         self.agent_audit_file = self.agent_audit_dir / f"agent_audits_{username}.json"
-        
-        # Initialize file if it doesn't exist
-        # Initialize file if it doesn't exist (ONLY if database is not available)
-        if not self._db_manager and not self.agent_audit_file.exists():
-            initial_data = {
-                'login_timestamp': datetime.now().isoformat(),
-                'audit_results': []
-            }
-            safe_json_write(self.agent_audit_file, initial_data)
     
     def get_combined_agent_audit_data(
         self, 
@@ -2670,14 +2419,6 @@ class DashboardManager:
 
         # Each user gets their own isolated dashboard file
         self.lite_audit_file = self.lite_audit_dir / f"lite_audits_{username}.json"
-        
-        # Initialize file if it doesn't exist
-        if not self.lite_audit_file.exists():
-            initial_data = {
-                'login_timestamp': datetime.now().isoformat(),
-                'audit_results': []
-            }
-            safe_json_write(self.lite_audit_file, initial_data)
     
     def save_lite_audit_results(self, df: pd.DataFrame, username: str = None):
         """
@@ -3073,7 +2814,8 @@ class DashboardManager:
             'login_timestamp': datetime.now().isoformat(),
             'audit_results': []
         }
-        safe_json_write(self.lite_audit_file, initial_data)
+        # Legacy JSON storage is deprecated
+        pass
     
     def get_daily_download_count(self, username: str) -> int:
         """
@@ -3273,7 +3015,8 @@ class DashboardManager:
             'login_timestamp': datetime.now().isoformat(),
             'audit_results': []
         }
-        safe_json_write(self.agent_audit_file, initial_data)
+        # Legacy JSON storage is deprecated
+        pass
     
     def get_agent_data_time_remaining(self) -> str:
         """
@@ -3360,35 +3103,17 @@ class DashboardManager:
                 self._db_manager.execute_query(query, params, fetch=False)
                 logger.info(f"Saved campaign audit results to database: {campaign_name} ({record_count} records)")
                 
-                # Also save CSV for backup/reference (optional)
-                filename = f"{campaign_name}_{timestamp}.csv"
-                filepath = self.campaign_audit_dir / filename
-                df_to_save.to_csv(filepath, index=False)
+                # Also save CSV for backup/reference (DEPRECATED - moving to DB only)
+                # To reduce clutter and dependency on local files, CSV backup is removed
+                # If needed in the future, it should be an explicit 'Export' function
                 return
             except Exception as e:
                 logger.error(f"Error saving campaign audit results to database: {e}")
-                # Fallback to CSV/JSON
-                pass
-        
-        # Fallback to CSV/JSON
-        filename = f"{campaign_name}_{timestamp}.csv"
-        filepath = self.campaign_audit_dir / filename
-        
-        # Save the data
-        df_to_save.to_csv(filepath, index=False)
-        
-        # Save metadata
-        metadata = {
-            "campaign_name": campaign_name,
-            "username": username,
-            "timestamp": timestamp,
-            "record_count": record_count,
-            "releasing_count": releasing_count,
-            "late_hello_count": late_hello_count
-        }
-        
-        metadata_file = filepath.with_suffix('.json')
-        safe_json_write(metadata_file, metadata)
+                # Log detailed error but don't fall back to JSON/CSV to avoid cluttering logs with deprecation warnings
+                raise Exception(f"Failed to save campaign results to database: {e}")
+        else:
+            logger.error("Database not available - cannot save campaign audit results")
+            raise Exception("Database unavailable")
     
     def get_available_campaigns(self, username: str = None) -> List[str]:
         """

@@ -95,17 +95,29 @@ class ModelPreloader:
         return self.whisper_model
     
     def get_semantic_model(self):
-        """Get pre-loaded semantic model and embeddings."""
-        if not self._loaded:
-            logger.warning("Models not pre-loaded, loading on-demand...")
-            self.preload_all_models()
+        """Get pre-loaded semantic model and embeddings (lazy load)."""
+        if self.semantic_model is None:
+            with self._load_lock:
+                if self.semantic_model is None:
+                    try:
+                        logger.info("Semantic model not pre-loaded, loading on-demand...")
+                        from analyzer.rebuttal_detection import _get_semantic_model
+                        self.semantic_model, self.embeddings = _get_semantic_model()
+                    except Exception as e:
+                        logger.error(f"Failed to load semantic model on-demand: {e}")
         return self.semantic_model, self.embeddings
     
     def get_agent_detector(self):
-        """Get pre-loaded agent detector."""
-        if not self._loaded:
-            logger.warning("Models not pre-loaded, loading on-demand...")
-            self.preload_all_models()
+        """Get pre-loaded agent detector (lazy load)."""
+        if self.agent_detector is None:
+            with self._load_lock:
+                if self.agent_detector is None:
+                    try:
+                        logger.info("Agent detector not pre-loaded, loading on-demand...")
+                        from lib.agent_only_detector import AgentOnlyRebuttalDetector
+                        self.agent_detector = AgentOnlyRebuttalDetector()
+                    except Exception as e:
+                        logger.error(f"Failed to load agent detector on-demand: {e}")
         return self.agent_detector
 
 
