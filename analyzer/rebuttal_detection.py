@@ -1861,21 +1861,29 @@ class SemanticDetectionEngine:
         logger.info("Semantic detection engine created (Lazy Loading enabled)")
 
     def _lazy_initialize_models(self):
-        """Load models only when needed (on first detection call)."""
-        if self._initialization_attempted:
-            return
-            
-        self._initialization_attempted = True
-        logger.info("Lazily initializing semantic detection engine with singleton model...")
+        """Load models only when needed (on first detection call).
+        
+        IMPORTANT: If the singleton model is still loading in another thread,
+        this will return None but we should retry on next call.
+        """
+        # Always try to get the model if we don't have it yet
+        if self.semantic_model is not None:
+            return  # Already have the model
+        
+        # Only log "initializing" on first attempt
+        if not self._initialization_attempted:
+            logger.info("Lazily initializing semantic detection engine with singleton model...")
+            self._initialization_attempted = True
         
         try:
             # Use singleton pattern to get the semantic model
+            # This may return None if another thread is still downloading
             self.semantic_model, self.phrase_embeddings = _get_semantic_model()
 
             if self.semantic_model is None:
                 import threading
                 tid = threading.get_ident()
-                logger.warning(f"Semantic model not available from singleton (TID={tid}), manual fallback to exact matching")
+                logger.debug(f"Semantic model not yet available from singleton (TID={tid}), will retry next call")
             else:
                 logger.info("✅ Semantic detection engine lazy-initialized successfully")
         except Exception as e:
@@ -1885,8 +1893,9 @@ class SemanticDetectionEngine:
 
     def detect_rebuttals(self, transcript: str) -> List[Dict[str, Any]]:
         """Detect all matching rebuttal phrases using exact and semantic matching (Lazy Load enabled)."""
-        # Lazy initialization: Load heavy models only if we actually have a transcript to analyze
-        if not self._initialization_attempted and transcript and len(transcript.strip()) > 0:
+        # Lazy initialization: Try to get model if we don't have it yet
+        # This allows retries if the model was still loading on previous calls
+        if self.semantic_model is None and transcript and len(transcript.strip()) > 0:
             self._lazy_initialize_models()
             
         logger.info(f"🔍 Starting rebuttal detection on transcript: '{transcript[:100]}...'")
@@ -1910,6 +1919,7 @@ class SemanticDetectionEngine:
             self._track_semantic_matches_for_learning(filtered_semantic_matches, transcript)
         else:
             logger.warning("❌ Semantic model not available, using exact matching only")
+
 
         # 3. Tertiary: LLaMA inference for complex cases - REMOVED
         # LLaMA classifier was removed due to missing dependencies and hangs
