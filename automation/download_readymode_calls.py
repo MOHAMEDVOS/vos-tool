@@ -737,8 +737,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         time.sleep(1)
                 
                 if duration_success:
-                    print("WAIT Waiting 5s for results to refresh after duration filter...")
-                    time.sleep(5)
+                    print("WAIT Waiting 10s for results to refresh after duration filter...")
+                    time.sleep(10)
                     try:
                         page.wait_for_selector("a[href*='.mp3']", timeout=10000)
                         print("SUCCESS Results refreshed")
