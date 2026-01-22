@@ -60,9 +60,12 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     TZ=America/New_York \
-    # Prevent HuggingFace from downloading models during build
-    HF_HOME=/tmp/.cache/huggingface \
-    TRANSFORMERS_CACHE=/tmp/.cache/transformers
+    # HuggingFace cache directories (Railway persistence)
+    # Using /app/.cache for persistence across restarts
+    HF_HOME=/app/.cache/huggingface \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers \
+    HF_HUB_CACHE=/app/.cache/huggingface/hub \
+    HF_HUB_DISABLE_TELEMETRY=1
 
 # Debug: Check what's available in build context
 RUN echo "=== Build Context Debug ===" && \
@@ -108,6 +111,11 @@ RUN echo "Schema cachebust=${SCHEMA_CACHEBUST}"
 COPY cloud-migration/init.sql /app/cloud-migration/init.sql
 COPY cloud-migration/migration_schema.sql /app/cloud-migration/migration_schema.sql
 COPY config.py /app/
+COPY scripts/preload_models.py /app/scripts/preload_models.py
+COPY backend/entrypoint.sh /app/entrypoint.sh
+
+# Make entrypoint script executable
+RUN chmod +x /app/entrypoint.sh
 
 # Hard fail if schema files are not actually present in the built image.
 RUN echo "Schema files check:" && \
@@ -116,7 +124,7 @@ RUN echo "Schema files check:" && \
     test -f /app/cloud-migration/migration_schema.sql
 
 # Create necessary directories (will be mounted as volumes in production)
-RUN mkdir -p /app/Recordings /app/dashboard_data /app/logs && \
+RUN mkdir -p /app/Recordings /app/dashboard_data /app/logs /app/.cache/huggingface && \
     chmod -R 755 /app && \
     # Final cleanup: remove any remaining cache or temporary files
     rm -rf /tmp/* /var/tmp/* 2>/dev/null || true && \
@@ -132,6 +140,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD sh -c "python -c \"import os, requests; port=os.getenv('PORT','8000'); requests.get(f'http://localhost:{port}/health', timeout=5)\"" || exit 1
 
-# Run backend
-# Use $PORT environment variable from Railway, fallback to 8000
-CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
+# Run backend with entrypoint script
+# Entrypoint handles model preloading and server startup
+CMD ["/app/entrypoint.sh"]

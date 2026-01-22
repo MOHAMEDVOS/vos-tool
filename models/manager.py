@@ -32,7 +32,7 @@ def get_semantic_model():
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
         try:
-            print(f"[SINGLETON] [TID={tid}] Loading Sentence Transformer model (all-mpnet-base-v2)...")
+            print(f"[SINGLETON] [TID={tid}] Loading Sentence Transformer model (all-MiniLM-L6-v2)...")
             from sentence_transformers import SentenceTransformer
             from analyzer.rebuttal_detection import KeywordRepository
             from huggingface_hub import snapshot_download
@@ -57,19 +57,36 @@ def get_semantic_model():
             except Exception as e:
                 print(f"[SINGLETON] [TID={tid}] Model not in cache or cache error: {e}")
                 print(f"[SINGLETON] [TID={tid}] Attempting explicit download/load: {model_id}")
-                try:
-                    # Download if not found locally
-                    # Using the lightweight model (~80MB) avoids OOM and timeouts on Railway
-                    _SEMANTIC_MODEL = SentenceTransformer(model_id, device=device)
-                    print(f"[SINGLETON] [TID={tid}] ✅ Light model (all-MiniLM-L6-v2) loaded successfully")
-                except Exception as critical_error:
-                    print(f"[SINGLETON] [TID={tid}] CRITICAL: Failed to load semantic model: {critical_error}")
-                    # Check for common Railway issues
-                    if "No space left on device" in str(critical_error):
-                        print(f"[SINGLETON] [TID={tid}] 🛑 DISK FULL DETECTED. Cannot load model.")
-                    elif "Connection" in str(critical_error) or "timeout" in str(critical_error).lower():
-                        print(f"[SINGLETON] [TID={tid}] 🛑 NETWORK ERROR DETECTED. Check HuggingFace connectivity.")
-                    raise critical_error
+
+                # Retry with timeout handling (Railway may have slow network)
+                max_retries = 2
+                retry_delay = 5  # seconds
+
+                for attempt in range(max_retries):
+                    try:
+                        print(f"[SINGLETON] [TID={tid}] Download attempt {attempt + 1}/{max_retries}...")
+                        # Download if not found locally
+                        # Using the lightweight model (~80MB) avoids OOM and timeouts on Railway
+                        _SEMANTIC_MODEL = SentenceTransformer(model_id, device=device)
+                        print(f"[SINGLETON] [TID={tid}] ✅ Light model (all-MiniLM-L6-v2) loaded successfully")
+                        break  # Success, exit retry loop
+                    except Exception as critical_error:
+                        print(f"[SINGLETON] [TID={tid}] Attempt {attempt + 1} failed: {critical_error}")
+
+                        # Check for common Railway issues
+                        if "No space left on device" in str(critical_error):
+                            print(f"[SINGLETON] [TID={tid}] 🛑 DISK FULL DETECTED. Cannot load model.")
+                            raise critical_error  # Don't retry on disk full
+                        elif "Connection" in str(critical_error) or "timeout" in str(critical_error).lower():
+                            print(f"[SINGLETON] [TID={tid}] 🛑 NETWORK ERROR DETECTED. Check HuggingFace connectivity.")
+                            if attempt < max_retries - 1:
+                                import time
+                                print(f"[SINGLETON] [TID={tid}] Retrying in {retry_delay} seconds...")
+                                time.sleep(retry_delay)
+                            else:
+                                raise critical_error  # Final attempt failed
+                        else:
+                            raise critical_error  # Unknown error, don't retry
             
             logger.info(f"[SINGLETON] [TID={tid}] Sentence Transformer model ready ({_SEMANTIC_MODEL.get_parameter_device() if hasattr(_SEMANTIC_MODEL, 'get_parameter_device') else device})")
 
