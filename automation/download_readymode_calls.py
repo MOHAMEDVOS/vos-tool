@@ -363,17 +363,99 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     print("WARNING No MP3 links yet (will check after agent filter)")
             
             
-            # STEP 5: CAMPAIGN FILTER (if provided)
+            # STEP 5: CAMPAIGN FILTER (if provided) - ROBUST IMPLEMENTATION
             if campaign_name:
-                try:
-                    page.wait_for_selector("#restrict_campaign", timeout=10000)
-                    page.select_option("#restrict_campaign", label=campaign_name)
-                    page.wait_for_selector("a[href*='.mp3']", timeout=10000)
-                    print(f"SUCCESS Campaign: {campaign_name}")
-                except Exception as e:
-                    error_msg = f"[!] Campaign '{campaign_name}' not found"
+                print(f"\n{'='*60}")
+                print(f"Applying Campaign Filter: '{campaign_name}'")
+                print(f"{'='*60}")
+
+                campaign_selected = False
+                for attempt in range(3):
+                    try:
+                        print(f"Campaign Filter Attempt {attempt + 1}/3")
+
+                        # 0. HANDLE BLOCKING POPUPS
+                        try:
+                            popups = page.locator("button.close, .modal-close, button[aria-label='Close'], .ui-dialog-titlebar-close")
+                            for i in range(popups.count()):
+                                if popups.nth(i).is_visible():
+                                    print("INFO Closing blocking popup/modal...")
+                                    popups.nth(i).click()
+                                    time.sleep(0.5)
+
+                            if page.is_visible("text=On a scale of 0-10"):
+                                print("INFO Detected NPS Survey. Attempting to close...")
+                                page.mouse.click(10, 10)
+                                time.sleep(0.5)
+                        except:
+                            pass
+
+                        # 1. Wait for dropdown (Allow hidden state since it may use custom UI)
+                        page.wait_for_selector("#restrict_campaign", state="attached", timeout=10000)
+
+                        # 2. Select Campaign via Direct JS (Works with hidden/custom UI)
+                        print(f"Selecting campaign '{campaign_name}' via Direct JS...")
+
+                        found_and_selected = page.evaluate("""
+                            (campaignName) => {
+                                const select = document.querySelector('#restrict_campaign');
+                                if (!select) return false;
+
+                                let found = false;
+                                for(let i=0; i<select.options.length; i++) {
+                                    if(select.options[i].text.includes(campaignName)) {
+                                        select.selectedIndex = i;
+                                        select.dispatchEvent(new Event('change'));
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                return found;
+                            }
+                        """, campaign_name.strip())
+
+                        if not found_and_selected:
+                            print(f"WARNING: Campaign '{campaign_name}' not found in dropdown list via JS.")
+                            # Fallback: Try Playwright's native select force
+                            try:
+                                page.select_option("#restrict_campaign", label=campaign_name.strip(), force=True)
+                            except:
+                                pass
+
+                        time.sleep(1)
+
+                        # 3. Verify selection
+                        selected_value = page.eval_on_selector("#restrict_campaign", "el => el.options[Math.max(0, el.selectedIndex)].text")
+
+                        if campaign_name.strip() not in selected_value:
+                            print(f"WARNING Selection verification failed. Got '{selected_value}', expected '{campaign_name}'")
+                            time.sleep(2)
+                            continue
+
+                        campaign_selected = True
+                        print(f"SUCCESS Campaign filter selected: {campaign_name}")
+
+                        # Wait for page to update
+                        print("WAIT Waiting for page to refresh with filtered results...")
+                        time.sleep(3)
+                        try:
+                            page.wait_for_selector("a[href*='.mp3']", timeout=15000)
+                            print("SUCCESS Page updated with filtered results")
+                            break
+                        except:
+                            print("WARNING: No MP3 links found explicitly (could be 0 results), but filter applied.")
+                            break
+
+                    except Exception as e:
+                        print(f"WARNING Campaign filter attempt {attempt + 1} failed: {e}")
+                        time.sleep(2)
+
+                if not campaign_selected:
+                    error_msg = f"[!] CRITICAL: Failed to select campaign '{campaign_name}' after 3 attempts. Stopping to prevent invalid data download."
                     print(error_msg)
-                    raise RuntimeError(error_msg) from e
+                    raise RuntimeError(error_msg)
+
+                print(f"SUCCESS CAMPAIGN FILTER FINALIZED: '{campaign_name}'\n")
             
             # STEP 6: AGENT FILTER (if not "All users")
             # STEP 6: AGENT FILTER (if not "All users") - ROBUST IMPLEMENTATION
