@@ -839,18 +839,20 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
     batch_sizer = get_adaptive_batch_sizer()
     batch_sizer.reset()  # Reset history for new batch
     
-    timeout_per_file = 30  # 30 seconds timeout per file (lite processing is much faster)
+    timeout_per_file = 15  # 15 seconds timeout per file (optimized lite processing should be faster)
 
     # Optimize workers based on GPU availability
     import multiprocessing
     import torch
     cpu_count = multiprocessing.cpu_count()
     
-    # GPU-optimized: More workers since GPU handles inference
+    # Optimize workers for lite processing (no GPU needed, just audio I/O and simple detections)
+    # Lite processing is I/O bound (loading audio files), so more workers help
+    # But too many workers can cause memory issues with large audio files
     if torch.cuda.is_available():
-        max_workers = min(cpu_count, 8)  # More workers with GPU
+        max_workers = min(cpu_count, 6)  # Slightly fewer workers to avoid memory pressure
     else:
-        max_workers = min(cpu_count * 2, 16)  # Up to 16 threads for CPU lite processing
+        max_workers = min(cpu_count, 8)  # Reduced from 16 to 8 to avoid memory/CPU contention
 
     i = 0
     batch_num = 0
@@ -881,7 +883,7 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
             # Collect results with timeout protection
             start_time = time.time()
             completed_count = 0
-            batch_timeout = timeout_per_file * len(batch_files) + 60  # Add 60s buffer for batch timeout
+            batch_timeout = timeout_per_file * len(batch_files) + 30  # Reduced buffer to 30s for faster failure detection
 
             try:
                 for future in as_completed(futures.keys(), timeout=batch_timeout):
@@ -1121,12 +1123,40 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
         # Extract dialer name from file path folder structure
         dialer_name = extract_dialer_name_from_path(file_path)
 
-        # Load audio file
-        audio = AudioSegment.from_file(str(file_path))
+        # Load audio file - OPTIMIZED for lite processing speed
+        # Strategy: Load full file once, then slice for late hello (which only needs first portion)
+        try:
+            # Load audio file (this is the main I/O bottleneck)
+            audio = AudioSegment.from_file(str(file_path))
+            
+            # For late hello detection, we only need first 15 seconds (late hello threshold is typically 5s)
+            # This avoids processing entire long files when we only need the beginning
+            max_duration_ms = 15 * 1000  # 15 seconds is enough for late hello detection
+            if len(audio) > max_duration_ms:
+                # Slice first portion for late hello (faster processing)
+                audio_for_late_hello = audio[:max_duration_ms]
+            else:
+                # File is short, use full audio
+                audio_for_late_hello = audio
+                
+        except Exception as e:
+            logger.error(f"Failed to load audio file {file_path}: {e}")
+            raise
 
-        # Perform only lite detections
-        releasing = releasing_detection(audio)
-        late_hello = late_hello_detection(audio)
+        # Perform only lite detections - use optimized audio segments
+        # Releasing detection (needs full audio)
+        try:
+            releasing = releasing_detection(audio)
+        except Exception as e:
+            logger.error(f"Releasing detection failed for {file_path.name}: {e}")
+            releasing = "Error"
+        
+        # Late hello detection (only needs first portion)
+        try:
+            late_hello = late_hello_detection(audio_for_late_hello)
+        except Exception as e:
+            logger.error(f"Late hello detection failed for {file_path.name}: {e}")
+            late_hello = "Error"
 
         # Derive a simple quality-based status for lite results
         # - If both detections are clean (No/No) -> Excellent
