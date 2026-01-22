@@ -1739,9 +1739,13 @@ class KeywordRepository:
             if not self._skip_database:
                 try:
                     from lib.database import get_db_manager
+                    
                     db = get_db_manager()
                     
                     if db:
+                        # Database manager has built-in timeout (default 30s, configurable via DB_QUERY_TIMEOUT)
+                        # For faster fallback, we can set a shorter timeout for this specific query
+                        # But the main fix is using skip_database=True during model initialization
                         query = "SELECT category, phrase FROM rebuttal_phrases ORDER BY category, phrase"
                         results = db.execute_query(query, fetch=True)
                         
@@ -1761,9 +1765,10 @@ class KeywordRepository:
                             
                             logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
                             return learned_phrases
+                                
                 except Exception as e:
                     logger.debug(f"Could not load from database: {e}, falling back to JSON")
-                    # Fallback to JSON
+                    # Fallback to JSON - this ensures we can still load hardcoded phrases even if DB fails
                     pass
             
             # Fallback to JSON file
