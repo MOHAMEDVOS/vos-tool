@@ -626,6 +626,27 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                             """)
                         
                         time.sleep(1)
+                        
+                        # FORCE SUBMISSION: Press Enter and look for Search buttons
+                        try:
+                            # 1. Focus one of the inputs and press Enter
+                            page.evaluate("document.querySelector(\"input[name='report[length_from]']\")?.focus()")
+                            page.keyboard.press("Enter")
+                            print("INFO Pressed Enter to submit filter")
+                            
+                            # 2. explicit click on Search/Filter if it exists (generic selector)
+                            # Common in ReadyMode: input type='submit' value='Search' or 'Update'
+                            # We use a short timeout to not block
+                            search_btn = page.locator("input[value='Search'], input[value='Update'], button:has-text('Search')").first
+                            if search_btn.is_visible():
+                                search_btn.click(timeout=1000)
+                                print("INFO Clicked Search/Update button")
+                        except Exception as e:
+                            print(f"DEBUG Filter submission attempt: {e}")
+                            
+
+                        
+                        time.sleep(1)
                         print(f"SUCCESS Duration filter set: {min_duration}-{max_duration}")
                         duration_success = True
                         break
@@ -634,8 +655,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         time.sleep(1)
                 
                 if duration_success:
-                    print("WAIT Waiting for results to refresh after duration filter...")
-                    time.sleep(2)
+                    print("WAIT Waiting 5s for results to refresh after duration filter...")
+                    time.sleep(5)
                     try:
                         page.wait_for_selector("a[href*='.mp3']", timeout=10000)
                         print("SUCCESS Results refreshed")

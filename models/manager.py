@@ -17,57 +17,63 @@ def get_semantic_model():
     """Get or create the global semantic model instance (thread-safe singleton)."""
     global _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
+    tid = threading.get_ident()
+
     if _SEMANTIC_MODEL is not None:
+        # Avoid spamming logs for hits, but helpful for debugging race
+        # print(f"[SINGLETON] [TID={tid}] Fast-path return of existing model.") 
         return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
-    print("[SINGLETON] Waiting for semantic model lock...")
+    print(f"[SINGLETON] [TID={tid}] Waiting for semantic model lock...")
     with _SEMANTIC_MODEL_LOCK:
-        print("[SINGLETON] Acquired semantic model lock.")
+        print(f"[SINGLETON] [TID={tid}] Acquired semantic model lock.")
         if _SEMANTIC_MODEL is not None:
+            print(f"[SINGLETON] [TID={tid}] Returning existing semantic model (loaded by another thread).")
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
         try:
-            print("[SINGLETON] Loading Sentence Transformer model (all-mpnet-base-v2)...")
+            print(f"[SINGLETON] [TID={tid}] Loading Sentence Transformer model (all-mpnet-base-v2)...")
             from sentence_transformers import SentenceTransformer
             from analyzer.rebuttal_detection import KeywordRepository
             from huggingface_hub import snapshot_download
             import os
-
+            
             # Auto-detect GPU for Sentence Transformers
             import torch
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            print(f"[SINGLETON] Device: {device}")
+            print(f"[SINGLETON] [TID={tid}] Device: {device}")
             
             # Prefer local cache to avoid hanging on slow network connections
-            model_id = 'sentence-transformers/all-mpnet-base-v2'
+            model_id = 'sentence-transformers/all-MiniLM-L6-v2'  # SWITCHED TO LIGHTER MODEL FOR RELIABILITY
             try:
                 # Check for existing local snapshot
-                print(f"[SINGLETON] Checking for local model snapshot: {model_id}")
+                print(f"[SINGLETON] [TID={tid}] Checking for local model snapshot: {model_id}")
                 local_path = snapshot_download(
                     model_id, 
                     local_files_only=True,
                 )
-                print(f"[SINGLETON] Using cached model from: {local_path}")
+                print(f"[SINGLETON] [TID={tid}] Using cached model from: {local_path}")
                 _SEMANTIC_MODEL = SentenceTransformer(local_path, device=device)
             except Exception as e:
-                print(f"[SINGLETON] Model not in cache or cache error: {e}")
-                print(f"[SINGLETON] Attempting download/load: {model_id}")
+                print(f"[SINGLETON] [TID={tid}] Model not in cache or cache error: {e}")
+                print(f"[SINGLETON] [TID={tid}] Attempting explicit download/load: {model_id}")
                 try:
                     # Download if not found locally
-                    _SEMANTIC_MODEL = SentenceTransformer('all-mpnet-base-v2', device=device)
-                except Exception as download_error:
-                    print(f"[SINGLETON] Failed heavy model load: {download_error}")
-                    print("[SINGLETON] ⚠️ Falling back to LIGHTER model (all-MiniLM-L6-v2) for resource optimization...")
-                    try:
-                        _SEMANTIC_MODEL = SentenceTransformer('all-MiniLM-L6-v2', device=device)
-                        print("[SINGLETON] ✅ Lighter model (all-MiniLM-L6-v2) loaded successfully")
-                    except Exception as fallback_error:
-                        print(f"[SINGLETON] CRITICAL: Lighter model fallback also failed: {fallback_error}")
-                        raise fallback_error
+                    # Using the lightweight model (~80MB) avoids OOM and timeouts on Railway
+                    _SEMANTIC_MODEL = SentenceTransformer(model_id, device=device)
+                    print(f"[SINGLETON] [TID={tid}] ✅ Light model (all-MiniLM-L6-v2) loaded successfully")
+                except Exception as critical_error:
+                    print(f"[SINGLETON] [TID={tid}] CRITICAL: Failed to load semantic model: {critical_error}")
+                    # Check for common Railway issues
+                    if "No space left on device" in str(critical_error):
+                        print(f"[SINGLETON] [TID={tid}] 🛑 DISK FULL DETECTED. Cannot load model.")
+                    elif "Connection" in str(critical_error) or "timeout" in str(critical_error).lower():
+                        print(f"[SINGLETON] [TID={tid}] 🛑 NETWORK ERROR DETECTED. Check HuggingFace connectivity.")
+                    raise critical_error
             
-            logger.info(f"[SINGLETON] Sentence Transformer model ready ({_SEMANTIC_MODEL.get_parameter_device() if hasattr(_SEMANTIC_MODEL, 'get_parameter_device') else device})")
+            logger.info(f"[SINGLETON] [TID={tid}] Sentence Transformer model ready ({_SEMANTIC_MODEL.get_parameter_device() if hasattr(_SEMANTIC_MODEL, 'get_parameter_device') else device})")
 
-            logger.info("[SINGLETON] Precomputing phrase embeddings...")
+            logger.info(f"[SINGLETON] [TID={tid}] Precomputing phrase embeddings...")
             repo = KeywordRepository()
             all_phrases = []
             phrase_metadata = []
@@ -83,19 +89,19 @@ def get_semantic_model():
                 'metadata': phrase_metadata
             }
 
-            logger.info(f"[SINGLETON] Computed embeddings for {len(all_phrases)} phrases")
+            logger.info(f"[SINGLETON] [TID={tid}] Computed embeddings for {len(all_phrases)} phrases")
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
         except Exception as e:
             import traceback
-            logger.error(f"[SINGLETON] Failed to load semantic model: {e}")
+            logger.error(f"[SINGLETON] [TID={tid}] Failed to load semantic model: {e}")
             logger.error(traceback.format_exc())
-            logger.warning("[SINGLETON] Semantic matching will be unavailable")
+            logger.warning(f"[SINGLETON] [TID={tid}] Semantic matching will be unavailable")
             _SEMANTIC_MODEL = None
             _SEMANTIC_EMBEDDINGS = None
             return None, None
         finally:
-            print("[SINGLETON] Released semantic model lock.")
+            print(f"[SINGLETON] [TID={tid}] Released semantic model lock.")
 
 
 def reload_semantic_embeddings():

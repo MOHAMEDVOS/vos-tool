@@ -1873,7 +1873,9 @@ class SemanticDetectionEngine:
             self.semantic_model, self.phrase_embeddings = _get_semantic_model()
 
             if self.semantic_model is None:
-                logger.warning("Semantic model not available from singleton, manual fallback to exact matching")
+                import threading
+                tid = threading.get_ident()
+                logger.warning(f"Semantic model not available from singleton (TID={tid}), manual fallback to exact matching")
             else:
                 logger.info("✅ Semantic detection engine lazy-initialized successfully")
         except Exception as e:
