@@ -810,10 +810,10 @@ class QuotaManager:
             
             # Update admin total usage (atomic upsert)
             admin_usage_query = """
-                INSERT INTO admin_usage (admin_username, date, usage_count)
+                INSERT INTO admin_usage (admin_username, date, total_used)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (admin_username, date) DO UPDATE SET
-                    usage_count = admin_usage.usage_count + EXCLUDED.usage_count,
+                    total_used = admin_usage.total_used + EXCLUDED.total_used,
                     updated_at = NOW()
             """
             self._db_manager.execute_query(admin_usage_query, (admin_username, today, usage_count))

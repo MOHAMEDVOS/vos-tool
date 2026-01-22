@@ -20,12 +20,14 @@ def get_semantic_model():
     if _SEMANTIC_MODEL is not None:
         return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
+    print("[SINGLETON] Waiting for semantic model lock...")
     with _SEMANTIC_MODEL_LOCK:
+        print("[SINGLETON] Acquired semantic model lock.")
         if _SEMANTIC_MODEL is not None:
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
         try:
-            logger.info("[SINGLETON] Loading Sentence Transformer model (all-mpnet-base-v2)...")
+            print("[SINGLETON] Loading Sentence Transformer model (all-mpnet-base-v2)...")
             from sentence_transformers import SentenceTransformer
             from analyzer.rebuttal_detection import KeywordRepository
             from huggingface_hub import snapshot_download
@@ -34,33 +36,33 @@ def get_semantic_model():
             # Auto-detect GPU for Sentence Transformers
             import torch
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            logger.info(f"Loading Sentence Transformer on {device}")
+            print(f"[SINGLETON] Device: {device}")
             
             # Prefer local cache to avoid hanging on slow network connections
             model_id = 'sentence-transformers/all-mpnet-base-v2'
             try:
                 # Check for existing local snapshot
-                logger.info("Checking for local model snapshot...")
+                print(f"[SINGLETON] Checking for local model snapshot: {model_id}")
                 local_path = snapshot_download(
                     model_id, 
                     local_files_only=True,
-                    # We don't want to check for updates here, just get what we have
                 )
-                logger.info(f"Using cached model from: {local_path}")
+                print(f"[SINGLETON] Using cached model from: {local_path}")
                 _SEMANTIC_MODEL = SentenceTransformer(local_path, device=device)
             except Exception as e:
-                logger.info(f"Model not found in cache or cache error ({e}). Attempting download of all-mpnet-base-v2...")
+                print(f"[SINGLETON] Model not in cache or cache error: {e}")
+                print(f"[SINGLETON] Attempting download/load: {model_id}")
                 try:
                     # Download if not found locally
                     _SEMANTIC_MODEL = SentenceTransformer('all-mpnet-base-v2', device=device)
                 except Exception as download_error:
-                    logger.error(f"Failed to download/load heavy model (all-mpnet-base-v2): {download_error}")
-                    logger.info("⚠️ Falling back to LIGHTER model (all-MiniLM-L6-v2) for resource optimization...")
+                    print(f"[SINGLETON] Failed heavy model load: {download_error}")
+                    print("[SINGLETON] ⚠️ Falling back to LIGHTER model (all-MiniLM-L6-v2) for resource optimization...")
                     try:
                         _SEMANTIC_MODEL = SentenceTransformer('all-MiniLM-L6-v2', device=device)
-                        logger.info("✅ Lighter model (all-MiniLM-L6-v2) loaded successfully")
+                        print("[SINGLETON] ✅ Lighter model (all-MiniLM-L6-v2) loaded successfully")
                     except Exception as fallback_error:
-                        logger.error(f"CRITICAL: Lighter model fallback also failed: {fallback_error}")
+                        print(f"[SINGLETON] CRITICAL: Lighter model fallback also failed: {fallback_error}")
                         raise fallback_error
             
             logger.info(f"[SINGLETON] Sentence Transformer model ready ({_SEMANTIC_MODEL.get_parameter_device() if hasattr(_SEMANTIC_MODEL, 'get_parameter_device') else device})")
@@ -92,6 +94,8 @@ def get_semantic_model():
             _SEMANTIC_MODEL = None
             _SEMANTIC_EMBEDDINGS = None
             return None, None
+        finally:
+            print("[SINGLETON] Released semantic model lock.")
 
 
 def reload_semantic_embeddings():

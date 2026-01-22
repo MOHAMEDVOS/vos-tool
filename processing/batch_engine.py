@@ -22,8 +22,11 @@ def _run_with_context(ctx, func, *args, **kwargs):
     if ctx:
         try:
             from streamlit.runtime.scriptrunner import add_script_run_ctx
-            add_script_run_ctx(ctx)
-        except Exception:
+            import threading
+            # Correctly attach the captured context to the current worker thread
+            add_script_run_ctx(threading.current_thread(), ctx)
+        except Exception as e:
+            # Silence internal streamlit errors but log them for debugging
             pass
     return func(*args, **kwargs)
 

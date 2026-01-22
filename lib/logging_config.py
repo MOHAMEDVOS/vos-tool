@@ -38,7 +38,7 @@ def setup_frontend_logging() -> None:
     Configure logging for Streamlit frontend (simpler format).
     """
     logging.basicConfig(
-        level=logging.WARNING,  # Reduce verbosity for frontend
+        level=logging.INFO,  # Enable INFO logging to see system progress
         format='%(message)s',  # Simple format without timestamps
         handlers=[logging.StreamHandler()],
         force=True
