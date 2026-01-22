@@ -258,13 +258,17 @@ class AssemblyAITranscriptionEngine:
             api_key: AssemblyAI API key (fallback if user_api_key is None)
             user_api_key: User's specific API key (takes precedence over api_key)
         """
-        # Use user's API key first, then fallback to provided key, then environment
-        effective_api_key = user_api_key or api_key or os.getenv("ASSEMBLYAI_API_KEY", "")
+        # Use user's API key first, then fallback to provided key, then environment, then global settings
+        effective_api_key = user_api_key or api_key or os.getenv("ASSEMBLYAI_API_KEY", "") or aai.settings.api_key
         
         if not effective_api_key:
             raise ValueError("AssemblyAI API key required. Set ASSEMBLYAI_API_KEY environment variable or provide user API key.")
         
-        aai.settings.api_key = effective_api_key
+        if effective_api_key == aai.settings.api_key:
+            logger.info("Using AssemblyAI API key from aai.settings fallback")
+        else:
+            aai.settings.api_key = effective_api_key
+        
         self.transcriber = aai.Transcriber()
         
         # Initialize transcription cache

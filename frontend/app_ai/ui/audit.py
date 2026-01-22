@@ -1412,9 +1412,13 @@ def show_audit_section(
                 worker_state["error_message"] = f"No MP3 files found for campaign '{campaign_name}' in any search location"
                 return
 
+            # Fetch AssemblyAI API key for the current user
+            user_api_key, api_key_source = _get_user_assemblyai_api_key(current_username_local)
+            
             metadata = {
                 "dialer_name": dialer_name,
                 "date": datetime.now().strftime("%Y-%m-%d"),
+                "API Key Source": api_key_source,
             }
 
             df = None
@@ -1436,6 +1440,8 @@ def show_audit_section(
                         progress_callback=analyze_progress,
                         additional_metadata=metadata,
                         show_all_results=True,
+                        username=current_username_local,
+                        user_api_key=user_api_key,
                     )
                     if not df.empty:
                         df["Audit Type"] = "Heavy Audit"
@@ -1459,6 +1465,8 @@ def show_audit_section(
                         str(target_folder),
                         progress_callback=lite_progress_callback,
                         additional_metadata=metadata,
+                        username=current_username_local,
+                        user_api_key=user_api_key,
                     )
                     if not df.empty:
                         df["Audit Type"] = "Lite Audit"
