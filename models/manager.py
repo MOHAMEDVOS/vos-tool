@@ -91,16 +91,26 @@ def get_semantic_model():
             logger.info(f"[SINGLETON] [TID={tid}] Sentence Transformer model ready ({_SEMANTIC_MODEL.get_parameter_device() if hasattr(_SEMANTIC_MODEL, 'get_parameter_device') else device})")
 
             logger.info(f"[SINGLETON] [TID={tid}] Precomputing phrase embeddings...")
+            import time
+            repo_start_time = time.time()
             repo = KeywordRepository()
+            
+            logger.info(f"[SINGLETON] [TID={tid}] Fetching phrases from library...")
+            all_phrase_data = repo.get_all_phrases()
+            logger.info(f"[SINGLETON] [TID={tid}] Fetched phrases in {time.time() - repo_start_time:.2f}s")
+
             all_phrases = []
             phrase_metadata = []
 
-            for category, phrases in repo.get_all_phrases().items():
+            for category, phrases in all_phrase_data.items():
                 for phrase in phrases:
                     all_phrases.append(phrase)
                     phrase_metadata.append({'phrase': phrase, 'category': category})
 
-            embeddings = _SEMANTIC_MODEL.encode(all_phrases, show_progress_bar=False)
+            logger.info(f"[SINGLETON] [TID={tid}] Encoding {len(all_phrases)} phrases (batch_size=32)...")
+            encode_start_time = time.time()
+            embeddings = _SEMANTIC_MODEL.encode(all_phrases, show_progress_bar=False, batch_size=32)
+            logger.info(f"[SINGLETON] [TID={tid}] Encoding finished in {time.time() - encode_start_time:.2f}s")
             _SEMANTIC_EMBEDDINGS = {
                 'embeddings': embeddings,
                 'metadata': phrase_metadata

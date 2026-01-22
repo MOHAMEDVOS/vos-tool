@@ -1826,7 +1826,7 @@ class KeywordRepository:
                 if phrase_lower not in existing_lower:
                     merged_phrases[category].append(phrase)
                     existing_lower.add(phrase_lower)
-                    logger.debug(f"Added learned phrase: '{phrase}' to {category}")
+                    # logger.debug(f"Added learned phrase: '{phrase}' to {category}")
         
         return merged_phrases
 
