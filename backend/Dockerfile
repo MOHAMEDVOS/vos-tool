@@ -142,4 +142,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 
 # Run backend with entrypoint script
 # Entrypoint handles model preloading and server startup
-CMD ["/app/entrypoint.sh"]
+# Using ENTRYPOINT to prevent Railway from overriding with Start Command
+ENTRYPOINT ["/app/entrypoint.sh"]
