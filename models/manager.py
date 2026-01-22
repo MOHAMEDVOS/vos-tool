@@ -49,11 +49,21 @@ def get_semantic_model():
                 logger.info(f"Using cached model from: {local_path}")
                 _SEMANTIC_MODEL = SentenceTransformer(local_path, device=device)
             except Exception as e:
-                logger.info(f"Model not found in cache or cache error ({e}). Attempting download...")
-                # Download if not found locally
-                _SEMANTIC_MODEL = SentenceTransformer('all-mpnet-base-v2', device=device)
+                logger.info(f"Model not found in cache or cache error ({e}). Attempting download of all-mpnet-base-v2...")
+                try:
+                    # Download if not found locally
+                    _SEMANTIC_MODEL = SentenceTransformer('all-mpnet-base-v2', device=device)
+                except Exception as download_error:
+                    logger.error(f"Failed to download/load heavy model (all-mpnet-base-v2): {download_error}")
+                    logger.info("⚠️ Falling back to LIGHTER model (all-MiniLM-L6-v2) for resource optimization...")
+                    try:
+                        _SEMANTIC_MODEL = SentenceTransformer('all-MiniLM-L6-v2', device=device)
+                        logger.info("✅ Lighter model (all-MiniLM-L6-v2) loaded successfully")
+                    except Exception as fallback_error:
+                        logger.error(f"CRITICAL: Lighter model fallback also failed: {fallback_error}")
+                        raise fallback_error
             
-            logger.info("[SINGLETON] Sentence Transformer model ready")
+            logger.info(f"[SINGLETON] Sentence Transformer model ready ({_SEMANTIC_MODEL.get_parameter_device() if hasattr(_SEMANTIC_MODEL, 'get_parameter_device') else device})")
 
             logger.info("[SINGLETON] Precomputing phrase embeddings...")
             repo = KeywordRepository()

@@ -160,29 +160,65 @@ def download_single_file(session, cookies, headers, href, filepath, min_duration
     try:
         response = session.get(href, cookies=cookies, headers=headers, timeout=30)
         if response.status_code != 200:
+            print(f"FAILED Download {href.split('/')[-1]} - Status {response.status_code}")
+            # Log first 200 characters of response if it's not success
+            try:
+                snippet = response.text[:200].replace('\n', ' ')
+                print(f"DEBUG Response Snippet: {snippet}")
+            except:
+                pass
             return False, None, None
         
+        # Verify we got an audio file, not an HTML error page
+        content_type = response.headers.get('Content-Type', '').lower()
+        if 'html' in content_type:
+             print(f"FAILED Download {href.split('/')[-1]} - Received HTML instead of audio (session expired?)")
+             try:
+                 snippet = response.text[:200].replace('\n', ' ')
+                 print(f"DEBUG HTML Snippet: {snippet}")
+             except:
+                 pass
+             return False, None, None
+
         temp_filepath = filepath + ".tmp"
         with open(temp_filepath, "wb") as f:
             f.write(response.content)
         
-        # Duration filter
+        # Duration filter - Fail-safe if ffmpeg is missing
         if min_duration is not None or max_duration is not None:
             try:
                 from pydub import AudioSegment
+                # Check for ffmpeg/ffprobe
+                from pydub.utils import get_prober_name
+                prober = get_prober_name()
+                
+                # Verify prober exists by trying to run it
+                import subprocess
+                try:
+                    subprocess.run([prober, "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except FileNotFoundError:
+                    print(f"WARNING: '{prober}' not found. Skipping duration filter for {os.path.basename(filepath)}. Please install ffmpeg.")
+                    os.rename(temp_filepath, filepath)
+                    return True, filepath, None
+
                 audio = AudioSegment.from_file(temp_filepath)
                 dur = audio.duration_seconds
                 
                 if (min_duration is not None and dur < min_duration) or (max_duration is not None and dur > max_duration):
+                    print(f"SKIPPED {os.path.basename(filepath)} - Duration {dur:.1f}s outside range ({min_duration}-{max_duration})")
                     os.remove(temp_filepath)
                     return False, None, dur
-            except Exception:
-                os.remove(temp_filepath)
-                return False, None, None
+            except Exception as e:
+                print(f"WARNING: Error checking duration (likely missing ffmpeg): {e}")
+                print(f"INFO: Proceeding without duration filter for {os.path.basename(filepath)}")
+                # Continue anyway if duration check fails (don't lose the file just because of a filter error)
+                os.rename(temp_filepath, filepath)
+                return True, filepath, None
         
         os.rename(temp_filepath, filepath)
         return True, filepath, None
-    except Exception:
+    except Exception as e:
+        print(f"CRITICAL Error downloading {href}: {e}")
         try:
             temp_path = filepath + ".tmp"
             if os.path.exists(temp_path):

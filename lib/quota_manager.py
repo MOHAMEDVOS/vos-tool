@@ -299,7 +299,7 @@ class QuotaManager:
                             user_query = """
                                 INSERT INTO user_usage (user_username, admin_username, date, usage_count)
                                 VALUES (%s, %s, %s, %s)
-                                ON CONFLICT (user_username, date) DO UPDATE SET
+                                ON CONFLICT (admin_username, user_username, date) DO UPDATE SET
                                     usage_count = EXCLUDED.usage_count,
                                     updated_at = NOW()
                             """
@@ -802,7 +802,7 @@ class QuotaManager:
             user_usage_query = """
                 INSERT INTO user_usage (user_username, admin_username, date, usage_count)
                 VALUES (%s, %s, %s, %s)
-                ON CONFLICT (user_username, date) DO UPDATE SET
+                ON CONFLICT (admin_username, user_username, date) DO UPDATE SET
                     usage_count = user_usage.usage_count + EXCLUDED.usage_count,
                     updated_at = NOW()
             """

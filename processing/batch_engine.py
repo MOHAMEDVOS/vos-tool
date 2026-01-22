@@ -18,15 +18,13 @@ logger = logging.getLogger(__name__)
 from audio_pipeline.detections import IntroductionClassifier
 
 # Helper to attach Streamlit context to threads
-def _run_with_context(func, *args, **kwargs):
-    try:
-        from streamlit.runtime.scriptrunner import add_script_run_ctx
-        add_script_run_ctx()
-    except (ImportError, ModuleNotFoundError):
-        pass
-    except Exception as e:
-        # Ignore context errors in pure backend mode
-        pass
+def _run_with_context(ctx, func, *args, **kwargs):
+    if ctx:
+        try:
+            from streamlit.runtime.scriptrunner import add_script_run_ctx
+            add_script_run_ctx(ctx)
+        except Exception:
+            pass
     return func(*args, **kwargs)
 
 FORCED_MAX_WORKERS = 5
@@ -178,11 +176,15 @@ class BatchProcessor:
             
             logger.info(f"Processing batch {batch_num} (adaptive size: {len(batch_files)} files)")
             
+            # Capture Streamlit context to pass to threads
+            from streamlit.runtime.scriptrunner import get_script_run_ctx
+            ctx = get_script_run_ctx()
+            
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 # Submit batch for processing
                 futures = {}
                 for file_path in batch_files:
-                    future = executor.submit(_run_with_context, self.audio_processor.process_single_file, file_path, additional_metadata, False, username, user_api_key)
+                    future = executor.submit(_run_with_context, ctx, self.audio_processor.process_single_file, file_path, additional_metadata, False, username, user_api_key)
                     futures[future] = file_path
                 
                 # Collect results with timeout protection (per-file only)
@@ -369,6 +371,10 @@ class BatchProcessor:
             semaphore = asyncio.Semaphore(self.max_workers)
             logger.info(f"Semaphore initialized with {self.max_workers} max workers")
             
+            # Capture Streamlit context
+            from streamlit.runtime.scriptrunner import get_script_run_ctx
+            ctx = get_script_run_ctx()
+            
             # Using SHARED _batch_executor to avoid nested deadlock hangs on Windows
             
             async def process_single_file_async(file_path: Path) -> dict:
@@ -380,6 +386,7 @@ class BatchProcessor:
                             loop.run_in_executor(
                                 _batch_executor,
                                 _run_with_context,
+                                ctx,
                                 self.audio_processor.process_single_file,
                                 file_path,
                                 additional_metadata,

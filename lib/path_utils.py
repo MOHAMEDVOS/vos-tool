@@ -47,8 +47,9 @@ def get_recordings_root() -> Path:
     if not is_docker:
         candidates.append(Path(__file__).parent.parent / "Recordings")
     
-    # Docker paths (only checked if in Docker or if project root failed)
+    # Docker/Railway persistent volume paths (high priority)
     candidates.extend([
+        Path("/data/Recordings"),
         Path("/app/Recordings"),
         Path("/tmp/Recordings"),
     ])
@@ -64,8 +65,10 @@ def get_recordings_root() -> Path:
             test_file = candidate / ".write_test"
             test_file.write_text("ok", encoding="utf-8")
             test_file.unlink(missing_ok=True)
+            print(f"INFO Selected RECORDINGS_ROOT: {candidate}")
             return candidate
-        except Exception:
+        except Exception as e:
+            # print(f"DEBUG Candidate {candidate} failed: {e}")
             continue
     
     # Final fallback to project root Recordings
