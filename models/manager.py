@@ -32,46 +32,30 @@ def get_semantic_model():
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
         try:
-            print(f"[SINGLETON] [TID={tid}] Loading Sentence Transformer model (all-mpnet-base-v2)...")
+            print(f"[SINGLETON] [TID={tid}] Loading Sentence Transformer model...")
             from sentence_transformers import SentenceTransformer
             from analyzer.rebuttal_detection import KeywordRepository
-            from huggingface_hub import snapshot_download
             import os
-            
-            # Auto-detect GPU for Sentence Transformers
             import torch
+
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
             print(f"[SINGLETON] [TID={tid}] Device: {device}")
             
-            # Prefer local cache to avoid hanging on slow network connections
-            model_id = 'sentence-transformers/all-MiniLM-L6-v2'  # SWITCHED TO LIGHTER MODEL FOR RELIABILITY
-            try:
-                # Check for existing local snapshot
-                print(f"[SINGLETON] [TID={tid}] Checking for local model snapshot: {model_id}")
-                local_path = snapshot_download(
-                    model_id, 
-                    local_files_only=True,
-                )
-                print(f"[SINGLETON] [TID={tid}] Using cached model from: {local_path}")
-                _SEMANTIC_MODEL = SentenceTransformer(local_path, device=device)
-            except Exception as e:
-                print(f"[SINGLETON] [TID={tid}] Model not in cache or cache error: {e}")
-                print(f"[SINGLETON] [TID={tid}] Attempting explicit download/load: {model_id}")
-                try:
-                    # Download if not found locally
-                    # Using the lightweight model (~80MB) avoids OOM and timeouts on Railway
-                    _SEMANTIC_MODEL = SentenceTransformer(model_id, device=device)
-                    print(f"[SINGLETON] [TID={tid}] ✅ Light model (all-MiniLM-L6-v2) loaded successfully")
-                except Exception as critical_error:
-                    print(f"[SINGLETON] [TID={tid}] CRITICAL: Failed to load semantic model: {critical_error}")
-                    # Check for common Railway issues
-                    if "No space left on device" in str(critical_error):
-                        print(f"[SINGLETON] [TID={tid}] 🛑 DISK FULL DETECTED. Cannot load model.")
-                    elif "Connection" in str(critical_error) or "timeout" in str(critical_error).lower():
-                        print(f"[SINGLETON] [TID={tid}] 🛑 NETWORK ERROR DETECTED. Check HuggingFace connectivity.")
-                    raise critical_error
+            model_id = 'sentence-transformers/all-MiniLM-L6-v2'
+            # Define a dedicated cache folder for robust model loading
+            cache_folder = os.path.join(os.path.expanduser("~"), ".cache", "vos_tool_models")
+            os.makedirs(cache_folder, exist_ok=True)
+
+            print(f"[SINGLETON] [TID={tid}] Loading model '{model_id}' with cache folder '{cache_folder}'")
+
+            # SentenceTransformer handles caching automatically.
+            # On first run, it downloads and caches the model.
+            # On subsequent runs, it loads from the cache.
+            _SEMANTIC_MODEL = SentenceTransformer(model_id, device=device, cache_folder=cache_folder)
+
+            print(f"[SINGLETON] [TID={tid}] ✅ Semantic model loaded successfully.")
             
-            logger.info(f"[SINGLETON] [TID={tid}] Sentence Transformer model ready ({_SEMANTIC_MODEL.get_parameter_device() if hasattr(_SEMANTIC_MODEL, 'get_parameter_device') else device})")
+            logger.info(f"[SINGLETON] [TID={tid}] Sentence Transformer model ready ({device})")
 
             logger.info(f"[SINGLETON] [TID={tid}] Precomputing phrase embeddings...")
             repo = KeywordRepository()
