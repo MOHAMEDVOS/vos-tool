@@ -43,14 +43,20 @@ async def lifespan(app: FastAPI):
         logger.error(f"Database initialization failed: {e}")
 
     # Preload semantic model for rebuttal detection
+    logger.info("🚀 CHECKPOINT 1: About to preload semantic model")
     try:
+        logger.info("🚀 CHECKPOINT 2: Inside preload try block")
         logger.info("=" * 60)
         logger.info("Preloading semantic model (Railway optimization)...")
         logger.info("=" * 60)
 
+        logger.info("🚀 CHECKPOINT 3: Importing get_semantic_model")
         from models.manager import get_semantic_model
+
+        logger.info("🚀 CHECKPOINT 4: Calling get_semantic_model()")
         model, embeddings = get_semantic_model()
 
+        logger.info("🚀 CHECKPOINT 5: get_semantic_model() returned")
         if model is not None:
             logger.info("✅ Semantic model preloaded successfully")
             logger.info(f"✅ Precomputed embeddings for {len(embeddings['metadata']) if embeddings else 0} phrases")
@@ -58,7 +64,12 @@ async def lifespan(app: FastAPI):
             logger.warning("⚠️ Semantic model preload failed - using exact matching fallback")
     except Exception as e:
         logger.error(f"❌ Failed to preload semantic model: {e}")
+        logger.error(f"❌ Exception type: {type(e).__name__}")
+        import traceback
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
         logger.warning("Application will use exact matching for rebuttal detection")
+
+    logger.info("🚀 CHECKPOINT 6: Preload block completed")
 
     yield
 
