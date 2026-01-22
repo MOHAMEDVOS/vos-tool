@@ -594,12 +594,53 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 
                 print(f"SUCCESS Disposition filter applied: {disposition}")
 
-            # STEP 6.1.5: DURATION FILTER (UI interaction removed per user request - kept at post-download level)
-            """
+            # STEP 6.1.5: DURATION FILTER (UI-level automation)
             if min_duration is not None or max_duration is not None:
-                # UI filtering is disabled to keep "All Duration" default
-                print(f"INFO Post-download duration filter active: {min_duration}-{max_duration}")
-            """
+                print(f"\n{'='*60}")
+                print(f"Applying Duration Filter: {min_duration}s to {max_duration if max_duration else 'Any'}s")
+                print(f"{'='*60}")
+                
+                duration_success = False
+                for attempt in range(2):
+                    try:
+                        print(f"Duration Filter Attempt {attempt + 1}/2")
+                        
+                        # Set min duration
+                        if min_duration is not None:
+                            page.evaluate(f"""
+                                var minInput = document.querySelector("input[name='report[length_from]']");
+                                if (minInput) {{
+                                    minInput.value = '{min_duration}';
+                                    minInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                }}
+                            """)
+                        
+                        # Set max duration
+                        if max_duration is not None:
+                            page.evaluate(f"""
+                                var maxInput = document.querySelector("input[name='report[length_to]']");
+                                if (maxInput) {{
+                                    maxInput.value = '{max_duration}';
+                                    maxInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                }}
+                            """)
+                        
+                        time.sleep(1)
+                        print(f"SUCCESS Duration filter set: {min_duration}-{max_duration}")
+                        duration_success = True
+                        break
+                    except Exception as e:
+                        print(f"WARNING Duration filter attempt {attempt + 1} failed: {e}")
+                        time.sleep(1)
+                
+                if duration_success:
+                    print("WAIT Waiting for results to refresh after duration filter...")
+                    time.sleep(2)
+                    try:
+                        page.wait_for_selector("a[href*='.mp3']", timeout=10000)
+                        print("SUCCESS Results refreshed")
+                    except:
+                        print("INFO No results found with these duration constraints (normal)")
 
             # STEP 6.2: RE-APPLY AGENT FILTER (Robust JS Implementation)
             if agent and agent.strip().lower() not in ["any", "all users"]:
