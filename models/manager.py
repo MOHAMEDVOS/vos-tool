@@ -35,6 +35,8 @@ def get_semantic_model():
 
         try:
             print(f"[SINGLETON] [TID={tid}] Loading Sentence Transformer model (all-MiniLM-L6-v2)...")
+            # Prevent deadlocks in multithreaded usage (e.g. batch processing)
+            os.environ["TOKENIZERS_PARALLELISM"] = "false"
             from sentence_transformers import SentenceTransformer
             from analyzer.rebuttal_detection import KeywordRepository
             from huggingface_hub import snapshot_download

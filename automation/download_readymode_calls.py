@@ -184,36 +184,22 @@ def download_single_file(session, cookies, headers, href, filepath, min_duration
         with open(temp_filepath, "wb") as f:
             f.write(response.content)
         
-        # Duration filter - Fail-safe if ffmpeg is missing
+        # Duration filter after download - STRICT MODE (Old logic)
         if min_duration is not None or max_duration is not None:
             try:
                 from pydub import AudioSegment
-                # Check for ffmpeg/ffprobe
-                from pydub.utils import get_prober_name
-                prober = get_prober_name()
-                
-                # Verify prober exists by trying to run it
-                import subprocess
-                try:
-                    subprocess.run([prober, "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except FileNotFoundError:
-                    print(f"WARNING: '{prober}' not found. Skipping duration filter for {os.path.basename(filepath)}. Please install ffmpeg.")
-                    os.rename(temp_filepath, filepath)
-                    return True, filepath, None
-
                 audio = AudioSegment.from_file(temp_filepath)
                 dur = audio.duration_seconds
                 
                 if (min_duration is not None and dur < min_duration) or (max_duration is not None and dur > max_duration):
-                    print(f"SKIPPED {os.path.basename(filepath)} - Duration {dur:.1f}s outside range ({min_duration}-{max_duration})")
+                    print(f"SKIPPED {os.path.basename(filepath)} - Duration {dur:.1f}s outside range")
                     os.remove(temp_filepath)
                     return False, None, dur
             except Exception as e:
-                print(f"WARNING: Error checking duration (likely missing ffmpeg): {e}")
-                print(f"INFO: Proceeding without duration filter for {os.path.basename(filepath)}")
-                # Continue anyway if duration check fails (don't lose the file just because of a filter error)
-                os.rename(temp_filepath, filepath)
-                return True, filepath, None
+                print(f"FAILED Duration check failed (strict mode): {e}")
+                if os.path.exists(temp_filepath):
+                    os.remove(temp_filepath)
+                return False, None, None
         
         os.rename(temp_filepath, filepath)
         return True, filepath, None
@@ -676,10 +662,10 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 
                 print(f"SUCCESS Disposition filter applied: {disposition}")
 
-            # STEP 6.1.5: DURATION FILTER (UI-level automation)
+            # STEP 6.1.5: DURATION FILTER (Old logic - Dropdown)
             if min_duration is not None or max_duration is not None:
                 print(f"\n{'='*60}")
-                print(f"Applying Duration Filter: {min_duration}s to {max_duration if max_duration else 'Any'}s")
+                print(f"Applying Duration Filter (Old Logic): {min_duration}s to {max_duration if max_duration else 'Any'}s")
                 print(f"{'='*60}")
                 
                 duration_success = False
@@ -687,63 +673,61 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     try:
                         print(f"Duration Filter Attempt {attempt + 1}/2")
                         
-                        # Set min duration
-                        if min_duration is not None:
-                            page.evaluate(f"""
-                                var minInput = document.querySelector("input[name='report[length_from]']");
-                                if (minInput) {{
-                                    minInput.value = '{min_duration}';
-                                    minInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                }}
-                            """)
-                        
-                        # Set max duration
-                        if max_duration is not None:
-                            page.evaluate(f"""
-                                var maxInput = document.querySelector("input[name='report[length_to]']");
-                                if (maxInput) {{
-                                    maxInput.value = '{max_duration}';
-                                    maxInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                }}
-                            """)
-                        
-                        time.sleep(1)
-                        
-                        # FORCE SUBMISSION: Press Enter and look for Search buttons
-                        try:
-                            # 1. Focus one of the inputs and press Enter
-                            page.evaluate("document.querySelector(\"input[name='report[length_from]']\")?.focus()")
-                            page.keyboard.press("Enter")
-                            print("INFO Pressed Enter to submit filter")
-                            
-                            # 2. explicit click on Search/Filter if it exists (generic selector)
-                            # Common in ReadyMode: input type='submit' value='Search' or 'Update'
-                            # We use a short timeout to not block
-                            search_btn = page.locator("input[value='Search'], input[value='Update'], button:has-text('Search')").first
-                            if search_btn.is_visible():
-                                search_btn.click(timeout=1000)
-                                print("INFO Clicked Search/Update button")
-                        except Exception as e:
-                            print(f"DEBUG Filter submission attempt: {e}")
-                            
+                        # Set up dialog handler for the "greater" prompt
+                        duration_value = f"{int(min_duration or 20)} sec"
+                        def handle_dialog(dialog):
+                            print(f"DEBUG DIALOG: {dialog.message}")
+                            if "seconds" in dialog.message.lower() or "duration" in dialog.message.lower():
+                                print(f"SUCCESS Handling duration prompt: '{duration_value}'")
+                                dialog.accept(duration_value)
+                            else:
+                                dialog.dismiss()
 
+                        page.on("dialog", handle_dialog)
+
+                        # Determine bucket value
+                        value_to_select = None
+                        if min_duration is not None and max_duration is not None:
+                            if min_duration == 30 and max_duration == 60:
+                                value_to_select = "30-60"
+                            elif min_duration == 60 and max_duration == 600:
+                                value_to_select = "60-600"
+                            else:
+                                # Fallback to 30-60 for custom ranges if applicable
+                                value_to_select = "30-60"
+                        elif max_duration is not None:
+                            if max_duration == 30:
+                                value_to_select = "0-30"
+                            else:
+                                value_to_select = "less"
+                        elif min_duration is not None:
+                            value_to_select = "greater"
+
+                        if value_to_select:
+                            page.select_option("#duration_filter", value=value_to_select)
+                            print(f"SUCCESS Selected duration bucket: {value_to_select}")
                         
-                        time.sleep(1)
-                        print(f"SUCCESS Duration filter set: {min_duration}-{max_duration}")
+                        time.sleep(2)
+                        
+                        # Wait for results or refresh
+                        try:
+                            # If "greater" was chosen, allow some time for the prompt/trigger
+                            if value_to_select == "greater":
+                                time.sleep(2)
+                            
+                            page.wait_for_selector("a[href*='.mp3']", timeout=10000)
+                            print("SUCCESS Results refreshed after duration filter")
+                        except:
+                            print("INFO Filter applied, but no results found (normal)")
+                            
+                        # Cleanup dialog listener
+                        page.remove_listener("dialog", handle_dialog)
+                        
                         duration_success = True
                         break
                     except Exception as e:
                         print(f"WARNING Duration filter attempt {attempt + 1} failed: {e}")
                         time.sleep(1)
-                
-                if duration_success:
-                    print("WAIT Waiting 10s for results to refresh after duration filter...")
-                    time.sleep(10)
-                    try:
-                        page.wait_for_selector("a[href*='.mp3']", timeout=10000)
-                        print("SUCCESS Results refreshed")
-                    except:
-                        print("INFO No results found with these duration constraints (normal)")
 
             # STEP 6.2: RE-APPLY AGENT FILTER (Robust JS Implementation)
             if agent and agent.strip().lower() not in ["any", "all users"]:

@@ -1913,12 +1913,14 @@ class SemanticDetectionEngine:
 
         # 1. Primary: Exact matching (fastest)
         logger.debug("Running exact phrase matching...")
+        logger.info("DEBUG: Starting exact phrase matching")
         exact_matches = self._detect_exact_matches(transcript_lower)
         matches.extend(exact_matches)
 
         # 2. Secondary: Semantic matching (AI-powered)
         if self.semantic_model is not None:
             logger.debug("Running semantic AI matching...")
+            logger.info("DEBUG: Starting semantic AI matching")
             semantic_matches = self._detect_semantic_matches(transcript)
             # Filter out semantic matches that are too similar to exact matches
             filtered_semantic_matches = self._filter_duplicate_matches(exact_matches, semantic_matches)
@@ -2038,7 +2040,9 @@ class SemanticDetectionEngine:
             logger.debug(f"Semantic matching on {len(all_texts_to_match)} text segments (sentences + context windows)")
             
             # Batch encode all texts at once for speed
+            logger.info(f"DEBUG: Encoding {len(all_texts_to_match)} segments with semantic model...")
             text_embeddings = self.semantic_model.encode(all_texts_to_match, batch_size=8, show_progress_bar=False)
+            logger.info("DEBUG: Encoding completed")
             
             # Calculate similarities for all texts at once
             similarities = cosine_similarity(text_embeddings, self.phrase_embeddings['embeddings'])
