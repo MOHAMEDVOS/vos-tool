@@ -8,6 +8,7 @@ import logging
 import os
 import json
 import re  # Required for regex operations in transcription quality assessment
+import threading  # For thread-safe model initialization
 from typing import Dict, List, Any, Optional, Tuple
 from pydub import AudioSegment
 import numpy as np
@@ -1886,13 +1887,16 @@ class SemanticDetectionEngine:
             self.semantic_model, self.phrase_embeddings = _get_semantic_model()
 
             if self.semantic_model is None:
-                import threading
                 tid = threading.get_ident()
                 logger.debug(f"Semantic model not yet available from singleton (TID={tid}), will retry next call")
             else:
                 logger.info("✅ Semantic detection engine lazy-initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to lazy-load semantic model: {e}")
+            import traceback
+            tid = threading.get_ident()
+            logger.error(f"Failed to lazy-load semantic model (TID={tid}): {e}")
+            logger.error(f"Exception traceback:\n{traceback.format_exc()}")
+            logger.warning("Semantic matching will be unavailable, falling back to exact matching only")
             self.semantic_model = None
             self.phrase_embeddings = None
 
