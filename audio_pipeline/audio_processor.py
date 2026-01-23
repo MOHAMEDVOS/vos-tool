@@ -131,7 +131,7 @@ class AudioProcessor:
     def classify_call(self, agent_audio: AudioSegment, full_audio: AudioSegment, file_name: str = "", file_path: str = "", user_api_key: Optional[str] = None) -> Dict[str, Any]:
         logger = logging.getLogger(__name__)
 
-        logger.info(f"Starting classification for file: {file_name}")
+        logger.debug(f"Starting classification for file: {file_name}")
         start_time = time.time()
 
         result = {
@@ -190,7 +190,7 @@ class AudioProcessor:
                 logger.error(f"Releasing detection failed: {rel_error}")
                 result['releasing_detection'] = 'Error'
             rel_time = time.time() - rel_start
-            logger.info(f"Releasing detection completed in {rel_time:.2f}s: {result['releasing_detection']}")
+            logger.debug(f"Releasing detection completed in {rel_time:.2f}s: {result['releasing_detection']}")
             
             # Late hello detection (fast, completes second ~0.5-1s)
             late_start = time.time()
@@ -201,7 +201,7 @@ class AudioProcessor:
                 logger.error(f"Late hello detection failed: {late_error}")
                 result['late_hello_detection'] = 'Error'
             late_time = time.time() - late_start
-            logger.info(f"Late hello detection completed in {late_time:.2f}s: {result['late_hello_detection']}")
+            logger.debug(f"Late hello detection completed in {late_time:.2f}s: {result['late_hello_detection']}")
             
             # Rebuttal detection (slow, completes last ~30-60s, but started in parallel)
             # Check if we need rebuttal detection (skip if releasing call or very long file)
@@ -209,7 +209,7 @@ class AudioProcessor:
             max_rebuttal_duration = int(os.getenv("MAX_REBUTTAL_DURATION_SECONDS", "600"))  # 10 minutes default
             
             if result['releasing_detection'] == 'Yes':
-                logger.info(f"Skipping rebuttal detection for releasing call: {file_name}")
+                logger.debug(f"Skipping rebuttal detection for releasing call: {file_name}")
                 # Note: future_rebuttal may still be running, but we'll ignore the result
                 # This is acceptable - the API call will complete but we won't use it
                 if future_rebuttal:
@@ -223,7 +223,7 @@ class AudioProcessor:
                     except Exception:
                         pass
             elif audio_duration_seconds > max_rebuttal_duration:
-                logger.info(f"Skipping rebuttal detection for very long file ({audio_duration_seconds:.1f}s > {max_rebuttal_duration}s): {file_name}")
+                logger.debug(f"Skipping rebuttal detection for very long file ({audio_duration_seconds:.1f}s > {max_rebuttal_duration}s): {file_name}")
                 if future_rebuttal:
                     future_rebuttal.cancel()
                 result['rebuttal_detection'] = {
@@ -240,13 +240,13 @@ class AudioProcessor:
                     # Calculate progressive timeout based on audio duration
                     from lib.timeout_utils import calculate_rebuttal_timeout
                     rebuttal_timeout_s = calculate_rebuttal_timeout(audio_duration_seconds)
-                    logger.info(
+                    logger.debug(
                         f"Waiting for rebuttal detection (timeout: {rebuttal_timeout_s}s, "
                         f"file duration: {audio_duration_seconds:.1f}s) for {file_name}"
                     )
                     detection_result = future_rebuttal.result(timeout=rebuttal_timeout_s)
                     reb_time = time.time() - reb_start
-                    logger.info(f"Rebuttal detection completed in {reb_time:.1f}s for {file_name}")
+                    logger.debug(f"Rebuttal detection completed in {reb_time:.1f}s for {file_name}")
                     result['rebuttal_detection'] = {
                         'result': detection_result['result'],
                         'confidence_score': detection_result.get('confidence_score'),
@@ -284,7 +284,7 @@ class AudioProcessor:
                         )
                         result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': str(reb_error)}
                 reb_time = time.time() - reb_start
-                logger.info(
+                logger.debug(
                     f"Agent-only rebuttal detection completed in {reb_time:.2f}s "
                     f"(file duration: {audio_duration_seconds:.1f}s, "
                     f"ratio: {reb_time/audio_duration_seconds:.1f}x): "
@@ -302,11 +302,11 @@ class AudioProcessor:
                     pass
             
             overall_time = time.time() - overall_start
-            logger.info(f"All parallel detections completed for {file_name} in {overall_time:.2f}s")
+            logger.debug(f"All parallel detections completed for {file_name} in {overall_time:.2f}s")
 
             result['classification_success'] = True
             total_time = time.time() - start_time
-            logger.info(f"All classifications completed for {file_name} in {total_time:.2f}s")
+            logger.info(f"Classification completed for {file_name} in {total_time:.2f}s: Rel={result['releasing_detection']}, LH={result['late_hello_detection']}, Reb={result['rebuttal_detection'].get('result', 'N/A')}")
 
         except Exception as e:
             logger.error(f"Classification failed for {file_name}: {e}", exc_info=True)
@@ -318,7 +318,7 @@ class AudioProcessor:
         logger = logging.getLogger(__name__)
         start_time = time.time()
 
-        logger.info(f"Starting processing of file: {file_path}")
+        logger.debug(f"Starting processing of file: {file_path}")
 
         stem = file_path.stem
         parts = stem.split(" _ ")
@@ -447,7 +447,7 @@ class AudioProcessor:
                 result['debug_error'] = str(e)
 
         total_time = time.time() - start_time
-        logger.info(f"Completed processing of {file_path} in {total_time:.2f}s")
+        logger.debug(f"Completed processing of {file_path} in {total_time:.2f}s")
 
         import gc
         gc.collect()

@@ -26,15 +26,15 @@ def get_semantic_model():
         # print(f"[SINGLETON] [TID={tid}] Fast-path return of existing model.") 
         return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
-    print(f"[SINGLETON] [TID={tid}] Waiting for semantic model lock...")
+    logger.debug(f"[SINGLETON] [TID={tid}] Waiting for semantic model lock...")
     with _SEMANTIC_MODEL_LOCK:
-        print(f"[SINGLETON] [TID={tid}] Acquired semantic model lock.")
+        logger.debug(f"[SINGLETON] [TID={tid}] Acquired semantic model lock.")
         if _SEMANTIC_MODEL is not None:
-            print(f"[SINGLETON] [TID={tid}] Returning existing semantic model (loaded by another thread).")
+            logger.debug(f"[SINGLETON] [TID={tid}] Returning existing semantic model (loaded by another thread).")
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
         try:
-            print(f"[SINGLETON] [TID={tid}] Loading Sentence Transformer model (all-MiniLM-L6-v2)...")
+            logger.debug(f"[SINGLETON] [TID={tid}] Loading Sentence Transformer model (all-MiniLM-L6-v2)...")
             # Prevent deadlocks in multithreaded usage (e.g. batch processing)
             os.environ["TOKENIZERS_PARALLELISM"] = "false"
             from sentence_transformers import SentenceTransformer
@@ -44,22 +44,22 @@ def get_semantic_model():
             # Auto-detect GPU for Sentence Transformers
             import torch
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
-            print(f"[SINGLETON] [TID={tid}] Device: {device}")
+            logger.debug(f"[SINGLETON] [TID={tid}] Device: {device}")
             
             # Prefer local cache to avoid hanging on slow network connections
             model_id = 'sentence-transformers/all-MiniLM-L6-v2'  # SWITCHED TO LIGHTER MODEL FOR RELIABILITY
             try:
                 # Check for existing local snapshot
-                print(f"[SINGLETON] [TID={tid}] Checking for local model snapshot: {model_id}")
+                logger.debug(f"[SINGLETON] [TID={tid}] Checking for local model snapshot: {model_id}")
                 local_path = snapshot_download(
                     model_id, 
                     local_files_only=True,
                 )
-                print(f"[SINGLETON] [TID={tid}] Using cached model from: {local_path}")
+                logger.debug(f"[SINGLETON] [TID={tid}] Using cached model from: {local_path}")
                 _SEMANTIC_MODEL = SentenceTransformer(local_path, device=device)
             except Exception as e:
-                print(f"[SINGLETON] [TID={tid}] Model not in cache or cache error: {e}")
-                print(f"[SINGLETON] [TID={tid}] Attempting explicit download/load: {model_id}")
+                logger.debug(f"[SINGLETON] [TID={tid}] Model not in cache or cache error: {e}")
+                logger.info(f"[SINGLETON] [TID={tid}] Attempting explicit download/load: {model_id}")
 
                 # Retry with timeout handling (Railway may have slow network)
                 max_retries = 2
@@ -67,23 +67,23 @@ def get_semantic_model():
 
                 for attempt in range(max_retries):
                     try:
-                        print(f"[SINGLETON] [TID={tid}] Download attempt {attempt + 1}/{max_retries}...")
+                        logger.info(f"[SINGLETON] [TID={tid}] Download attempt {attempt + 1}/{max_retries}...")
                         # Download if not found locally
                         # Using the lightweight model (~80MB) avoids OOM and timeouts on Railway
                         _SEMANTIC_MODEL = SentenceTransformer(model_id, device=device)
-                        print(f"[SINGLETON] [TID={tid}] ✅ Light model (all-MiniLM-L6-v2) loaded successfully")
+                        logger.info(f"[SINGLETON] [TID={tid}] ✅ Light model (all-MiniLM-L6-v2) loaded successfully")
                         break  # Success, exit retry loop
                     except Exception as critical_error:
-                        print(f"[SINGLETON] [TID={tid}] Attempt {attempt + 1} failed: {critical_error}")
+                        logger.error(f"[SINGLETON] [TID={tid}] Attempt {attempt + 1} failed: {critical_error}")
 
                         # Check for common Railway issues
                         if "No space left on device" in str(critical_error):
-                            print(f"[SINGLETON] [TID={tid}] 🛑 DISK FULL DETECTED. Cannot load model.")
+                            logger.error(f"[SINGLETON] [TID={tid}] 🛑 DISK FULL DETECTED. Cannot load model.")
                             raise critical_error  # Don't retry on disk full
                         elif "Connection" in str(critical_error) or "timeout" in str(critical_error).lower():
-                            print(f"[SINGLETON] [TID={tid}] 🛑 NETWORK ERROR DETECTED. Check HuggingFace connectivity.")
+                            logger.error(f"[SINGLETON] [TID={tid}] 🛑 NETWORK ERROR DETECTED. Check HuggingFace connectivity.")
                             if attempt < max_retries - 1:
-                                print(f"[SINGLETON] [TID={tid}] Retrying in {retry_delay} seconds...")
+                                logger.info(f"[SINGLETON] [TID={tid}] Retrying in {retry_delay} seconds...")
                                 time.sleep(retry_delay)
                             else:
                                 raise critical_error  # Final attempt failed
@@ -177,7 +177,7 @@ def get_semantic_model():
             _SEMANTIC_EMBEDDINGS = None
             return None, None
         finally:
-            print(f"[SINGLETON] [TID={tid}] Released semantic model lock.")
+            logger.debug(f"[SINGLETON] [TID={tid}] Released semantic model lock.")
 
 
 def reload_semantic_embeddings():

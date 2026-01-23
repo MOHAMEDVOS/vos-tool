@@ -19,8 +19,7 @@ from pydub import AudioSegment
 from analyzer.rebuttal_detection import KeywordRepository, SemanticDetectionEngine, OutputFormatter, TranscriptionEngine
 from lib.egyptian_accent_correction import EgyptianAccentCorrection
 
-# Configure logging - Essential detection info only
-logging.basicConfig(level=logging.WARNING)  # Reduce verbosity, only show warnings/errors
+# logger level is managed by lib/logging_config.py
 logger = logging.getLogger(__name__)
 
 class LocalTranscriptionEngine:
@@ -43,7 +42,7 @@ class LocalTranscriptionEngine:
         try:
             from lib.assemblyai_transcription import AssemblyAITranscriptionEngine
             self.assemblyai_engine = AssemblyAITranscriptionEngine(api_key=api_key, user_api_key=user_api_key)
-            logger.info("LocalTranscriptionEngine initialized with AssemblyAI API")
+            logger.debug("LocalTranscriptionEngine initialized with AssemblyAI API")
         except ValueError as e:
             logger.error(f"AssemblyAI API key required: {e}")
             raise
@@ -146,7 +145,7 @@ class AgentOnlyTranscriptionEngine:
             user_api_key: User's specific API key (takes precedence)
         """
         self.local_engine = LocalTranscriptionEngine(api_key, user_api_key)
-        logger.info("Agent-Only Transcription Engine initialized with AssemblyAI")
+        logger.debug("Agent-Only Transcription Engine initialized with AssemblyAI")
 
     def extract_agent_channel(self, audio_segment: AudioSegment) -> AudioSegment:
         """Extract agent channel from stereo audio (left channel typically)."""
@@ -185,14 +184,14 @@ class AgentOnlyTranscriptionEngine:
         try:
             # Use original path for cache lookup if provided, otherwise use audio_file_path
             cache_key_path = original_file_path if original_file_path else audio_file_path
-            logger.info(f"Starting agent-only transcription with AssemblyAI: {audio_file_path} (cache key: {cache_key_path})")
+            logger.debug(f"Starting agent-only transcription with AssemblyAI: {audio_file_path} (cache key: {cache_key_path})")
 
             # Calculate progressive timeout based on audio duration if not provided
             if timeout is None:
                 try:
                     from lib.timeout_utils import calculate_transcription_timeout
                     timeout = calculate_transcription_timeout(audio_duration_seconds)
-                    logger.info(f"Calculated transcription timeout: {timeout}s (file duration: {audio_duration_seconds:.1f}s)" if audio_duration_seconds else f"Using default timeout: {timeout}s")
+                    logger.debug(f"Calculated transcription timeout: {timeout}s (file duration: {audio_duration_seconds:.1f}s)" if audio_duration_seconds else f"Using default timeout: {timeout}s")
                 except ImportError:
                     # Fallback to config or default
                     try:
@@ -204,7 +203,7 @@ class AgentOnlyTranscriptionEngine:
             # Check cache first using original file path
             cached_result = self.local_engine.assemblyai_engine.cache.get(cache_key_path)
             if cached_result:
-                logger.info(f"✅ CACHE HIT for transcription: {cache_key_path}")
+                logger.debug(f"✅ CACHE HIT for transcription: {cache_key_path}")
                 processing_time = int((time.time() - start_time) * 1000)
                 return {
                     "transcript": cached_result.get("transcript", ""),
@@ -244,7 +243,7 @@ class AgentOnlyTranscriptionEngine:
             if agent_transcript and cache_key_path:
                 try:
                     self.local_engine.assemblyai_engine.cache.set(cache_key_path, result)
-                    logger.info(f"💾 Cached transcription for: {cache_key_path}")
+                    logger.debug(f"💾 Cached transcription for: {cache_key_path}")
                 except Exception as cache_error:
                     logger.warning(f"Failed to cache transcription: {cache_error}")
             
@@ -337,7 +336,7 @@ class AgentOnlyRebuttalDetector:
         self.formatter = OutputFormatter()
         # Add Egyptian accent correction for better accuracy with Egyptian-accented speech
         self.egyptian_corrector = EgyptianAccentCorrection()
-        logger.info("Agent-Only Rebuttal Detector initialized with AssemblyAI (Egyptian Accent Support)")
+        logger.debug("Agent-Only Rebuttal Detector initialized with AssemblyAI (Egyptian Accent Support)")
 
     def detect_rebuttals_in_audio(self, audio_file_path: str, original_file_path: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -355,7 +354,7 @@ class AgentOnlyRebuttalDetector:
         try:
             # Use original path for logging if provided
             cache_key = original_file_path if original_file_path else audio_file_path
-            logger.info(f"Starting agent-only rebuttal detection with AssemblyAI: {audio_file_path} (cache key: {cache_key})")
+            logger.debug(f"Starting agent-only rebuttal detection with AssemblyAI: {audio_file_path} (cache key: {cache_key})")
 
             # Step 1: Transcribe only agent channel with AssemblyAI (with cache support)
             transcription_result = self.transcription_engine.transcribe_agent_only(
@@ -375,12 +374,12 @@ class AgentOnlyRebuttalDetector:
                 )
 
             raw_transcript = transcription_result["transcript"]
-            logger.info(f"Raw AssemblyAI transcript: '{raw_transcript[:100]}...'")
+            logger.debug(f"Raw AssemblyAI transcript: '{raw_transcript[:100]}...'")
 
             # Step 2: Apply Egyptian accent corrections for better accuracy
             corrected_transcript, accent_corrections = self.egyptian_corrector.apply_corrections(raw_transcript)
-            logger.info(f"Applied {len(accent_corrections)} Egyptian accent corrections")
-            logger.info(f"Final corrected transcript (displayed in app): '{corrected_transcript[:100]}...'")
+            logger.debug(f"Applied {len(accent_corrections)} Egyptian accent corrections")
+            logger.debug(f"Final corrected transcript (displayed in app): '{corrected_transcript[:100]}...'")
 
             # Step 3: Detect rebuttals using corrected transcript
             matches = self.semantic_engine.detect_rebuttals(corrected_transcript)
@@ -390,11 +389,11 @@ class AgentOnlyRebuttalDetector:
                 best_match = matches[0]  # Highest confidence
                 result = "Yes"
                 confidence = best_match['confidence']
-                logger.info(f"REBUTTAL DETECTED: {best_match['phrase']} (confidence: {confidence:.3f})")
+                logger.debug(f"REBUTTAL DETECTED: {best_match['phrase']} (confidence: {confidence:.3f})")
             else:
                 result = "No"
                 confidence = 0.0
-                logger.info("No rebuttals detected")
+                logger.debug("No rebuttals detected")
 
             # Step 5: Format final result
             processing_time = int((time.time() - start_time) * 1000)
@@ -442,14 +441,14 @@ class AgentOnlyRebuttalDetector:
         start_time = time.time()
 
         try:
-            logger.info(f"Starting async agent-only rebuttal detection with AssemblyAI: {audio_file_path}")
+            logger.debug(f"Starting async agent-only rebuttal detection with AssemblyAI: {audio_file_path}")
             
             # Get audio duration for timeout calculation and logging
             try:
                 from pydub import AudioSegment
                 audio = AudioSegment.from_file(audio_file_path)
                 audio_duration_seconds = len(audio) / 1000.0
-                logger.info(f"Audio file duration: {audio_duration_seconds:.1f}s")
+                logger.debug(f"Audio file duration: {audio_duration_seconds:.1f}s")
             except Exception as e:
                 logger.warning(f"Could not determine audio duration: {e}")
                 audio_duration_seconds = None
@@ -461,7 +460,7 @@ class AgentOnlyRebuttalDetector:
                 audio_duration_seconds=audio_duration_seconds
             )
             transcription_elapsed = time.time() - transcription_start
-            logger.info(f"Transcription step completed in {transcription_elapsed:.2f}s")
+            logger.debug(f"Transcription step completed in {transcription_elapsed:.2f}s")
 
             if not transcription_result["transcript"]:
                 # Check if it's a timeout error - if so, return "No" instead of "Error"
@@ -482,7 +481,7 @@ class AgentOnlyRebuttalDetector:
                 )
 
             raw_transcript = transcription_result["transcript"]
-            logger.info(f"Raw AssemblyAI transcript: '{raw_transcript[:100]}...'")
+            logger.debug(f"Raw AssemblyAI transcript: '{raw_transcript[:100]}...'")
 
             # Step 2: Apply Egyptian accent corrections for better accuracy (CPU-bound, run in executor)
             import asyncio
@@ -495,11 +494,11 @@ class AgentOnlyRebuttalDetector:
             )
             corrected_transcript, accent_corrections = corrected_result
             correction_elapsed = time.time() - correction_start
-            logger.info(
+            logger.debug(
                 f"Applied {len(accent_corrections)} Egyptian accent corrections "
                 f"in {correction_elapsed:.2f}s"
             )
-            logger.info(f"Final corrected transcript (displayed in app): '{corrected_transcript[:100]}...'")
+            logger.debug(f"Final corrected transcript (displayed in app): '{corrected_transcript[:100]}...'")
 
             # Step 3: Detect rebuttals using corrected transcript (CPU-bound, run in executor)
             detection_start = time.time()
@@ -509,18 +508,18 @@ class AgentOnlyRebuttalDetector:
                 corrected_transcript
             )
             detection_elapsed = time.time() - detection_start
-            logger.info(f"Semantic rebuttal detection completed in {detection_elapsed:.2f}s")
+            logger.debug(f"Semantic rebuttal detection completed in {detection_elapsed:.2f}s")
 
             # Step 4: Determine final result
             if matches:
                 best_match = matches[0]  # Highest confidence
                 result = "Yes"
                 confidence = best_match['confidence']
-                logger.info(f"REBUTTAL DETECTED: {best_match['phrase']} (confidence: {confidence:.3f})")
+                logger.debug(f"REBUTTAL DETECTED: {best_match['phrase']} (confidence: {confidence:.3f})")
             else:
                 result = "No"
                 confidence = 0.0
-                logger.info("No rebuttals detected")
+                logger.debug("No rebuttals detected")
 
             # Step 5: Format final result
             processing_time = int((time.time() - start_time) * 1000)

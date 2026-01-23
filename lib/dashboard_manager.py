@@ -1187,18 +1187,18 @@ class UserManager:
 
             readymode_user = user_data.get('readymode_user')
 
-            # Debug logging
-            logger.info(f"ReadyMode credentials for {username}: user={readymode_user}, has_encrypted={'readymode_pass_encrypted' in user_data}, has_plain={'readymode_pass' in user_data}")
+            # Debug logging (DEBUG level to reduce noise)
+            logger.debug(f"ReadyMode credentials for {username}: user={readymode_user}, has_encrypted={'readymode_pass_encrypted' in user_data}, has_plain={'readymode_pass' in user_data}")
 
             # Check if password is encrypted
             if SECURITY_AVAILABLE and 'readymode_pass_encrypted' in user_data:
                 encrypted_pass = user_data['readymode_pass_encrypted']
                 readymode_pass = security_manager.decrypt_string(encrypted_pass)
-                logger.info(f"Decrypted ReadyMode password for {username}: length={len(readymode_pass) if readymode_pass else 0}")
+                logger.debug(f"Decrypted ReadyMode password for {username}: length={len(readymode_pass) if readymode_pass else 0}")
             else:
                 # Fallback to plain text (legacy)
                 readymode_pass = user_data.get('readymode_pass')
-                logger.info(f"Using plain text ReadyMode password for {username}: length={len(readymode_pass) if readymode_pass else 0}")
+                logger.debug(f"Using plain text ReadyMode password for {username}: length={len(readymode_pass) if readymode_pass else 0}")
 
             return readymode_user, readymode_pass
 
@@ -2766,7 +2766,7 @@ class DashboardManager:
                                 (combined_df['Releasing Detection'] == 'Yes') |
                                 (combined_df['Late Hello Detection'] == 'Yes')
                             ])
-                            logger.info(f"Lite audit data loaded: {len(combined_df)} total calls, "
+                            logger.debug(f"Lite audit data loaded: {len(combined_df)} total calls, "
                                       f"{releasing_count} releasing, {late_hello_count} late hello, "
                                       f"{flagged_count} flagged total")
                     

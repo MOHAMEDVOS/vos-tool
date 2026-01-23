@@ -42,13 +42,13 @@ try:
     
     if user_api_key:
         aai.settings.api_key = user_api_key
-        logger.info(f"Auto-initialized AssemblyAI API key from database for user: {current_user}")
+        logger.debug(f"Auto-initialized AssemblyAI API key from database for user: {current_user}")
     else:
         # Fallback to environment variable
         env_key = os.getenv("ASSEMBLYAI_API_KEY")
         if env_key:
             aai.settings.api_key = env_key
-            logger.info("Using AssemblyAI API key from environment variable")
+            logger.debug("Using AssemblyAI API key from environment variable")
 except Exception as e:
     logger.warning(f"Could not auto-initialize API key from database: {e}")
     # Try environment fallback
@@ -136,9 +136,9 @@ class TranscriptionCache:
         self.enabled = os.getenv('TRANSCRIPTION_CACHE_ENABLED', 'true').lower() == 'true'
         
         if self.enabled:
-            logger.info(f"Transcription cache enabled: {self.cache_dir} (TTL: {ttl_days} days)")
+            logger.debug(f"Transcription cache enabled: {self.cache_dir} (TTL: {ttl_days} days)")
         else:
-            logger.info("Transcription cache disabled")
+            logger.debug("Transcription cache disabled")
     
     def _get_file_hash(self, file_path: str) -> str:
         """Get MD5 hash of audio file for cache key."""
@@ -187,7 +187,7 @@ class TranscriptionCache:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
             
-            logger.info(f"✅ Cache HIT for {Path(file_path).name} (age: {cache_age.days}d)")
+            logger.debug(f"✅ Cache HIT for {Path(file_path).name} (age: {cache_age.days}d)")
             return cached_data
             
         except Exception as e:
@@ -215,7 +215,7 @@ class TranscriptionCache:
             with open(cache_file, 'w', encoding='utf-8') as f:
                 json.dump(transcription_result, f, indent=2)
             
-            logger.info(f"💾 Cached transcription for {Path(file_path).name}")
+            logger.debug(f"💾 Cached transcription for {Path(file_path).name}")
             
         except Exception as e:
             logger.warning(f"Cache write error: {e}")
@@ -265,7 +265,7 @@ class AssemblyAITranscriptionEngine:
             raise ValueError("AssemblyAI API key required. Set ASSEMBLYAI_API_KEY environment variable or provide user API key.")
         
         if effective_api_key == aai.settings.api_key:
-            logger.info("Using AssemblyAI API key from aai.settings fallback")
+            logger.debug("Using AssemblyAI API key from aai.settings fallback")
         else:
             aai.settings.api_key = effective_api_key
         
@@ -276,7 +276,7 @@ class AssemblyAITranscriptionEngine:
         cache_ttl = int(os.getenv('TRANSCRIPTION_CACHE_TTL_DAYS', '30'))
         self.cache = TranscriptionCache(cache_dir=cache_dir, ttl_days=cache_ttl)
         
-        logger.info("AssemblyAI transcription engine initialized")
+        logger.debug("AssemblyAI transcription engine initialized")
     
     def transcribe_file(
         self, 
@@ -323,7 +323,7 @@ class AssemblyAITranscriptionEngine:
                 
             config = aai.TranscriptionConfig(**config_params)
             
-            logger.info(f"Transcribing file: {audio_file_path} (timeout: {timeout}s)")
+            logger.debug(f"Transcribing file: {audio_file_path} (timeout: {timeout}s)")
             
             # Submit for transcription with local retry for connection issues
             transcript_submission = None
@@ -520,7 +520,7 @@ class AssemblyAITranscriptionEngine:
             config_dict = {**default_config, **(options or {})}
             config = aai.TranscriptionConfig(**config_dict)
             
-            logger.info(f"Transcribing audio from URL: {audio_url}")
+            logger.debug(f"Transcribing audio from URL: {audio_url}")
             
             # Transcribe from URL
             transcript = self.transcriber.transcribe(audio_url, config=config)
@@ -545,7 +545,7 @@ class AssemblyAITranscriptionEngine:
                 "status": transcript.status.value if hasattr(transcript, 'status') else "completed"
             }
             
-            logger.info(f"Transcription from URL completed in {processing_time_ms}ms")
+            logger.debug(f"Transcription from URL completed in {processing_time_ms}ms")
             
             return result
             

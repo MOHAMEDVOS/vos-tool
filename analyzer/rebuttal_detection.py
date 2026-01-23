@@ -1907,20 +1907,20 @@ class SemanticDetectionEngine:
         if self.semantic_model is None and transcript and len(transcript.strip()) > 0:
             self._lazy_initialize_models()
             
-        logger.info(f"🔍 Starting rebuttal detection on transcript: '{transcript[:100]}...'")
+        logger.debug(f"🔍 Starting rebuttal detection on transcript: '{transcript[:100]}...'")
         matches = []
         transcript_lower = transcript.lower()
 
         # 1. Primary: Exact matching (fastest)
         logger.debug("Running exact phrase matching...")
-        logger.info("DEBUG: Starting exact phrase matching")
+        logger.debug("Starting exact phrase matching")
         exact_matches = self._detect_exact_matches(transcript_lower)
         matches.extend(exact_matches)
 
         # 2. Secondary: Semantic matching (AI-powered)
         if self.semantic_model is not None:
             logger.debug("Running semantic AI matching...")
-            logger.info("DEBUG: Starting semantic AI matching")
+            logger.debug("Starting semantic AI matching")
             semantic_matches = self._detect_semantic_matches(transcript)
             # Filter out semantic matches that are too similar to exact matches
             filtered_semantic_matches = self._filter_duplicate_matches(exact_matches, semantic_matches)
@@ -1939,16 +1939,16 @@ class SemanticDetectionEngine:
         
         # Log confidence for debugging (no LLaMA fallback)
         if len(matches) == 0 or best_confidence < 0.70:
-            logger.info(f"ℹ️ Low confidence case (best: {best_confidence:.2f}) - using exact + semantic matching only")
+            logger.debug(f"ℹ️ Low confidence case (best: {best_confidence:.2f}) - using exact + semantic matching only")
         
         # Sort by confidence score (highest first)
         matches.sort(key=lambda x: x['confidence'], reverse=True)
 
         if matches:
             best_match = matches[0]
-            logger.info(f"✅ Best match: '{best_match['phrase']}' ({best_match['match_type']}) confidence: {best_match['confidence']:.3f}")
+            logger.debug(f"✅ Best match: '{best_match['phrase']}' ({best_match['match_type']}) confidence: {best_match['confidence']:.3f}")
         else:
-            logger.info("❌ No rebuttals detected by any method")
+            logger.debug("❌ No rebuttals detected by any method")
 
         return matches
 
@@ -2040,9 +2040,9 @@ class SemanticDetectionEngine:
             logger.debug(f"Semantic matching on {len(all_texts_to_match)} text segments (sentences + context windows)")
             
             # Batch encode all texts at once for speed
-            logger.info(f"DEBUG: Encoding {len(all_texts_to_match)} segments with semantic model...")
+            logger.debug(f"Encoding {len(all_texts_to_match)} segments with semantic model...")
             text_embeddings = self.semantic_model.encode(all_texts_to_match, batch_size=8, show_progress_bar=False)
-            logger.info("DEBUG: Encoding completed")
+            logger.debug("Encoding completed")
             
             # Calculate similarities for all texts at once
             similarities = cosine_similarity(text_embeddings, self.phrase_embeddings['embeddings'])
@@ -2068,7 +2068,7 @@ class SemanticDetectionEngine:
             # Convert to list and log matches
             matches = list(best_similarities.values())
             if matches:
-                logger.info(f"✅ Semantic matching found {len(matches)} matches (threshold: {self.semantic_threshold:.2f})")
+                logger.debug(f"✅ Semantic matching found {len(matches)} matches (threshold: {self.semantic_threshold:.2f})")
                 for match in matches[:3]:  # Log top 3 matches
                     logger.debug(f"  - '{match['phrase']}' (confidence: {match['confidence']:.3f})")
             else:
@@ -2476,7 +2476,7 @@ class RebuttalDetectionModule:
     def detect_rebuttals(self, audio_segment: AudioSegment) -> Dict[str, Any]:
         """Main detection method following the hierarchical decision tree for agent-only analysis."""
         start_time = time.time()
-        logger.info(f"Starting rebuttal detection for audio segment of length {len(audio_segment)}ms")
+        logger.debug(f"Starting rebuttal detection for audio segment of length {len(audio_segment)}ms")
 
         try:
             # 1. Data Ingestion & Validation
@@ -2534,15 +2534,15 @@ class RebuttalDetectionModule:
             agent_text = self.transcription.transcribe_audio(normalized_agent)
 
             trans_time = time.time() - trans_start
-            logger.info(f"Agent transcription completed in {trans_time:.2f}s")
-            logger.info(f"Generated agent transcript: {len(agent_text)} characters")
+            logger.debug(f"Agent transcription completed in {trans_time:.2f}s")
+            logger.debug(f"Generated agent transcript: {len(agent_text)} characters")
 
             # Create simple dialogue format (agent only)
             dialogue_transcript = f"Agent: {agent_text}" if agent_text else ""
 
             # Check if we have valid agent transcript
             if not agent_text:
-                logger.info("No agent transcript generated, returning 'No'")
+                logger.debug("No agent transcript generated, returning 'No'")
                 return self.output_formatter.format_result(
                     "No",
                     transcript=dialogue_transcript,
@@ -2596,7 +2596,7 @@ class RebuttalDetectionModule:
                 best_match = max(matches, key=lambda x: x['confidence'])
                 result = "Yes"
                 confidence_score = best_match['confidence']
-                logger.info(f"Rebuttal detected with confidence {confidence_score:.2f}")
+                logger.debug(f"Rebuttal detected with confidence {confidence_score:.2f}")
             else:
                 result = "No"
                 confidence_score = 0.0
