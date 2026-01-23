@@ -4,6 +4,7 @@ Singleton model manager for Whisper and semantic encoders.
 
 import logging
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,6 @@ def get_semantic_model():
                         elif "Connection" in str(critical_error) or "timeout" in str(critical_error).lower():
                             print(f"[SINGLETON] [TID={tid}] 🛑 NETWORK ERROR DETECTED. Check HuggingFace connectivity.")
                             if attempt < max_retries - 1:
-                                import time
                                 print(f"[SINGLETON] [TID={tid}] Retrying in {retry_delay} seconds...")
                                 time.sleep(retry_delay)
                             else:
@@ -91,8 +91,6 @@ def get_semantic_model():
             logger.info(f"[SINGLETON] [TID={tid}] Sentence Transformer model ready ({_SEMANTIC_MODEL.get_parameter_device() if hasattr(_SEMANTIC_MODEL, 'get_parameter_device') else device})")
 
             logger.info(f"[SINGLETON] [TID={tid}] Precomputing phrase embeddings...")
-            import time
-            import threading
             
             repo_start_time = time.time()
             
@@ -188,7 +186,6 @@ def get_semantic_model():
                 logger.info(f"[SINGLETON] [TID={tid}] Scheduling background reload of learned phrases...")
                 def background_reload():
                     """Reload embeddings in background to include learned phrases."""
-                    import time
                     time.sleep(2)  # Wait a bit for DB to be ready
                     try:
                         logger.info(f"[SINGLETON] [BACKGROUND] Attempting to reload embeddings with learned phrases...")
