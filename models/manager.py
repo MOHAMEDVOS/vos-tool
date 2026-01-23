@@ -103,98 +103,43 @@ def get_semantic_model():
             hardcoded_phrases = repo_hardcoded.get_all_phrases()
             logger.info(f"[SINGLETON] [TID={tid}] Loaded {sum(len(p) for p in hardcoded_phrases.values())} hardcoded phrases")
             
-            # Step 2: Try to load learned phrases with timeout (non-blocking)
-            learned_phrases_result = [{}]  # Use list for thread-safe mutable reference
-            learned_phrases_loaded = [False]  # Use list for mutable reference in thread
-            learned_phrases_error = [None]
-            
-            def load_learned_phrases():
-                """Load learned phrases in background thread."""
-                try:
-                    repo_learned = KeywordRepository(skip_database=False)
-                    all_learned = repo_learned.get_all_phrases()
-                    
-                    # Extract only learned phrases (those not in hardcoded)
-                    learned_only = {}
-                    for category, phrases in all_learned.items():
-                        if category not in hardcoded_phrases:
-                            # Entire category is new
-                            learned_only[category] = phrases
-                        else:
-                            # Merge, avoiding duplicates with hardcoded phrases
-                            hardcoded_lower = {p.lower().strip() for p in hardcoded_phrases[category]}
-                            learned_list = []
-                            for phrase in phrases:
-                                if phrase.lower().strip() not in hardcoded_lower:
-                                    learned_list.append(phrase)
-                            if learned_list:
-                                learned_only[category] = learned_list
-                    
-                    learned_phrases_result[0] = learned_only
-                    learned_phrases_loaded[0] = True
-                    total_learned = sum(len(p) for p in learned_only.values())
-                    logger.info(f"[SINGLETON] [TID={tid}] ✅ Loaded {total_learned} learned phrases from database")
-                except Exception as e:
-                    learned_phrases_error[0] = e
-                    logger.warning(f"[SINGLETON] [TID={tid}] ⚠️ Could not load learned phrases: {e}. Continuing with hardcoded phrases only.")
-            
-            # Try to load learned phrases with timeout
-            learned_timeout = int(os.getenv("LEARNED_PHRASES_LOAD_TIMEOUT", "5"))  # 5 second default
-            learned_thread = threading.Thread(target=load_learned_phrases, daemon=True)
-            learned_thread.start()
-            learned_thread.join(timeout=learned_timeout)
-            
-            if learned_thread.is_alive():
-                logger.warning(f"[SINGLETON] [TID={tid}] ⚠️ Learned phrases loading timed out after {learned_timeout}s. Using hardcoded phrases only. Learned phrases will be loaded on-demand.")
-            elif learned_phrases_error[0]:
-                logger.warning(f"[SINGLETON] [TID={tid}] ⚠️ Learned phrases loading failed: {learned_phrases_error[0]}. Using hardcoded phrases only.")
-            
-            # Step 3: Merge hardcoded and learned phrases
-            all_phrase_data = hardcoded_phrases.copy()
-            learned_phrases = learned_phrases_result[0]  # Get result from thread
-            for category, phrases in learned_phrases.items():
-                if category not in all_phrase_data:
-                    all_phrase_data[category] = []
-                all_phrase_data[category].extend(phrases)
-            
-            total_phrases = sum(len(p) for p in all_phrase_data.values())
-            learned_count = sum(len(p) for p in learned_phrases.values())
-            logger.info(f"[SINGLETON] [TID={tid}] Total phrases: {total_phrases} (hardcoded: {total_phrases - learned_count}, learned: {learned_count})")
-            logger.info(f"[SINGLETON] [TID={tid}] Fetched phrases in {time.time() - repo_start_time:.2f}s")
-
+            # Step 2: Encode hardcoded phrases IMMEDIATELY to unblock the request
             all_phrases = []
             phrase_metadata = []
 
-            for category, phrases in all_phrase_data.items():
+            for category, phrases in hardcoded_phrases.items():
                 for phrase in phrases:
                     all_phrases.append(phrase)
                     phrase_metadata.append({'phrase': phrase, 'category': category})
 
-            logger.info(f"[SINGLETON] [TID={tid}] Encoding {len(all_phrases)} phrases (batch_size=32)...")
+            logger.info(f"[SINGLETON] [TID={tid}] Encoding {len(all_phrases)} hardcoded phrases (FAST path)...")
             encode_start_time = time.time()
-            embeddings = _SEMANTIC_MODEL.encode(all_phrases, show_progress_bar=False, batch_size=32)
-            logger.info(f"[SINGLETON] [TID={tid}] Encoding finished in {time.time() - encode_start_time:.2f}s")
+            # Smaller batch size for CPU safety
+            embeddings = _SEMANTIC_MODEL.encode(all_phrases, show_progress_bar=False, batch_size=8)
+            logger.info(f"[SINGLETON] [TID={tid}] Fast encoding finished in {time.time() - encode_start_time:.2f}s")
+            
             _SEMANTIC_EMBEDDINGS = {
                 'embeddings': embeddings,
                 'metadata': phrase_metadata
             }
-
-            logger.info(f"[SINGLETON] [TID={tid}] Computed embeddings for {len(all_phrases)} phrases")
             
-            # If learned phrases weren't loaded (timeout or error), schedule background reload
-            if not learned_phrases_loaded[0] and not learned_thread.is_alive():
-                logger.info(f"[SINGLETON] [TID={tid}] Scheduling background reload of learned phrases...")
-                def background_reload():
-                    """Reload embeddings in background to include learned phrases."""
-                    time.sleep(2)  # Wait a bit for DB to be ready
-                    try:
-                        logger.info(f"[SINGLETON] [BACKGROUND] Attempting to reload embeddings with learned phrases...")
-                        reload_semantic_embeddings()
-                    except Exception as e:
-                        logger.warning(f"[SINGLETON] [BACKGROUND] Background reload failed: {e}")
-                
-                bg_thread = threading.Thread(target=background_reload, daemon=True)
-                bg_thread.start()
+            # Step 3: Launch background thread to load and encode learned phrases
+            # This ensures the first request returns instantly, and the model upgrades itself 
+            # with learned phrases in the background a few seconds later.
+            def background_full_load():
+                """Load learned phrases and re-encode everything in background."""
+                time.sleep(1)  # Yield CPU to let the main request finish
+                try:
+                    logger.info(f"[SINGLETON] [BACKGROUND] Starting full phrase load (hardcoded + learned)...")
+                    reload_semantic_embeddings()
+                except Exception as e:
+                    logger.warning(f"[SINGLETON] [BACKGROUND] Background phrase loading failed: {e}")
+
+            bg_thread = threading.Thread(target=background_full_load, daemon=True)
+            bg_thread.start()
+            logger.info(f"[SINGLETON] [TID={tid}] Scheduled background task to load learned phrases")
+
+            return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
             
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
