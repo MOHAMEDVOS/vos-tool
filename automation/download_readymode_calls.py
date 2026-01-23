@@ -669,20 +669,21 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 print(f"{'='*60}")
                 
                 duration_success = False
-                for attempt in range(2):
+                for attempt in range(3):  # Increased to 3 attempts
+                    handle_dialog = None
                     try:
-                        print(f"Duration Filter Attempt {attempt + 1}/2")
+                        print(f"Duration Filter Attempt {attempt + 1}/3")
                         
                         # Set up dialog handler for the "greater" prompt
-                        duration_value = f"{int(min_duration or 20)} sec"
-                        def handle_dialog(dialog):
-                            print(f"DEBUG DIALOG: {dialog.message}")
-                            if "seconds" in dialog.message.lower() or "duration" in dialog.message.lower():
-                                print(f"SUCCESS Handling duration prompt: '{duration_value}'")
-                                dialog.accept(duration_value)
-                            else:
-                                dialog.dismiss()
+                        duration_value_str = f"{int(min_duration or 20)} sec"
+                        
+                        def handle_dialog_func(dialog):
+                            print(f"DEBUG DIALOG DETECTED: {dialog.message}")
+                            # Be permissive with message matching
+                            print(f"SUCCESS Handling duration prompt with: '{duration_value_str}'")
+                            dialog.accept(duration_value_str)
 
+                        handle_dialog = handle_dialog_func
                         page.on("dialog", handle_dialog)
 
                         # Determine bucket value
@@ -693,8 +694,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                             elif min_duration == 60 and max_duration == 600:
                                 value_to_select = "60-600"
                             else:
-                                # Fallback to 30-60 for custom ranges if applicable
-                                value_to_select = "30-60"
+                                value_to_select = "30-60"  # Default bucket
                         elif max_duration is not None:
                             if max_duration == 30:
                                 value_to_select = "0-30"
@@ -704,30 +704,45 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                             value_to_select = "greater"
 
                         if value_to_select:
-                            page.select_option("#duration_filter", value=value_to_select)
-                            print(f"SUCCESS Selected duration bucket: {value_to_select}")
-                        
-                        time.sleep(2)
-                        
-                        # Wait for results or refresh
-                        try:
-                            # If "greater" was chosen, allow some time for the prompt/trigger
-                            if value_to_select == "greater":
-                                time.sleep(2)
+                            print(f"Selecting duration bucket '{value_to_select}' via JS...")
+                            found = page.evaluate("""
+                                (val) => {
+                                    const select = document.querySelector('#duration_filter');
+                                    if (!select) return false;
+                                    select.value = val;
+                                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                                    return true;
+                                }
+                            """, value_to_select)
                             
-                            page.wait_for_selector("a[href*='.mp3']", timeout=10000)
+                            if not found:
+                                print("WARNING: #duration_filter dropdown not found on page")
+                                time.sleep(2)
+                                continue
+                                
+                            print(f"SUCCESS Duration bucket set: {value_to_select}")
+                        
+                        # Wait for trigger and results
+                        time.sleep(3)
+                        
+                        try:
+                            # Wait for MP3 links or results table to refresh
+                            page.wait_for_selector("a[href*='.mp3']", timeout=12000)
                             print("SUCCESS Results refreshed after duration filter")
                         except:
-                            print("INFO Filter applied, but no results found (normal)")
+                            print("INFO Filter applied, results refresh not explicitly confirmed (could be 0 results)")
                             
-                        # Cleanup dialog listener
-                        page.remove_listener("dialog", handle_dialog)
-                        
                         duration_success = True
                         break
                     except Exception as e:
                         print(f"WARNING Duration filter attempt {attempt + 1} failed: {e}")
-                        time.sleep(1)
+                        time.sleep(2)
+                    finally:
+                        if handle_dialog:
+                            try:
+                                page.remove_listener("dialog", handle_dialog)
+                            except:
+                                pass
 
             # STEP 6.2: RE-APPLY AGENT FILTER (Robust JS Implementation)
             if agent and agent.strip().lower() not in ["any", "all users"]:
