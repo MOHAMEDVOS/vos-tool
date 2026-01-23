@@ -103,25 +103,48 @@ def get_semantic_model():
             hardcoded_phrases = repo_hardcoded.get_all_phrases()
             logger.info(f"[SINGLETON] [TID={tid}] Loaded {sum(len(p) for p in hardcoded_phrases.values())} hardcoded phrases")
             
-            # Step 2: Encode hardcoded phrases IMMEDIATELY to unblock the request
-            all_phrases = []
-            phrase_metadata = []
-
-            for category, phrases in hardcoded_phrases.items():
-                for phrase in phrases:
-                    all_phrases.append(phrase)
-                    phrase_metadata.append({'phrase': phrase, 'category': category})
-
-            logger.info(f"[SINGLETON] [TID={tid}] Encoding {len(all_phrases)} hardcoded phrases (FAST path)...")
-            encode_start_time = time.time()
-            # Smaller batch size for CPU safety
-            embeddings = _SEMANTIC_MODEL.encode(all_phrases, show_progress_bar=False, batch_size=8)
-            logger.info(f"[SINGLETON] [TID={tid}] Fast encoding finished in {time.time() - encode_start_time:.2f}s")
+            # Step 2: Try to load PRE-COMPUTED embeddings first (Fastest path)
+            precomputed_loaded = False
+            precomputed_path = '/app/hardcoded_embeddings.pkl'
+            # Fallback for local
+            if not os.path.exists(precomputed_path):
+                 precomputed_path = 'hardcoded_embeddings.pkl'
             
-            _SEMANTIC_EMBEDDINGS = {
-                'embeddings': embeddings,
-                'metadata': phrase_metadata
-            }
+            if os.path.exists(precomputed_path):
+                try:
+                    import pickle
+                    logger.info(f"[SINGLETON] [TID={tid}] Found pre-computed embeddings at {precomputed_path}")
+                    with open(precomputed_path, 'rb') as f:
+                        data = pickle.load(f)
+                        if 'embeddings' in data and 'metadata' in data:
+                            _SEMANTIC_EMBEDDINGS = {
+                                'embeddings': data['embeddings'],
+                                'metadata': data['metadata']
+                            }
+                            precomputed_loaded = True
+                            logger.info(f"[SINGLETON] [TID={tid}] ✅ Instantly loaded {len(data['metadata'])} pre-computed phrases!")
+                except Exception as e:
+                    logger.warning(f"[SINGLETON] [TID={tid}] Failed to load pre-computed embeddings: {e}")
+
+            # Fallback: Encode hardcoded phrases runtime if precomputed missing
+            if not precomputed_loaded:
+                all_phrases = []
+                phrase_metadata = []
+
+                for category, phrases in hardcoded_phrases.items():
+                    for phrase in phrases:
+                        all_phrases.append(phrase)
+                        phrase_metadata.append({'phrase': phrase, 'category': category})
+
+                logger.info(f"[SINGLETON] [TID={tid}] Encoding {len(all_phrases)} hardcoded phrases (Runtime fallback)...")
+                encode_start_time = time.time()
+                embeddings = _SEMANTIC_MODEL.encode(all_phrases, show_progress_bar=False, batch_size=8)
+                logger.info(f"[SINGLETON] [TID={tid}] Fast encoding finished in {time.time() - encode_start_time:.2f}s")
+                
+                _SEMANTIC_EMBEDDINGS = {
+                    'embeddings': embeddings,
+                    'metadata': phrase_metadata
+                }
             
             # Step 3: Launch background thread to load and encode learned phrases
             # This ensures the first request returns instantly, and the model upgrades itself 

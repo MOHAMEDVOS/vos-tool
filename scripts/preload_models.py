@@ -8,6 +8,10 @@ import sys
 import logging
 from pathlib import Path
 
+# Add project root to path for imports
+sys.path.append(os.getcwd())
+sys.path.append(str(Path(__file__).parent.parent))
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -61,6 +65,10 @@ def preload_semantic_model():
 
         # Log model info
         logger.info(f"✓ Model ready on device: {device}")
+        
+        # Pre-compute embeddings for hardcoded phrases
+        precompute_hardcoded_embeddings(model)
+        
         logger.info("=" * 60)
         return True
 
@@ -74,6 +82,57 @@ def preload_semantic_model():
         logger.error("The app will fallback to exact matching only")
         import traceback
         logger.error(traceback.format_exc())
+        return False
+
+def precompute_hardcoded_embeddings(model):
+    """
+    Compute embeddings for hardcoded phrases during build time.
+    Saves them to 'hardcoded_embeddings.pkl' for instant loading.
+    """
+    try:
+        logger.info("Pre-computing hardcoded phrase embeddings...")
+        import pickle
+        # We need to import the hardcoded phrases without triggering the full DB/App logic
+        # So we import just the repository class/structure or define the path manually
+        from analyzer.rebuttal_detection import KeywordRepository
+        
+        # Load ONLY hardcoded phrases (skip_database=True is critical here)
+        repo = KeywordRepository(skip_database=True)
+        hardcoded_phrases = repo.get_all_phrases()
+        
+        all_phrases = []
+        phrase_metadata = []
+
+        for category, phrases in hardcoded_phrases.items():
+            for phrase in phrases:
+                all_phrases.append(phrase)
+                phrase_metadata.append({'phrase': phrase, 'category': category})
+        
+        logger.info(f"Encoding {len(all_phrases)} hardcoded phrases...")
+        embeddings = model.encode(all_phrases, show_progress_bar=False, batch_size=32)
+        
+        output_data = {
+            'embeddings': embeddings,
+            'metadata': phrase_metadata,
+            'count': len(all_phrases)
+        }
+        
+        # Save to the same directory as the model/cache or app root
+        output_path = '/app/hardcoded_embeddings.pkl'
+        # Fallback for local testing (windows)
+        if not os.path.exists('/app') and os.name == 'nt':
+             output_path = 'hardcoded_embeddings.pkl'
+
+        with open(output_path, 'wb') as f:
+            pickle.dump(output_data, f)
+            
+        logger.info(f"✅ Saved pre-computed embeddings to {output_path}")
+        return True
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to pre-compute embeddings: {e}")
+        import traceback
+        logger.warning(traceback.format_exc())
         return False
 
 
