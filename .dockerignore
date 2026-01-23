@@ -56,6 +56,7 @@ logs/
 *.sqlite3
 dashboard_data/*.db
 dashboard_data/*.json
+!dashboard_data/rebuttal_repository.json
 
 # Recordings (will use volumes)
 Recordings/
@@ -89,10 +90,10 @@ cloud-migration/
 !cloud-migration/init.sql
 !cloud-migration/migration_schema.sql
 
-# Scripts (not needed in containers)
-scripts/
-*.sh
-*.bat
+# Scripts (needed for build-time operations)
+!scripts/
+
+
 
 # Kubernetes
 kubernetes/
