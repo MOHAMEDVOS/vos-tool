@@ -5,6 +5,7 @@ Singleton model manager for Whisper and semantic encoders.
 import logging
 import threading
 import time
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,6 @@ def get_semantic_model():
             from sentence_transformers import SentenceTransformer
             from analyzer.rebuttal_detection import KeywordRepository
             from huggingface_hub import snapshot_download
-            import os
             
             # Auto-detect GPU for Sentence Transformers
             import torch

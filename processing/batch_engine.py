@@ -11,6 +11,8 @@ import os
 import logging
 import asyncio
 import threading
+import time
+import multiprocessing
 
 from audio_pipeline.audio_processor import AudioProcessor, RESULT_KEYS
 
@@ -22,8 +24,6 @@ def _run_with_context(ctx, func, *args, **kwargs):
     if ctx:
         try:
             from streamlit.runtime.scriptrunner import add_script_run_ctx
-            import threading
-            # Correctly attach the captured context to the current worker thread
             add_script_run_ctx(threading.current_thread(), ctx)
         except Exception as e:
             # Silence internal streamlit errors but log them for debugging
@@ -45,8 +45,6 @@ class BatchProcessor:
         self.audio_processor = AudioProcessor()
         # Optimize workers for fast AssemblyAI processing (30-60s files)
         # Limit concurrent API calls to avoid rate limits and optimize throughput
-        import multiprocessing
-        import os
         cpu_count = multiprocessing.cpu_count()
         
         # Check for manual override via environment variable
@@ -111,8 +109,6 @@ class BatchProcessor:
         Returns:
             List of processing results
         """
-        import logging
-        import time
         from concurrent.futures import TimeoutError
         
         logger = logging.getLogger(__name__)
@@ -302,7 +298,6 @@ class BatchProcessor:
         Returns:
             List of processing results
         """
-        import time
         from concurrent.futures import TimeoutError
         
         logger.info("Starting ASYNC batch processing (Phase 2 optimization)")
@@ -812,8 +807,6 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
         pandas DataFrame with lite analysis results
     """
     from audio_pipeline.detections import releasing_detection, late_hello_detection
-    import logging
-    import time
     from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
     logger = logging.getLogger(__name__)
@@ -842,7 +835,6 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
     timeout_per_file = 15  # 15 seconds timeout per file (optimized lite processing should be faster)
 
     # Optimize workers based on GPU availability
-    import multiprocessing
     import torch
     cpu_count = multiprocessing.cpu_count()
     
