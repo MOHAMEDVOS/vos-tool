@@ -70,9 +70,10 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     TZ=America/New_York \
     STREAMLIT_SERVER_FILE_WATCHER_TYPE=none \
-    # Prevent HuggingFace from downloading models during build
-    HF_HOME=/tmp/.cache/huggingface \
-    HF_HUB_CACHE=/tmp/.cache/huggingface/hub
+    # HuggingFace cache directories (Persistent for build-time loading)
+    HF_HOME=/app/.cache/huggingface \
+    HF_HUB_CACHE=/app/.cache/huggingface/hub \
+    TRANSFORMERS_CACHE=/app/.cache/huggingface/transformers
 
 # Copy only required frontend code (excludes archive/, test files, etc. via .dockerignore)
 COPY frontend/ /app/frontend/
@@ -88,7 +89,13 @@ COPY models/ /app/models/
 COPY ui/ /app/ui/
 COPY tools/ /app/tools/
 COPY automation/ /app/automation/
+COPY dashboard_data/ /app/dashboard_data/
+COPY scripts/ /app/scripts/
 COPY favicon.png /app/
+
+# Pre-compute embeddings during build time (Critical optimization)
+# This will download the model and save 'hardcoded_embeddings.pkl' to /app/
+RUN python /app/scripts/preload_models.py
 
 # Create Streamlit config directory and file
 RUN mkdir -p /root/.streamlit && \
