@@ -459,14 +459,17 @@ class BatchProcessor:
         except Exception as e:
             logger.error(f"Fatal error in async batch processing: {e}", exc_info=True)
         finally:
-            # Flush deferred phrases before cleanup
+
+            # OPTIMIZATION: Flush queued phrases in BACKGROUND
+            # This allows the UI to show results immediately without waiting for embedding reload
             if phrase_manager:
                 try:
-                    flush_result = phrase_manager.disable_deferred_mode(flush=True)
-                    stats = flush_result.get('stats', {})
-                    logger.info(f"✅ Flushed {stats.get('total_added', 0)} new phrases with single reload")
+                    phrase_manager.flush_deferred_phrases_in_background()
+                    # Note: Mode is disabled automatically by the method
                 except Exception as e:
-                    logger.error(f"Error flushing deferred phrases: {e}")
+                    logger.error(f"Error triggering background phrase flush: {e}")
+                    # Ensure disabled in case of error to prevent stuck state
+                    phrase_manager.deferred_mode = False
             
             # Final cleanup
             import gc
