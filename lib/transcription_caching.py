@@ -12,10 +12,11 @@ from datetime import datetime
 
 # Import database manager
 try:
-    from lib.database import get_db_manager, DB_AVAILABLE
+    from lib.database import get_db_manager
+    _DB_IMPORT_SUCCESS = True
 except ImportError:
     # Fallback/mock for standalone testing
-    DB_AVAILABLE = False
+    _DB_IMPORT_SUCCESS = False
     get_db_manager = lambda: None
 
 logger = logging.getLogger(__name__)
@@ -36,8 +37,8 @@ class TranscriptionCacheManager:
         if self._initialized:
             return
             
-        if not DB_AVAILABLE or get_db_manager is None:
-            logger.warning("Database unavailable, transcription caching disabled")
+        if not _DB_IMPORT_SUCCESS:
+            logger.warning("Database module unavailable, transcription caching disabled")
             self.enabled = False
             return
 
