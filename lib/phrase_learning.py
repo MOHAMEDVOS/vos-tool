@@ -28,8 +28,19 @@ logger = logging.getLogger(__name__)
 class PhraseLearningManager:
     """Manages the self-learning phrase system."""
     
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(PhraseLearningManager, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self):
         """Initialize the phrase learning manager with PostgreSQL connection."""
+        if self._initialized:
+            return
+            
         if not DB_AVAILABLE or get_db_manager is None:
             raise RuntimeError("PhraseLearningManager requires lib.database and PostgreSQL")
 
@@ -63,8 +74,10 @@ class PhraseLearningManager:
         self.deferred_mode = False
         self._deferred_phrases = []  # Queue: [(phrase, category, source), ...]
         
-        self._init_database()
+
         self._init_repository()
+        
+        self._initialized = True
     
     def _load_settings(self):
         """Load settings from database or use defaults."""
