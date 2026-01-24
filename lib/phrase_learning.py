@@ -941,7 +941,8 @@ class PhraseLearningManager:
         """
         if flush and self._deferred_phrases:
             result = self.flush_deferred_phrases()
-            logger.info(f"Flushed deferred phrases: {result.get('message', 'Unknown')}")
+            if result:
+                logger.info(f"Flushed deferred phrases: {result.get('message', 'Unknown')}")
         
         self.deferred_mode = False
         self._deferred_phrases = []
