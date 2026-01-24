@@ -340,6 +340,9 @@ class BatchProcessor:
         logger.info(f"Starting async processing of {total_files} audio files with {self.max_workers} concurrent workers")
         completed_global = 0
         
+        # Audio processing timeout (10 minutes per file)
+        timeout_per_file = 600
+        
         # STREAMING EXECUTION MODEL
         # Instead of batches, we submit ALL files immediately but gate them with a Semaphore.
         # This prevents "tail latency" where 9 fast files wait for 1 slow file to finish a batch.
