@@ -120,7 +120,10 @@ def retry_api_call(max_retries=3, backoff_factor=2, retry_on_rate_limit=True):
 
 
 class TranscriptionCache:
-    """File-based cache for transcription results to avoid duplicate API calls."""
+    """
+    Cache for transcription results to avoid duplicate API calls.
+    Uses PostgreSQL database if available, falls back to file system.
+    """
     
     def __init__(self, cache_dir=".cache/transcriptions", ttl_days=30):
         """
@@ -130,18 +133,38 @@ class TranscriptionCache:
             cache_dir: Directory to store cache files (default: .cache/transcriptions)
             ttl_days: Time-to-live in days for cache entries (default: 30)
         """
+        self.enabled = os.getenv('TRANSCRIPTION_CACHE_ENABLED', 'true').lower() == 'true'
+        
+        # Try to initialize DB cache manager
+        self.db_manager = None
+        try:
+            from lib.transcription_caching import TranscriptionCacheManager
+            self.db_manager = TranscriptionCacheManager()
+            if self.db_manager.enabled:
+                logger.debug("✅ Using Database Transcription Cache")
+            else:
+                self.db_manager = None
+        except Exception as e:
+            logger.debug(f"Database cache not available: {e}")
+            self.db_manager = None
+            
+        # Fallback to file cache
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ttl_days = ttl_days
-        self.enabled = os.getenv('TRANSCRIPTION_CACHE_ENABLED', 'true').lower() == 'true'
         
         if self.enabled:
-            logger.debug(f"Transcription cache enabled: {self.cache_dir} (TTL: {ttl_days} days)")
+            cache_type = "Database + File" if self.db_manager else "File-only"
+            logger.debug(f"Transcription cache enabled ({cache_type}): {self.cache_dir} (TTL: {ttl_days} days)")
         else:
             logger.debug("Transcription cache disabled")
     
     def _get_file_hash(self, file_path: str) -> str:
         """Get MD5 hash of audio file for cache key."""
+        # Use DB key generator if available for consistency
+        if self.db_manager:
+            return self.db_manager.calculate_file_hash(file_path)
+            
         md5 = hashlib.md5()
         try:
             with open(file_path, 'rb') as f:
@@ -155,13 +178,8 @@ class TranscriptionCache:
     
     def get(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
-        Get cached transcription if exists and not expired.
-        
-        Args:
-            file_path: Path to audio file
-            
-        Returns:
-            Cached transcription result or None
+        Get cached transcription if exists.
+        Checks Database first, then File System.
         """
         if not self.enabled:
             return None
@@ -171,6 +189,14 @@ class TranscriptionCache:
             if not file_hash:
                 return None
             
+            # Level 1: Check Database
+            if self.db_manager:
+                cached = self.db_manager.get_cached_transcript(file_hash)
+                if cached and cached.get('raw_response'):
+                    logger.debug(f"✅ DB Cache HIT for {Path(file_path).name}")
+                    return cached['raw_response']
+            
+            # Level 2: Check File System (Fallback)
             cache_file = self.cache_dir / f"{file_hash}.json"
             
             if not cache_file.exists():
@@ -187,7 +213,17 @@ class TranscriptionCache:
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
             
-            logger.debug(f"✅ Cache HIT for {Path(file_path).name} (age: {cache_age.days}d)")
+            logger.debug(f"✅ File Cache HIT for {Path(file_path).name} (age: {cache_age.days}d)")
+            
+            # Backfill DB if missing
+            if self.db_manager and cached_data:
+                try:
+                    file_size = os.path.getsize(file_path)
+                    transcript_text = cached_data.get('transcript', '')
+                    self.db_manager.cache_transcript(file_hash, file_size, transcript_text, cached_data)
+                except:
+                    pass
+                    
             return cached_data
             
         except Exception as e:
@@ -196,11 +232,7 @@ class TranscriptionCache:
     
     def set(self, file_path: str, transcription_result: Dict[str, Any]):
         """
-        Cache transcription result.
-        
-        Args:
-            file_path: Path to audio file
-            transcription_result: Transcription result to cache
+        Cache transcription result to Database and File System.
         """
         if not self.enabled:
             return
@@ -210,6 +242,16 @@ class TranscriptionCache:
             if not file_hash:
                 return
             
+            # Write to Database
+            if self.db_manager:
+                try:
+                    file_size = os.path.getsize(file_path)
+                    transcript_text = transcription_result.get('transcript', '')
+                    self.db_manager.cache_transcript(file_hash, file_size, transcript_text, transcription_result)
+                except Exception as e:
+                    logger.warning(f"Failed to write to DB cache: {e}")
+            
+            # Write to File System
             cache_file = self.cache_dir / f"{file_hash}.json"
             
             with open(cache_file, 'w', encoding='utf-8') as f:
@@ -222,10 +264,7 @@ class TranscriptionCache:
     
     def clear_expired(self) -> int:
         """
-        Clear expired cache entries.
-        
-        Returns:
-            Number of entries cleared
+        Clear expired cache entries from file system.
         """
         if not self.enabled:
             return 0
