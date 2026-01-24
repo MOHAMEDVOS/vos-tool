@@ -320,6 +320,16 @@ class BatchProcessor:
         if not audio_files:
             return []
         
+        # Enable deferred phrase learning for batch processing
+        phrase_manager = None
+        try:
+            from lib.phrase_learning import PhraseLearningManager
+            phrase_manager = PhraseLearningManager()
+            phrase_manager.enable_deferred_mode()
+            logger.info("📦 Batch mode: Phrase learning deferred until completion")
+        except Exception as e:
+            logger.warning(f"Could not enable deferred phrase learning: {e}")
+        
         # PRE-LOAD MODELS BEFORE BATCH PROCESSING STARTS
         # TEMPORARILY DISABLED: This was blocking transcription while downloading HuggingFace models
         # Models will load on-demand instead
@@ -449,6 +459,15 @@ class BatchProcessor:
         except Exception as e:
             logger.error(f"Fatal error in async batch processing: {e}", exc_info=True)
         finally:
+            # Flush deferred phrases before cleanup
+            if phrase_manager:
+                try:
+                    flush_result = phrase_manager.disable_deferred_mode(flush=True)
+                    stats = flush_result.get('stats', {})
+                    logger.info(f"✅ Flushed {stats.get('total_added', 0)} new phrases with single reload")
+                except Exception as e:
+                    logger.error(f"Error flushing deferred phrases: {e}")
+            
             # Final cleanup
             import gc
             gc.collect()

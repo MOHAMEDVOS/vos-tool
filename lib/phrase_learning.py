@@ -59,6 +59,10 @@ class PhraseLearningManager:
         self._similarity_cache = {}
         self._category_thresholds_cache = {}
         
+        # Deferred mode for batch processing (prevents mid-session embedding reloads)
+        self.deferred_mode = False
+        self._deferred_phrases = []  # Queue: [(phrase, category, source), ...]
+        
         self._init_database()
         self._init_repository()
     
@@ -859,6 +863,14 @@ class PhraseLearningManager:
         """Add a phrase to the repository database."""
         try:
             clean_phrase = phrase.lower().strip()
+            
+            # DEFERRED MODE: Queue phrase instead of immediate DB write
+            if self.deferred_mode:
+                self._deferred_phrases.append((clean_phrase, category, source))
+                logger.debug(f"Queued phrase for deferred processing: '{clean_phrase}' in {category}")
+                return True
+            
+            # NORMAL MODE: Immediate processing (backward compatible)
             with self._db_connection() as conn:
                 cursor = conn.cursor()
                 try:
@@ -913,6 +925,130 @@ class PhraseLearningManager:
         except Exception as e:
             logger.error(f"Failed to add to repository: {e}")
             return False
+
+    def enable_deferred_mode(self):
+        """Enable deferred mode for batch processing."""
+        self.deferred_mode = True
+        self._deferred_phrases = []
+        logger.info("📦 Deferred phrase learning enabled (batch mode)")
+
+    def disable_deferred_mode(self, flush: bool = True):
+        """
+        Disable deferred mode and optionally flush queued phrases.
+        
+        Args:
+            flush: If True, flush deferred phrases before disabling
+        """
+        if flush and self._deferred_phrases:
+            result = self.flush_deferred_phrases()
+            logger.info(f"Flushed deferred phrases: {result.get('message', 'Unknown')}")
+        
+        self.deferred_mode = False
+        self._deferred_phrases = []
+        logger.info("📦 Deferred phrase learning disabled")
+
+    def flush_deferred_phrases(self) -> dict:
+        """
+        Flush all deferred phrases to database and reload embeddings once.
+        
+        Returns:
+            dict: Statistics about the flush operation
+        """
+        if not self.deferred_mode:
+            logger.warning("flush_deferred_phrases called but deferred_mode is False")
+            return {'success': False, 'message': 'Not in deferred mode'}
+        
+        if not self._deferred_phrases:
+            logger.info("No deferred phrases to flush")
+            return {'success': True, 'message': 'No phrases to flush', 'count': 0}
+        
+        stats = {
+            'total_queued': len(self._deferred_phrases),
+            'total_added': 0,
+            'total_skipped': 0,
+            'errors': []
+        }
+        
+        try:
+            with self._db_connection() as conn:
+                cursor = conn.cursor()
+                
+                for clean_phrase, category, source in self._deferred_phrases:
+                    try:
+                        # Check if already exists
+                        cursor.execute(
+                            "SELECT id FROM repository_phrases WHERE phrase = %s AND category = %s",
+                            (clean_phrase, category),
+                        )
+                        existing = cursor.fetchone()
+                        
+                        if existing:
+                            cursor.execute(
+                                "UPDATE repository_phrases SET usage_count = usage_count + 1 WHERE id = %s",
+                                (existing[0],),
+                            )
+                            stats['total_skipped'] += 1
+                        else:
+                            cursor.execute(
+                                """
+                                INSERT INTO repository_phrases
+                                (phrase, category, source, usage_count) VALUES (%s, %s, %s, 1)
+                                """,
+                                (clean_phrase, category, source),
+                            )
+                            stats['total_added'] += 1
+                        
+                        # Update rebuttal_phrases table
+                        try:
+                            cursor.execute(
+                                """
+                                INSERT INTO rebuttal_phrases (category, phrase, source)
+                                VALUES (%s, %s, %s)
+                                ON CONFLICT (category, phrase) DO NOTHING
+                                """,
+                                (category, clean_phrase, source),
+                            )
+                        except Exception:
+                            pass
+                        
+                        logger.info(f"Added phrase to repository: '{clean_phrase}' in {category}")
+                        
+                    except Exception as e:
+                        error_msg = f"Error adding phrase '{clean_phrase}': {str(e)}"
+                        logger.error(error_msg)
+                        stats['errors'].append(error_msg)
+                
+                conn.commit()
+                cursor.close()
+            
+            # Single reload after all phrases added
+            logger.info(f"🔄 Flushing {stats['total_queued']} deferred phrases with single reload...")
+            try:
+                from models import reload_semantic_embeddings
+                reload_semantic_embeddings()
+                logger.info(f"✅ Successfully flushed {stats['total_added']} new phrases (skipped {stats['total_skipped']} duplicates)")
+            except Exception as e:
+                error_msg = f"Failed to reload embeddings: {str(e)}"
+                logger.error(error_msg)
+                stats['errors'].append(error_msg)
+            
+            # Clear queue
+            self._deferred_phrases = []
+            
+            return {
+                'success': True,
+                'message': f"Flushed {stats['total_added']} phrases with single reload",
+                'stats': stats
+            }
+            
+        except Exception as e:
+            error_msg = f"Error in flush_deferred_phrases: {str(e)}"
+            logger.error(error_msg)
+            return {
+                'success': False,
+                'message': error_msg,
+                'stats': stats
+            }
 
     
     def _auto_cleanup_duplicates_lightweight(self):
