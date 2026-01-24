@@ -135,24 +135,15 @@ class DatabaseManager:
 
     def _init_postgresql(self):
         """Initialize PostgreSQL connection pool."""
-        # Get database components from environment or DATABASE_URL
-        # Priority: parse from URL if available, else use specific env vars
-        env_host = os.getenv('POSTGRES_HOST') or os.getenv('PGHOST')
-        env_port = os.getenv('POSTGRES_PORT') or os.getenv('PGPORT')
-        env_db = os.getenv('POSTGRES_DB') or os.getenv('PGDATABASE')
-        env_user = os.getenv('POSTGRES_USER') or os.getenv('PGUSER')
-        env_password = os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD')
-        
-        # We prioritize components parsed from DATABASE_URL if available
-        host = db_url_parts.get('host') or env_host or 'localhost'
-        port = db_url_parts.get('port') or env_port or '5432'
-        database = db_url_parts.get('database') or env_db or 'vos_tool'
-        user = db_url_parts.get('user') or env_user or 'vos_user'
-        password = db_url_parts.get('password') or env_password or ''
+        db_url = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
+        db_url_parts = _parse_database_url(db_url) if db_url else {}
+
+        # Get host from environment, default to localhost
+        host = os.getenv('POSTGRES_HOST') or os.getenv('PGHOST') or db_url_parts.get('host') or 'localhost'
 
         # If host is "postgres" (Docker service name) and we're running locally,
         # try localhost instead (for local development)
-        if host == 'postgres' or host == 'localhost':
+        if host == 'postgres':
             import socket
             try:
                 # Try to resolve "postgres" hostname
