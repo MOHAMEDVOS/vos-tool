@@ -353,7 +353,13 @@ class AssemblyAITranscriptionEngine:
                 try:
                     transcript = aai.Transcript.get_by_id(transcript_id)
                 except Exception as e:
-                    # Ignore transient network errors during polling
+                    # Check for 404 Not Found (fatal error, transcript ID invalid/deleted)
+                    error_str = str(e)
+                    if "404" in error_str and "Not Found" in error_str:
+                        logger.error(f"Fatal error polling AssemblyAI: Transcript {transcript_id} not found (404). Aborting polling.")
+                        raise e
+                        
+                    # Ignore other transient network errors during polling
                     logger.warning(f"Transient error polling AssemblyAI: {e}")
                     time.sleep(poll_interval)
                     elapsed += poll_interval
