@@ -54,7 +54,8 @@ bleach>=6.0.0         # HTML sanitization (lib/html_sanitizer.py)
 psutil>=5.9.0  # System monitoring and CPU optimization
 
 # ==================== Database ====================
-psycopg2-binary>=2.9.0  # PostgreSQL adapter (cross-platform binary)
+psycopg2-binary>=2.9.0
+tqdm>=4.66.0  # PostgreSQL adapter (cross-platform binary)
 
 # ==================== Removed Dependencies (Not Used) ====================
 # vosk>=0.3.45              # REMOVED: Replaced by AssemblyAI
