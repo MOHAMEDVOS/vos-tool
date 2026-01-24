@@ -67,7 +67,7 @@ class PhraseLearningManager:
         default_settings = {
             'confidence_threshold': 0.85,  # Minimum confidence for auto-learning
             'frequency_threshold': 5,      # Minimum detections before consideration
-            'auto_approve_threshold': 0.95 # Auto-approve above this confidence
+            'auto_approve_threshold': 0.80 # Auto-approve above this confidence (Updated to 80%)
         }
         
         # Initialize with defaults first
@@ -132,7 +132,7 @@ class PhraseLearningManager:
         except Exception as e:
             logger.error(f"Failed to save settings to DB: {e}")
             
-    def auto_approve_high_confidence_phrases(self, min_confidence: float = 0.9) -> dict:
+    def auto_approve_high_confidence_phrases(self, min_confidence: float = 0.8) -> dict:
         """
         Automatically approve phrases with confidence >= min_confidence.
         Returns dict with stats about the operation.
@@ -161,7 +161,7 @@ class PhraseLearningManager:
                     cursor.close()
                     return {
                         'success': True,
-                        'message': 'No phrases found with confidence >= 90%',
+                        'message': 'No phrases found with confidence >= 80%',
                         'stats': stats
                     }
                 
@@ -522,10 +522,10 @@ class PhraseLearningManager:
                     """, (new_count, new_confidence, merged_context, quality_score, canonical_form, phrase_id))
                     
                     # Check if it should be auto-approved (use merged confidence)
-                    # High Priority (confidence ≥ 90%): Auto-approve immediately, no frequency requirement
-                    if new_confidence >= 0.90:
+                    # High Priority (confidence ≥ threshold): Auto-approve immediately, no frequency requirement
+                    if new_confidence >= self.auto_approve_threshold:
                         self._auto_approve_phrase(phrase_id, clean_phrase, existing_cat)
-                    elif (new_confidence >= self.auto_approve_threshold and 
+                    elif (new_confidence >= self.confidence_threshold and 
                           new_count >= self.frequency_threshold):
                         # Lower confidence: Use existing threshold and frequency requirements
                         self._auto_approve_phrase(phrase_id, clean_phrase, existing_cat)
@@ -565,8 +565,8 @@ class PhraseLearningManager:
                     )
                     phrase_id = cursor.fetchone()[0]
                     
-                    # Auto-approve High Priority phrases (quality score ≥ 0.90 or confidence ≥ 90%) immediately
-                    if quality_score >= 0.90 or confidence >= 0.90:
+                    # Auto-approve High Priority phrases (quality score ≥ threshold or confidence ≥ threshold) immediately
+                    if quality_score >= self.auto_approve_threshold or confidence >= self.auto_approve_threshold:
                         self._auto_approve_phrase(phrase_id, clean_phrase, clean_category)
                 
                 conn.commit()
