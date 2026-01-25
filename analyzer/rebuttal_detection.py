@@ -1958,10 +1958,11 @@ class SemanticDetectionEngine:
         if self.llm_fallback_enabled and self.llm_evaluator and best_confidence < self.llm_confidence_threshold:
             logger.info(f"🤖 LLM fallback triggered (confidence: {best_confidence:.2f} < {self.llm_confidence_threshold:.2f})")
             
-            # For fallback, use the category from the best match if available, otherwise default
-            objection_category = 'not_interested'  # Default
+            # For fallback, use the category from the best match if available
+            # Default to OTHER_PROPERTY_FAMILY since that's the most common rebuttal pattern
+            objection_category = 'OTHER_PROPERTY_FAMILY'
             if matches:
-                objection_category = matches[0].get('category', 'not_interested')
+                objection_category = matches[0].get('category', 'OTHER_PROPERTY_FAMILY')
             
             try:
                 # Call LLM evaluator

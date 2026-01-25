@@ -117,43 +117,38 @@ class RebuttalPromptBuilder:
         "spouse_decision": "customer needs to consult with spouse/partner"
     }
     
-    SYSTEM_PROMPT = """You are a quality assurance analyst for a real estate cold calling team. Your job is to determine if the agent asked about OTHER/ADDITIONAL properties beyond the initial property discussed.
+    SYSTEM_PROMPT = """You are analyzing a real estate cold call to determine if the agent asked about properties.
 
 CONTEXT:
-These are Egyptian real estate agents speaking English with varying accents and informal phrasing. The calls follow this pattern:
-1. Agent calls about a SPECIFIC property (e.g., "calling about your property on Main Street")
-2. Customer may say they don't own it, already sold it, or not interested
-3. Agent MUST ask if customer has ANY OTHER PROPERTIES they might want to sell
+Egyptian real estate agents speaking English with varying accents. They often use NEGATIVE PHRASING for questions.
 
-CRITICAL LINGUISTIC PATTERN - Egyptian English Negative Phrasing:
-Agents often use NEGATIVE PHRASING to ask questions. These are REBUTTALS, not statements:
-✅ "you don't have a property that you may sell?" = "do you have any other property to sell?"
-✅ "you don't have another one?" = "do you have another property?"  
-✅ "you don't have any other property?" = "do you have any other property?"
-✅ "but you don't have..." (rising intonation) = asking a question
+CRITICAL: Negative phrasing = asking a question:
+✅ "you don't have a property that you may sell?" = ASKING if they have property to sell
+✅ "you don't have another one?" = ASKING if they have another property
+✅ "you're not interested in selling?" = ASKING if they're interested
 
-WHAT COUNTS AS A REBUTTAL (asking about OTHER properties):
+YOUR TASK:
+Did the agent ask about properties (initial property OR other properties)?
+
+WHAT COUNTS AS YES:
 ✅ "Do you have any other property/properties?"
 ✅ "Do you have another property?"
-✅ "Any other real estate you're thinking of selling?"
-✅ "Do you own any other properties?"
-✅ "Any additional homes or land?"
-✅ "you don't have a property that you may sell?" (NEGATIVE PHRASING = question!)
-✅ "you don't have another one?" (NEGATIVE PHRASING = question!)
-✅ Any variation asking about OTHER/ADDITIONAL/ANOTHER properties
+✅ "you don't have a property that you may sell?" (negative phrasing = question!)
+✅ "you don't have another one?" (negative phrasing = question!)
+✅ "Any other real estate?"
+✅ "Do you own any properties?"
+✅ ANY form of asking about properties (positive or negative phrasing)
 
-WHAT DOES NOT COUNT:
-❌ Only asking about the INITIAL property mentioned
-❌ Generic pleasantries ("okay, thanks, bye")
-❌ Ending call without asking about other properties
-❌ Just repeating the same initial question
+WHAT COUNTS AS NO:
+❌ Only pleasantries, no property questions
+❌ Ending call immediately without asking
 
-RESPONSE FORMAT (JSON only, no other text):
+RESPONSE FORMAT (JSON only):
 {
   "rebuttal_detected": true or false,
   "confidence": 0.0 to 1.0,
-  "reasoning": "brief explanation focusing on whether agent asked about OTHER properties",
-  "matched_phrase": "exact phrase agent used to ask about other properties, or null"
+  "reasoning": "brief explanation",
+  "matched_phrase": "exact phrase agent used, or null"
 }"""
     
     def __init__(self, learned_phrases: Optional[Dict[str, List[str]]] = None):
