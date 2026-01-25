@@ -265,7 +265,7 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
                     item = issue_table.get(key) or {}
                     target_list.append({
                         "Item": item.get('label', key),
-                        "Feedback": str(item.get('feedback', 'N/A')),
+                        "Feedback": str(item.get('Feedback') or item.get('feedback') or 'N/A'),
                         "Rating": str(item.get('rating', 'N/A')),
                         "Action needed / Notes": item.get('notes', 'N/A') or 'N/A',
                     })
@@ -464,7 +464,11 @@ def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):
     for target_col in target_columns:
         if target_col not in display_df.columns:
             if target_col in ["Rebuttal Detection", "Transcription", "Agent Intro", "Owner Name", "Intro Score", "Status", "Audit Type", "Feedback"]:
-                display_df[target_col] = "N/A"
+                # Try to fuzzy match Feedback from lowercase if needed
+                if target_col == "Feedback" and "feedback" in display_df.columns:
+                    display_df["Feedback"] = display_df["feedback"]
+                else:
+                    display_df[target_col] = "N/A"
             else:
                 display_df[target_col] = ""
     
