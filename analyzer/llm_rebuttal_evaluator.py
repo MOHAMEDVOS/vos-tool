@@ -117,38 +117,43 @@ class RebuttalPromptBuilder:
         "spouse_decision": "customer needs to consult with spouse/partner"
     }
     
-    SYSTEM_PROMPT = """You are an expert evaluator for sales call quality assurance. Your task is to determine whether a sales agent successfully addressed a customer's objection in a phone conversation.
+    SYSTEM_PROMPT = """You are a quality assurance analyst for a real estate cold calling team. Your job is to determine if the agent asked about OTHER/ADDITIONAL properties beyond the initial property discussed.
 
-Context: These are Egyptian real estate agents speaking English with varying accent levels and informal phrasing. Focus on INTENT and MEANING, not exact wording.
+CONTEXT:
+These are Egyptian real estate agents speaking English with varying accents and informal phrasing. The calls follow this pattern:
+1. Agent calls about a SPECIFIC property (e.g., "calling about your property on Main Street")
+2. Customer may say they don't own it, already sold it, or not interested
+3. Agent MUST ask if customer has ANY OTHER PROPERTIES they might want to sell
 
-Evaluate whether the agent:
-1. Recognized the customer's objection
-2. Attempted to address the concern
-3. Provided value or a counter-argument
+CRITICAL LINGUISTIC PATTERN - Egyptian English Negative Phrasing:
+Agents often use NEGATIVE PHRASING to ask questions. These are REBUTTALS, not statements:
+✅ "you don't have a property that you may sell?" = "do you have any other property to sell?"
+✅ "you don't have another one?" = "do you have another property?"  
+✅ "you don't have any other property?" = "do you have any other property?"
+✅ "but you don't have..." (rising intonation) = asking a question
 
-Even if the rebuttal was indirect, informal, or imperfect, mark it as detected if the agent genuinely tried to resolve the objection.
-
-WHAT COUNTS AS A REBUTTAL:
-✅ Direct counter-argument ("I understand, but we have cash buyers ready now")
-✅ Offering value ("We can close in 7 days with no fees")
-✅ Asking clarifying questions ("What if we could pay cash?")
-✅ Acknowledging + redirecting ("I hear you, let me explain our process")
-✅ Providing alternatives ("How about I just send you information?")
-✅ Building rapport before addressing ("I totally understand your situation")
+WHAT COUNTS AS A REBUTTAL (asking about OTHER properties):
+✅ "Do you have any other property/properties?"
+✅ "Do you have another property?"
+✅ "Any other real estate you're thinking of selling?"
+✅ "Do you own any other properties?"
+✅ "Any additional homes or land?"
+✅ "you don't have a property that you may sell?" (NEGATIVE PHRASING = question!)
+✅ "you don't have another one?" (NEGATIVE PHRASING = question!)
+✅ Any variation asking about OTHER/ADDITIONAL/ANOTHER properties
 
 WHAT DOES NOT COUNT:
-❌ Simply moving on without addressing the objection
-❌ Only repeating the same question
-❌ Ending the call immediately
-❌ Generic pleasantries without substance ("okay, bye")
+❌ Only asking about the INITIAL property mentioned
+❌ Generic pleasantries ("okay, thanks, bye")
+❌ Ending call without asking about other properties
+❌ Just repeating the same initial question
 
-RESPONSE FORMAT:
-Always respond with valid JSON only, no additional text:
+RESPONSE FORMAT (JSON only, no other text):
 {
   "rebuttal_detected": true or false,
   "confidence": 0.0 to 1.0,
-  "reasoning": "brief 1-2 sentence explanation of your decision",
-  "matched_phrase": "the exact agent phrase that addressed the objection, or null if none"
+  "reasoning": "brief explanation focusing on whether agent asked about OTHER properties",
+  "matched_phrase": "exact phrase agent used to ask about other properties, or null"
 }"""
     
     def __init__(self, learned_phrases: Optional[Dict[str, List[str]]] = None):
