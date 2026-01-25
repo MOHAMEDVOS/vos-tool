@@ -3531,8 +3531,25 @@ class DashboardManager:
             disposition_counts = df['Disposition'].value_counts().to_dict()
 
         # Behavioral factors
-        rebuttal_yes = len(df[df.get('Rebuttal Detection') == 'Yes']) if 'Rebuttal Detection' in df.columns else 0
-        rebuttal_no = len(df[df.get('Rebuttal Detection') == 'No']) if 'Rebuttal Detection' in df.columns else 0
+        # Audit Type Analysis
+        audit_counts = {'Heavy Audit': 0, 'Lite Audit': 0}
+        if 'Audit Type' in df.columns:
+            audit_counts.update(df['Audit Type'].value_counts().to_dict())
+
+        # Behavioral factors
+        # Rebuttal Metric: Filter for Heavy Audits ONLY (Lite Audits don't check rebuttals)
+        rebuttal_yes = 0
+        rebuttal_no = 0
+        if 'Rebuttal Detection' in df.columns:
+            if 'Audit Type' in df.columns:
+                # Only count rebuttals for Heavy Audits
+                heavy_df = df[df['Audit Type'] == 'Heavy Audit']
+                rebuttal_yes = len(heavy_df[heavy_df['Rebuttal Detection'] == 'Yes'])
+                rebuttal_no = len(heavy_df[heavy_df['Rebuttal Detection'] == 'No'])
+            else:
+                # Fallback: Count all if Audit Type not present
+                rebuttal_yes = len(df[df['Rebuttal Detection'] == 'Yes'])
+                rebuttal_no = len(df[df['Rebuttal Detection'] == 'No'])
 
         releasing_yes = len(df[df.get('Releasing Detection') == 'Yes']) if 'Releasing Detection' in df.columns else 0
         releasing_no = len(df[df.get('Releasing Detection') == 'No']) if 'Releasing Detection' in df.columns else 0
@@ -3858,6 +3875,7 @@ class DashboardManager:
             "recommendations": recommendations,
             "campaign_name": campaign_name,
             "date_range": date_range_label,
+            "audit_counts": audit_counts,  # Pass audit type breakdown to LLM
         }
 
         try:

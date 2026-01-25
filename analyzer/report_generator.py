@@ -28,6 +28,11 @@ class CampaignReportGenerator:
     * Behavioral metrics (Rebuttal rate, Late Hello rate, Releasing rate)
     * Disposition breakdown (outcome of calls)
     * Calculated observations (pre-defined logic flags)
+    * **Audit Counts**: 'Heavy Audit' vs 'Lite Audit'
+
+    CONTEXT - AUDIT TYPES:
+    * **Heavy Audit**: Full check. Monitors Rebuttals, Late Hello, and Releasing.
+    * **Lite Audit**: Fast check. Monitors ONLY Late Hello and Releasing. **Ignores Rebuttals.**
 
     OUTPUT FORMAT:
     Produce a Markdown formatted report with the following structure:
@@ -37,7 +42,7 @@ class CampaignReportGenerator:
 
     ### 🏆 Key Strengths
     * Bullet points highlighting what is going well.
-    * Cite specific metrics (e.g., "Strong rebuttal attempt rate of 85%").
+    * Cite specific metrics (e.g., "Strong heavy audit rebuttal rate...").
 
     ### ⚠️ Areas for Improvement
     * Bullet points highlighting specific issues.
@@ -52,7 +57,7 @@ class CampaignReportGenerator:
     3. Interpret "NYI" as "Leading Reached but Not Interested".
     4. "Releasing" means ending the call before the customer hangs up (Bad).
     5. "Late Hello" means silence at the start of the call (Bad).
-    6. "Rebuttal NOT Attempted" is a missed opportunity (Bad).
+    6. **CRITICAL:** If the dataset is mostly **Lite Audits**, DO NOT critique missing rebuttals. Missing rebuttals in Lite Audits are normal (N/A). Only critique rebuttals if you have significant Heavy Audit data.
     """
 
     def __init__(self):
