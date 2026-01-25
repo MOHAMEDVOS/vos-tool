@@ -1071,9 +1071,14 @@ class PhraseLearningManager:
         This allows the UI to return results immediately while learning happens in background.
         """
         import threading
+        import time
         
         def _background_worker():
             try:
+                # Wait a few seconds to ensure all progress updates are displayed
+                # This prevents the reload message from appearing mid-processing (e.g., at 45/50)
+                time.sleep(3)
+                
                 # Capture phrases locally because disable_deferred_mode clears the list
                 # Actually, flush_deferred_phrases handles the clearing
                 logger.info("🚀 Starting background phrase flush...")
