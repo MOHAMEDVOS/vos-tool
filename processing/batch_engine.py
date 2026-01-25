@@ -464,7 +464,8 @@ class BatchProcessor:
             # This allows the UI to show results immediately without waiting for embedding reload
             if phrase_manager:
                 try:
-                    phrase_manager.flush_deferred_phrases_in_background()
+                    # Pass total_files so the flush can calculate appropriate delay
+                    phrase_manager.flush_deferred_phrases_in_background(total_files=total_files)
                     # Note: Mode is disabled automatically by the method
                 except Exception as e:
                     logger.error(f"Error triggering background phrase flush: {e}")
