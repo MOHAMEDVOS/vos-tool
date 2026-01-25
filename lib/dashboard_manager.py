@@ -2153,8 +2153,8 @@ class DashboardManager:
                         INSERT INTO agent_audit_results 
                         (username, agent_name, file_name, file_path, releasing_detection, 
                          late_hello_detection, rebuttal_detection, timestamp, call_duration, 
-                         transcript, confidence_score, metadata)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         transcript, confidence_score, feedback, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """
                 params_list = []
                 for record in df_dict:
@@ -2162,7 +2162,16 @@ class DashboardManager:
                     
                     releasing_detection = convert_detection_to_string(record.get('Releasing Detection'), default="No")
                     late_hello_detection = convert_detection_to_string(record.get('Late Hello Detection'), default="No")
-                    rebuttal_detection = convert_detection_to_string(record.get('Rebuttal Detection'), default="No")
+                    rebuttal_detection_val = record.get('Rebuttal Detection')
+                    rebuttal_detection = convert_detection_to_string(rebuttal_detection_val, default="No")
+                    
+                    # Extract feedback from Rebuttal Detection dict if available (it comes from audio_processor)
+                    feedback = None
+                    if isinstance(rebuttal_detection_val, dict):
+                         feedback = rebuttal_detection_val.get('feedback')
+                    # Also check direct record field (if passed flat)
+                    if not feedback:
+                         feedback = record.get('Feedback') or record.get('feedback')
                     
                     # Handle timestamp properly for PostgreSQL
                     timestamp_field = record.get('Timestamp')
@@ -2194,7 +2203,9 @@ class DashboardManager:
                             formatted_timestamp,  # Use formatted timestamp
                             record.get('Call Duration'),
                             transcription,
+
                             record.get('Confidence Score'),
+                            feedback,
                             json.dumps(record) if record else None,
                         )
                     )
@@ -2204,7 +2215,7 @@ class DashboardManager:
                     INSERT INTO agent_audit_results 
                     (username, agent_name, file_name, file_path, releasing_detection, 
                      late_hello_detection, rebuttal_detection, timestamp, call_duration, 
-                     transcript, confidence_score, metadata)
+                     transcript, confidence_score, feedback, metadata)
                     VALUES %s
                 """
                 
@@ -2316,6 +2327,7 @@ class DashboardManager:
                         'Call Duration': row.get('call_duration'),
                         'Transcription': row.get('transcript', ''),  # Map database 'transcript' to 'Transcription'
                         'Confidence Score': row.get('confidence_score'),
+                        'Feedback': row.get('feedback', ''),  # Include Feedback column
                         'username': row.get('username'),
                         'audit_timestamp': row.get('created_at').isoformat() if row.get('created_at') else None
                     }

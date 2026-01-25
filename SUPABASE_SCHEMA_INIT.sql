@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS agent_audit_results (
     call_duration DECIMAL(10,2),
     transcript TEXT,
     confidence_score DECIMAL(5,4),
+    feedback TEXT,
     metadata JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT agent_audit_results_releasing_detection_check 

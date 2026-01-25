@@ -250,7 +250,8 @@ class AudioProcessor:
                     result['rebuttal_detection'] = {
                         'result': detection_result['result'],
                         'confidence_score': detection_result.get('confidence_score'),
-                        'transcript': detection_result.get('transcript', '')
+                        'transcript': detection_result.get('transcript', ''),
+                        'feedback': detection_result.get('metadata', {}).get('feedback')  # Pass LLM feedback
                     }
                 except TimeoutError as reb_timeout:
                     elapsed_time = time.time() - reb_start

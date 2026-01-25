@@ -1986,6 +1986,14 @@ class SemanticDetectionEngine:
                     logger.info(f"✅ LLM detected rebuttal: '{llm_match['phrase'][:50]}...' (confidence: {llm_match['confidence']:.2f})")
                 else:
                     logger.info(f"❌ LLM did not detect rebuttal: {llm_result.get('reasoning', 'No reason provided')}")
+                    # Return feedback about why it wasn't a rebuttal
+                    return [{
+                        'phrase': '',
+                        'category': 'No Rebuttal',
+                        'confidence': 0.0,
+                        'match_type': 'llm_refusal',
+                        'feedback': llm_result.get('reasoning', 'No reasoning provided')
+                    }]
                     
             except Exception as e:
                 logger.error(f"LLM fallback evaluation failed: {e}")

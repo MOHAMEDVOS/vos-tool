@@ -157,7 +157,10 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             'Intro Score',
             'Status',
             'Dialer Name',
+            'Status',
+            'Dialer Name',
             'Audit Type',
+            'Feedback',
             'Auditor'
         ]
         
@@ -188,10 +191,9 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
         if column_name_mapping:
             display_df = display_df.rename(columns=column_name_mapping)
         
-        # Add missing columns with default values
         for col in standard_column_order:
             if col not in display_df.columns:
-                if col in ['Rebuttal Detection', 'Transcription', 'Agent Intro', 'Owner Name', 'Intro Score', 'Status', 'Audit Type']:
+                if col in ['Rebuttal Detection', 'Transcription', 'Agent Intro', 'Owner Name', 'Intro Score', 'Status', 'Audit Type', 'Feedback']:
                     display_df[col] = 'N/A'
                 else:
                     display_df[col] = ''
@@ -424,7 +426,10 @@ def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):
         "Intro Score",
         "Status",
         "Dialer Name",
+        "Status",
+        "Dialer Name",
         "Audit Type",
+        "Feedback",
         "Auditor"
     ]
     
@@ -458,7 +463,7 @@ def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):
     # Now ensure all target columns exist (add missing ones)
     for target_col in target_columns:
         if target_col not in display_df.columns:
-            if target_col in ["Rebuttal Detection", "Transcription", "Agent Intro", "Owner Name", "Intro Score", "Status", "Audit Type"]:
+            if target_col in ["Rebuttal Detection", "Transcription", "Agent Intro", "Owner Name", "Intro Score", "Status", "Audit Type", "Feedback"]:
                 display_df[target_col] = "N/A"
             else:
                 display_df[target_col] = ""
@@ -466,7 +471,7 @@ def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):
     # Ensure all target columns are present before reordering
     for col in target_columns:
         if col not in display_df.columns:
-            if col in ["Rebuttal Detection", "Transcription", "Agent Intro", "Owner Name", "Intro Score", "Status", "Audit Type"]:
+            if col in ["Rebuttal Detection", "Transcription", "Agent Intro", "Owner Name", "Intro Score", "Status", "Audit Type", "Feedback"]:
                 display_df[col] = "N/A"
             else:
                 display_df[col] = ""
@@ -726,7 +731,7 @@ def show_actions_section(dashboard_manager):
     # Reorder columns for better readability and workflow clarity
     desired_order = [
         'Agent Name', 'Phone Number', 'Dialer', 'Releasing Detection', 
-        'Late Hello Detection', 'Rebuttal Detection', 'Disposition', 
+        'Late Hello Detection', 'Rebuttal Detection', 'Feedback', 'Disposition', 
         'Transcription', 'Timestamp', 'Audit Type'
     ]
     
