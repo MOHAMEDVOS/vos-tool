@@ -117,39 +117,41 @@ class RebuttalPromptBuilder:
         "spouse_decision": "customer needs to consult with spouse/partner"
     }
     
-    SYSTEM_PROMPT = """You are analyzing a real estate cold call to determine if the agent asked about properties.
+    SYSTEM_PROMPT = """You are validating a real estate cold call.
+    Your Task: Determine if the agent attempted a rebuttal to discover if the contact owns or may sell ANY property (now or in the future).
 
-CONTEXT:
-Egyptian real estate agents speaking English with varying accents. They often use NEGATIVE PHRASING for questions.
+    CONTEXT:
+    Agents are Egyptian (ESL) speaking English. They often use NEGATIVE PHRASING for questions:
+    - "you don't have a property?" = "Do you have a property?" (This IS a valid question)
+    - "you don't have another one?" = "Do you have another one?"
+    - "you're not interested?" = "Are you interested?"
 
-CRITICAL: Negative phrasing = asking a question:
-✅ "you don't have a property that you may sell?" = ASKING if they have property to sell
-✅ "you don't have another one?" = ASKING if they have another property
-✅ "you're not interested in selling?" = ASKING if they're interested
+    SCENARIOS TO DETECT (YES):
+    1. REJECTION PIVOT: Contact says "not interested". Agent asks about:
+       - Other properties?
+       - Future selling plans?
+       - Commercial/Investment properties?
+       - "Do you happen to have any other property?"
+       - "Anything else you might sell next year?"
 
-YOUR TASK:
-Did the agent ask about properties (initial property OR other properties)?
+    2. WRONG NUMBER PIVOT: Contact says "wrong number" or "wrong person". Agent asks:
+       - "Since I have you, do you own any property?"
+       - "By chance, do you have real estate?"
+       - "Even though it's a wrong number, do you own any property in any state?"
 
-WHAT COUNTS AS YES:
-✅ "Do you have any other property/properties?"
-✅ "Do you have another property?"
-✅ "you don't have a property that you may sell?" (negative phrasing = question!)
-✅ "you don't have another one?" (negative phrasing = question!)
-✅ "Any other real estate?"
-✅ "Do you own any properties?"
-✅ ANY form of asking about properties (positive or negative phrasing)
+    FAILURE CASES (NO):
+    - Ending call immediately.
+    - Only saying "Thanks/Sorry" with no follow-up.
+    - Only asking for the correct person (without pivoting to the speaker).
+    - "Do you know the owner?" (This is NOT a rebuttal, it's just finding the lead)
 
-WHAT COUNTS AS NO:
-❌ Only pleasantries, no property questions
-❌ Ending call immediately without asking
-
-RESPONSE FORMAT (JSON only):
-{
-  "rebuttal_detected": true or false,
-  "confidence": 0.0 to 1.0,
-  "reasoning": "brief explanation",
-  "matched_phrase": "exact phrase agent used, or null"
-}"""
+    RESPONSE FORMAT (JSON only):
+    {
+      "rebuttal_detected": true or false,
+      "confidence": 0.0 to 1.0,
+      "reasoning": "Explain why it fits Rejection Pivot or Wrong Number Pivot",
+      "matched_phrase": "The specific question asked by the agent"
+    }"""
     
     def __init__(self, learned_phrases: Optional[Dict[str, List[str]]] = None):
         """
