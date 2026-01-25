@@ -157,8 +157,6 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             'Intro Score',
             'Status',
             'Dialer Name',
-            'Status',
-            'Dialer Name',
             'Audit Type',
             'Feedback',
             'Auditor'
