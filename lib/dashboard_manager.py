@@ -2179,14 +2179,17 @@ class DashboardManager:
                         try:
                             # Parse timestamp and ensure it's in proper format
                             if isinstance(timestamp_field, str):
-                                # Try to parse as datetime
-                                timestamp_dt = dt.datetime.strptime(timestamp_field, "%B %d, %I:%M:%S %p")
+                                # Try to parse as datetime - handle format from filename: "Jan 15, 7:41PM"
+                                timestamp_dt = dt.datetime.strptime(timestamp_field, "%b %d, %I:%M%p")
+                                # Add current year since filename doesn't include it
+                                timestamp_dt = timestamp_dt.replace(year=dt.datetime.now().year)
                                 formatted_timestamp = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
                             else:
                                 # Use as-is if it's already a datetime object
                                 formatted_timestamp = timestamp_field.strftime("%Y-%m-%d %H:%M:%S") if hasattr(timestamp_field, 'strftime') else str(timestamp_field)
-                        except Exception:
+                        except Exception as e:
                             # Fallback to current timestamp if parsing fails
+                            logger.warning(f"Failed to parse timestamp '{timestamp_field}': {e}")
                             formatted_timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     else:
                         formatted_timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
