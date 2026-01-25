@@ -100,7 +100,8 @@ class CampaignReportGenerator:
             ]
 
             logger.info("Generating AI Campaign Report...")
-            response = self.client.create_completion(messages, retry_attempts=2)
+            # Request non-JSON output for Markdown formatting
+            response = self.client.create_completion(messages, retry_attempts=2, json_mode=False)
             
             # Extract content
             report_content = response['choices'][0]['message']['content']

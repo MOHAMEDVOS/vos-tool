@@ -36,13 +36,14 @@ class GroqClient:
         
         logger.info(f"GroqClient initialized with model: {self.model}")
     
-    def create_completion(self, messages: List[Dict[str, str]], retry_attempts: int = 3) -> Dict[str, Any]:
+    def create_completion(self, messages: List[Dict[str, str]], retry_attempts: int = 3, json_mode: bool = True) -> Dict[str, Any]:
         """
         Create a chat completion with retry logic.
         
         Args:
             messages: List of message dicts with 'role' and 'content'
             retry_attempts: Number of retry attempts on failure
+            json_mode: Whether to force JSON output format (default: True)
             
         Returns:
             Response dict with 'choices' containing the completion
@@ -59,8 +60,10 @@ class GroqClient:
             "messages": messages,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
-            "response_format": {"type": "json_object"}  # Force JSON response
         }
+        
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}  # Force JSON response
         
         last_error = None
         
