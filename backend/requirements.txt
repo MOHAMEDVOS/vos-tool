@@ -6,4 +6,5 @@ python-multipart>=0.0.6
 PyJWT>=2.8.0
 python-dotenv>=1.0.0
 assemblyai>=0.48.0
+requests>=2.31.0
 

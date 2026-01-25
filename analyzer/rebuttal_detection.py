@@ -1863,6 +1863,25 @@ class SemanticDetectionEngine:
                 logger.warning("Failed to load semantic threshold from settings; using default 0.68")
         self.semantic_threshold = max(0.5, min(self.semantic_threshold, 0.9))
 
+        # Initialize LLM evaluator for fallback (lazy loading)
+        self.llm_evaluator = None
+        self.llm_fallback_enabled = os.getenv("LLM_FALLBACK_ENABLED", "true").lower() == "true"
+        self.llm_confidence_threshold = float(os.getenv("LLM_CONFIDENCE_THRESHOLD", "0.70"))
+        
+        if self.llm_fallback_enabled:
+            try:
+                from analyzer.llm_rebuttal_evaluator import LLMRebuttalEvaluator
+                groq_api_key = os.getenv("GROQ_API_KEY", "")
+                if groq_api_key:
+                    self.llm_evaluator = LLMRebuttalEvaluator(api_key=groq_api_key)
+                    logger.info(f"🤖 LLM fallback evaluator initialized (threshold: {self.llm_confidence_threshold:.2f})")
+                else:
+                    logger.warning("GROQ_API_KEY not set, LLM fallback will be disabled")
+                    self.llm_fallback_enabled = False
+            except Exception as e:
+                logger.warning(f"Failed to initialize LLM evaluator: {e}, continuing without fallback")
+                self.llm_fallback_enabled = False
+
         # We no longer load models eagerly in __init__ to prevent OOM stalls on startup
         logger.info("Semantic detection engine created (Lazy Loading enabled)")
 
@@ -1932,14 +1951,48 @@ class SemanticDetectionEngine:
             logger.warning("❌ Semantic model not available, using exact matching only")
 
 
-        # 3. Tertiary: LLaMA inference for complex cases - REMOVED
-        # LLaMA classifier was removed due to missing dependencies and hangs
-        # The system now relies on exact + semantic matching only
+        # Calculate best confidence from exact + semantic
         best_confidence = max([m['confidence'] for m in matches], default=0.0)
         
-        # Log confidence for debugging (no LLaMA fallback)
-        if len(matches) == 0 or best_confidence < 0.70:
-            logger.debug(f"ℹ️ Low confidence case (best: {best_confidence:.2f}) - using exact + semantic matching only")
+        # 3. NEW: LLM Fallback for low-confidence cases
+        if self.llm_fallback_enabled and self.llm_evaluator and best_confidence < self.llm_confidence_threshold:
+            logger.info(f"🤖 LLM fallback triggered (confidence: {best_confidence:.2f} < {self.llm_confidence_threshold:.2f})")
+            
+            # For fallback, use the category from the best match if available, otherwise default
+            objection_category = 'not_interested'  # Default
+            if matches:
+                objection_category = matches[0].get('category', 'not_interested')
+            
+            try:
+                # Call LLM evaluator
+                llm_result = self.llm_evaluator.evaluate_rebuttal(
+                    transcript=transcript,
+                    objection_category=objection_category,
+                    semantic_candidates=matches if matches else None
+                )
+                
+                # If LLM detected a rebuttal, add it to matches
+                if llm_result.get('rebuttal_detected', False):
+                    llm_match = {
+                        'phrase': llm_result.get('matched_phrase', transcript[:100]),
+                        'category': objection_category,
+                        'confidence': float(llm_result.get('confidence', 0.75)),
+                        'match_type': 'llm_evaluation',
+                        'reasoning': llm_result.get('reasoning', ''),
+                        'api_latency': llm_result.get('api_latency', 0.0)
+                    }
+                    matches.append(llm_match)
+                    logger.info(f"✅ LLM detected rebuttal: '{llm_match['phrase'][:50]}...' (confidence: {llm_match['confidence']:.2f})")
+                else:
+                    logger.info(f"❌ LLM did not detect rebuttal: {llm_result.get('reasoning', 'No reason provided')}")
+                    
+            except Exception as e:
+                logger.error(f"LLM fallback evaluation failed: {e}")
+        
+        # Log confidence for debugging
+        best_confidence_final = max([m['confidence'] for m in matches], default=0.0)
+        if len(matches) == 0 or best_confidence_final < 0.70:
+            logger.debug(f"ℹ️ Final confidence: {best_confidence_final:.2f}")
         
         # Sort by confidence score (highest first)
         matches.sort(key=lambda x: x['confidence'], reverse=True)
