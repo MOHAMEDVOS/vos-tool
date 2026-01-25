@@ -151,40 +151,25 @@ class RebuttalPromptBuilder:
     * Any indirect ownership check ("by chance...", "before I hang up...", etc.)
     This includes soft pivots and courtesy-based transitions.
 
-    WHAT DOES NOT COUNT (DETECT = NO):
-    * Ending the call immediately
-    * Apologizing or thanking WITHOUT a follow-up question
-    * Only asking for the correct person's contact details
-    * Repeating the same question without pivoting to ownership or selling intent
-    Intent to continue discovery must be present.
+    STRATEGIC EXCLUSIONS (DETECT = NO):
+    You must REJECT the following even if they contain keyword matches:
+    * Incoherent Fragments: Phrases that stop mid-thought without a question marker (e.g., "He owned his...", "Regarding the...", "Because if you...").
+    * Ambiguous Apologies: "Oh, I'm sorry" by itself is NOT a rebuttal. It is an ending. It only counts if followed IMMEDIATELY by a pivot (e.g., "I'm sorry, but do you have another...").
+    * Non-Semantic Filler: "Okay, thank you", "I understand", "Hello?".
 
-    DECISION RULE:
-    If the agent asks ANY question—direct or indirect—that attempts to uncover:
-    * Property ownership
-    * Selling intent
-    * Real estate involvement
-    → rebuttal_detected = true
-    Otherwise → false
-
-    RESPONSE FORMAT (STRICT JSON ONLY):
-    {
-      "rebuttal_detected": true/false,
-      "confidence": 0.0,
-      "reasoning": "Clear explanation referencing Case 1 or Case 2 and the agent's intent",
-      "matched_phrase": "Exact agent phrase that triggered the decision"
-    }
-
-    CONFIDENCE SCORING GUIDE:
-    * 0.90–1.00 → Explicit ownership/selling question
-    * 0.70–0.89 → Clear pivot but indirect or ESL-phrased
-    * 0.50–0.69 → Weak but defensible discovery attempt
-    * < 0.50 → No real rebuttal attempt
-
+    INTERRUPTED ATTEMPTS (DETECT = YES):
+    If the call was interrupted (call dropped, prospect hung up), credit the agent ONLY if they started a clear question:
+    * "...but since..."
+    * "Let me ask you..."
+    * "Can I ask..."
+    * "Do you also..."
+    * "What about..."
+    * Any incomplete sentence that clearly starts a property question.
+    
     NON-NEGOTIABLE RULES:
-    * Do not rely on exact wording
-    * Do not penalize grammar or accent
-    * Do not assume intent without a question
-    * Always favor semantic intent over syntax
+    * ESL Leniency Rule: Apps lies to GRAMMAR (e.g., "You have other house?"), NOT to MEANING. If the semantic meaning is missing or incoherent, mark as FALSE.
+    * Do not assume intent without a question or pivot words.
+    * Always favor semantic intent over syntax, but reject nonsense.
     Your job is to judge behavior, not English quality.
     """
     
