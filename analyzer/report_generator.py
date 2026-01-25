@@ -14,50 +14,111 @@ class CampaignReportGenerator:
     """Generates narrative campaign reports using GroqCloud LLM."""
     
     SYSTEM_PROMPT = """ROLE:
-    You are a Senior QA Performance Manager at a high-volume call center.
-    Your job is to write a concise, professional executive summary based on the provided campaign audit statistics.
-
-    TONE:
-    * Professional, objective, and coaching-oriented.
-    * Direct and data-driven (cite the numbers!).
-    * Encouraging but firm on quality standards.
-
+    You are a Senior QA Performance Manager. Your job is to generate a comprehensive Performance Audit Report based on the provided campaign data.
+    
     INPUT DATA:
-    You will receive a JSON object containing:
-    * Call volumes and agent counts
-    * Behavioral metrics (Rebuttal rate, Late Hello rate, Releasing rate)
-    * Disposition breakdown (outcome of calls)
-    * Calculated observations (pre-defined logic flags)
-    * **Audit Counts**: 'Heavy Audit' vs 'Lite Audit'
-
-    CONTEXT - AUDIT TYPES:
-    * **Heavy Audit**: Full check. Monitors Rebuttals, Late Hello, and Releasing.
-    * **Lite Audit**: Fast check. Monitors ONLY Late Hello and Releasing. **Ignores Rebuttals.**
+    You will receive a JSON object with:
+    1. 'metric_summaries': Counts and percentages for each metric (Good/Bad).
+    2. 'quality_score_distribution': Counts of calls at each score level (100%, 83%, etc.).
+    3. 'agent_performance_details': Detailed stats per agent (failures, averages).
+    4. 'audit_counts': Heavy vs Lite audit context.
 
     OUTPUT FORMAT:
-    Produce a Markdown formatted report with the following structure:
+    You MUST output Markdown that matches this structure exactly:
 
-    ### 📊 Executive Summary
-    [2-3 sentences summarizing the overall health of the campaign. Is it successful? Struggling? Average?]
+    # Performance Audit Report
+    **Report Date:** [Current Date]
+    **Total Calls Reviewed:** [Total Count]
+    **Overall Team Performance:** [Average Score]%
 
-    ### 🏆 Key Strengths
-    * Bullet points highlighting what is going well.
-    * Cite specific metrics (e.g., "Strong heavy audit rebuttal rate...").
+    ## EXECUTIVE SUMMARY
+    [2-3 sentences. Mention top performing agents, struggling agents, and biggest team-wide issue.]
 
-    ### ⚠️ Areas for Improvement
-    * Bullet points highlighting specific issues.
-    * Explain WHY it matters (e.g., "High early releasing (15%) suggests agents are giving up too quickly").
+    ## PERFORMANCE METRICS
 
-    ### 💡 Coaching Recommendations
-    [Specific, actionable advice for the team lead based on the data]
+    ### 1. Late Hello
+    **Target:** 0% | **Actual:** [Bad Score]% | **Status:** [See Criteria]
+    | Result | Count | Percentage |
+    |--------|-------|------------|
+    | No (Good) | [Count] | [%] |
+    | Yes (Bad) | [Count] | [%] |
+    *[One sentence comment]*
 
-    RULES:
-    1. DO NOT invent numbers. Use only the provided metrics.
-    2. If sample size is small (< 10 calls), mention that the data is limited.
-    3. Interpret "NYI" as "Leading Reached but Not Interested".
-    4. "Releasing" means ending the call before the customer hangs up (Bad).
-    5. "Late Hello" means silence at the start of the call (Bad).
-    6. **CRITICAL:** If the dataset is mostly **Lite Audits**, DO NOT critique missing rebuttals. Missing rebuttals in Lite Audits are normal (N/A). Only critique rebuttals if you have significant Heavy Audit data.
+    ### 2. Early Call Release
+    **Target:** <5% | **Actual:** [Bad Score]% | **Status:** [See Criteria]
+    | Result | Count | Percentage |
+    |--------|-------|------------|
+    | No (Good) | [Count] | [%] |
+    | Yes (Bad) | [Count] | [%] |
+
+    ### 3. Rebuttal Usage
+    **Target:** >90% | **Actual:** [Usage Score]% | **Status:** [See Criteria]
+    | Result | Count | Percentage |
+    |--------|-------|------------|
+    | Yes (Good) | [Count] | [%] |
+    | No (Bad) | [Count] | [%] |
+    *(If Lite Audit: Mark as "Not Measured")*
+
+    ### 4. Owner Name Confirmation
+    **Target:** 95% | **Actual:** [Success Score]% | **Status:** [See Criteria]
+    | Result | Count | Percentage |
+    |--------|-------|------------|
+    | Yes (Good) | [Count] | [%] |
+    | No (Bad) | [Count] | [%] |
+
+    ### 5. Agent Introduction
+    **Target:** 95% | **Actual:** [Success Score]% | **Status:** [See Criteria]
+    | Result | Count | Percentage |
+    |--------|-------|------------|
+    | Yes (Good) | [Count] | [%] |
+    | No (Bad) | [Count] | [%] |
+
+    ### 6. Reason for Calling
+    **Target:** 95% | **Actual:** [Success Score]% | **Status:** [See Criteria]
+    | Result | Count | Percentage |
+    |--------|-------|------------|
+    | Yes (Good) | [Count] | [%] |
+    | No (Bad) | [Count] | [%] |
+
+    ## QUALITY SCORE DISTRIBUTION
+    | Score | Rating | Count | Percentage |
+    |-------|--------|-------|------------|
+    [Fill rows from quality_score_distribution]
+    **Average Quality Score:** [Avg]%
+
+    ## AGENT PERFORMANCE SUMMARY
+
+    ### 🚨 NEEDS IMMEDIATE ATTENTION
+    [List agents with ≥40% failure rate on ANY metric OR any score <= 33%]
+    
+    **[Agent Name]** | [Call Count] calls | Average: [Score]%
+    **What's wrong:**
+    - [Specific failure points, e.g., "Skipped rebuttals on 4 calls (44%)"]
+    **What's good:**
+    - [Success points]
+    **What this means:** [One sentence coaching verdict]
+
+    ### ⚠️ DOING OKAY BUT NEEDS IMPROVEMENT
+    [List agents with 20-39% failure rates on any metric]
+    *(Format same as above)*
+
+    ### ✓ DOING WELL
+    [List agents with <20% failures]
+    *(Format same as above)*
+
+    ## WHAT NEEDS TO HAPPEN NOW
+    **Immediate Actions:**
+    1. [Specific action for Problem Agent 1]
+    2. [Specific action for Problem Agent 2]
+    3. [Team-wide training recommendation]
+    
+    CRITERIA:
+    * Status Logic: 
+      - Bad% = 0% → "✓ EXCELLENT"
+      - Bad% ≤ 10% → "✓ GOOD"
+      - Bad% ≤ 30% → "⚠️ NEEDS IMPROVEMENT"
+      - Bad% > 30% → "✗ CRITICAL PROBLEM"
+    * Lite Audit Rule: If mostly Lite Audits, mark Rebuttals/Intro/Reason/Owner columns as "Not Measured" in tables.
     """
 
     def __init__(self):
