@@ -42,7 +42,7 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
     
     # Load Data button
     if st.button("Load Campaign Data", type="primary", key="load_campaign_data"):
-        with st.spinner("Loading campaign data..."):
+        with st.spinner("Loading campaign data and generating AI report..."):
             # Load campaign data for the selected date range
             df = dashboard_manager.load_campaign_audit_data(
                 selected_campaign, 
@@ -57,6 +57,16 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             
             # Store in session state
             st.session_state.campaign_dashboard_data = df
+            
+            # Auto-generate performance report immediately
+            if not df.empty:
+                try:
+                    report = dashboard_manager.generate_performance_report(df, st.session_state.get('username'))
+                    st.session_state.performance_report = report
+                except Exception as e:
+                    logger.error(f"Error auto-generating report: {e}")
+                    # Continue without report if it fails
+            
             st.success(f"Loaded {len(df)} records for campaign '{selected_campaign}'")
     
     # Display results if data is loaded
@@ -219,40 +229,29 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             key="campaign_csv_download"
         )
 
-        # Generate Performance Report section
-        with st.expander("Performance Report", expanded=False):
+        # Display Performance Report (Auto-Generated)
+        st.markdown("---")
+        if 'performance_report' in st.session_state:
+            report = st.session_state.performance_report
             
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                if st.button("Generate Performance Report", type="primary"):
-                    with st.spinner("Analyzing audit data and generating insights..."):
-                        try:
-                            report = dashboard_manager.generate_performance_report(df, st.session_state.get('username'))
-                            st.session_state.performance_report = report
-                            st.success("Performance report generated successfully!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error generating report: {str(e)}")
-            
-            with col2:
-                if 'performance_report' in st.session_state:
-                    if st.button("Clear Report", help="Remove the current report"):
-                        del st.session_state.performance_report
-                        st.rerun()
-            
-            # Display the report if it exists
-            if 'performance_report' in st.session_state:
-                report = st.session_state.performance_report
+            if 'error' in report:
+                if report['error'] == 'No audit data available for analysis':
+                    st.info("No audit data available yet. Run some agent audits to generate performance insights.")
+                else:
+                    st.error(f"Report Error: {report['error']}")
+            else:
+                # Display LLM Narrative
+                st.markdown("### 📋 Campaign Performance Report")
                 
-                if 'error' in report:
-                    if report['error'] == 'No audit data available for analysis':
-                        st.info("No audit data available yet. Run some agent audits to generate performance insights.")
-                    else:
-                        st.error(f"Report Error: {report['error']}")
-                    return  # Exit early - don't try to access other report keys
+                llm_narrative = report.get('llm_narrative')
+                if llm_narrative:
+                    st.markdown(llm_narrative)
+                else:
+                    st.warning("AI narrative could not be generated. Showing structured data below.")
 
-                # Campaign Performance Report table-style UI using Streamlit dataframe
-                st.markdown("#### Campaign Performance Report")
+                # Fallback / Detailed Table (Optional view)
+                st.markdown("---")
+                st.markdown("#### Detailed Metrics Breakdown")
 
                 issue_table = report.get('issue_table', {})
 

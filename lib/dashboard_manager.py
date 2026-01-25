@@ -22,6 +22,14 @@ import time
 import contextlib
 from lib.ai_campaign_report import generate_ai_campaign_summary, generate_ai_issue_notes
 
+# Import report generator
+try:
+    from analyzer.report_generator import CampaignReportGenerator
+    REPORT_GENERATOR_AVAILABLE = True
+except ImportError as e:
+    REPORT_GENERATOR_AVAILABLE = False
+    logging.warning(f"Report generator not available: {e}")
+
 # File locking imports (cross-platform)
 try:
     if os.name == 'posix':  # Unix/Linux/Mac
@@ -3858,6 +3866,19 @@ class DashboardManager:
             logger.warning(f"AI summary generation failed: {e}")
             ai_summary = None
 
+        # NEW: Generate Full LLM Narrative Report
+        llm_narrative = None
+        if REPORT_GENERATOR_AVAILABLE:
+            try:
+                # Run in thread to not block if possible, but for now synchronous is safer for Streamlit
+                # initialization. Given user accepted wait time, sync is fine.
+                generator = CampaignReportGenerator()
+                llm_narrative = generator.generate_report(campaign_metrics)
+                logger.info("Generated LLM campaign narrative successfully")
+            except Exception as e:
+                logger.error(f"Failed to generate LLM report: {e}")
+                llm_narrative = f"Could not generate AI report: {str(e)}"
+
         # Let AI refine per-issue notes where feedback is Yes; keep fallbacks otherwise
         try:
             ai_issue_notes = generate_ai_issue_notes(campaign_metrics, issue_table)
@@ -3879,6 +3900,7 @@ class DashboardManager:
             'recommendations': recommendations,
             'issue_table': issue_table,
             'ai_summary': ai_summary,
+            'llm_narrative': llm_narrative,  # Add the narrative to the result
         }
 
     def _generate_ai_insights(self, df: pd.DataFrame, disposition_counts: dict, behavioral_ratios: dict) -> list:
