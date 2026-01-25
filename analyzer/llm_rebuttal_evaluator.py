@@ -171,44 +171,27 @@ RESPONSE FORMAT (JSON only):
         
         Args:
             transcript: Full conversation transcript
-            objection_category: Category of detected objection
+            objection_category: Category (not used in simplified version)
             semantic_hints: Optional list of phrases that had low semantic match scores
             
         Returns:
             Formatted user prompt string
         """
-        objection_text = self.OBJECTION_MAP.get(
-            objection_category,
-            f"customer objection: {objection_category}"
-        )
-        
         prompt = f"""TRANSCRIPT:
 {transcript}
 
-OBJECTION DETECTED: {objection_text}
-
-TASK: Did the agent attempt to address this objection?
+TASK: Did the agent ask about properties (in any form)?
 
 """
         
-        # Add learned phrases as examples if available
+        # Add learned phrases as examples if available (for OTHER_PROPERTY_FAMILY)
         if objection_category in self.learned_phrases:
             category_phrases = self.learned_phrases[objection_category]
             if category_phrases and len(category_phrases) > 0:
                 # Limit to top 5 to keep prompt concise
                 sample_phrases = category_phrases[:5]
-                prompt += f"""KNOWN SUCCESSFUL REBUTTALS FOR THIS OBJECTION:
-The system has learned these phrases successfully address "{objection_text}":
+                prompt += f"""EXAMPLES OF PROPERTY QUESTIONS:
 {chr(10).join(f'- "{phrase}"' for phrase in sample_phrases)}
-
-Use these as reference examples of what rebuttals look like, but recognize ANY genuine attempt to address the objection.
-
-"""
-        
-        # Add semantic hints if provided
-        if semantic_hints:
-            prompt += f"""SEMANTIC MATCH CANDIDATES (confidence < 0.70):
-{chr(10).join(f'- "{hint}"' for hint in semantic_hints[:3])}
 
 """
         
