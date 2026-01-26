@@ -252,15 +252,28 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
                 else:
                     st.error(f"Report Error: {report['error']}")
             else:
-                # Display Interactive Report
-                st.markdown("---")
-                try:
-                    show_interactive_report(df, report)
-                except Exception as e:
-                    st.error(f"Error loading interactive dashboard: {e}")
-                    # Fallback to narrative if UI fails
-                    if report.get('llm_narrative'):
-                        st.markdown(report.get('llm_narrative'))
+                # Display LLM Narrative (Simple Text Report)
+                st.markdown("### 📋 Campaign Performance Report")
+                
+                llm_narrative = report.get('llm_narrative')
+                
+                if llm_narrative:
+                    # 1. Visual Display (Formatted)
+                    st.markdown(llm_narrative)
+                    
+                    st.markdown("---")
+                    st.caption("👇 **Copy Report Text Below** (Click inside > Ctrl+A > Ctrl+C)")
+                    
+                    # 2. Raw Text for Copying (User Request)
+                    st.text_area(
+                        label="Report Source", 
+                        value=llm_narrative, 
+                        height=300,
+                        key="report_copy_area",
+                        help="Copy this text to share with team leaders."
+                    )
+                else:
+                    st.warning("AI narrative could not be generated.")
 
         # Clear data option - scoped to the selected campaign
         st.markdown("---")
