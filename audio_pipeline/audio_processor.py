@@ -51,8 +51,9 @@ except (ModuleNotFoundError, ImportError):
 
 
 # Shared executor pool for all AudioProcessor instances to avoid nested deadlock
-# max_workers=6 allows 2 concurrent files (3 tasks each) or 3 concurrent files (2 tasks each)
-_shared_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="AudioProc")
+# max_workers=5 reduces API rate limit pressure while maintaining good concurrency
+# Allows ~2-3 concurrent files to be processed with all detections running in parallel
+_shared_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="AudioProc")
 logger = logging.getLogger(__name__)
 _agent_detectors: Dict[str, AgentOnlyRebuttalDetector] = {}
 _agent_detectors_lock = threading.Lock()

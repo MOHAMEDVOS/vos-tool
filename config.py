@@ -274,20 +274,22 @@ class ProcessingConfig:
     TIMEOUT_SINGLE_FILE = int(os.getenv("TIMEOUT_SINGLE_FILE", "600"))
     TIMEOUT_LITE_FILE = int(os.getenv("TIMEOUT_LITE_FILE", "60"))
     
-    # Rebuttal detection timeouts (progressive based on file duration)
-    # OPTIMIZED: Reduced from 300-600s to 60-90s for faster batch processing
-    # Files that timeout are marked as 'No' rebuttal and don't block other files
-    REBUTTAL_DETECTION_TIMEOUT_BASE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_BASE", "60"))
-    REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE", "30"))
-    REBUTTAL_DETECTION_TIMEOUT_MAX = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MAX", "90"))
-    REBUTTAL_DETECTION_TIMEOUT_MIN = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MIN", "30"))
+    # Transcription timeouts (AssemblyAI API)
+    # INCREASED: Free tier AssemblyAI can be slow, especially with rate limits
+    # Base timeout covers API upload + processing queue + transcription
+    TRANSCRIPTION_TIMEOUT_MIN = int(os.getenv("TRANSCRIPTION_TIMEOUT_MIN", "60"))  # 1 minute minimum
+    TRANSCRIPTION_TIMEOUT_BASE = int(os.getenv("TRANSCRIPTION_TIMEOUT_BASE", "180"))  # 3 minutes base
+    TRANSCRIPTION_TIMEOUT_PER_MINUTE = int(os.getenv("TRANSCRIPTION_TIMEOUT_PER_MINUTE", "60"))  # +1 min per audio minute
+    TRANSCRIPTION_TIMEOUT_MAX = int(os.getenv("TRANSCRIPTION_TIMEOUT_MAX", "600"))  # 10 minutes maximum
     
-    # Transcription timeouts
-    # INCREASED for free tier AssemblyAI which can be slow due to rate limits
-    TRANSCRIPTION_TIMEOUT_BASE = int(os.getenv("TRANSCRIPTION_TIMEOUT_BASE", "300"))
-    TRANSCRIPTION_TIMEOUT_PER_MINUTE = int(os.getenv("TRANSCRIPTION_TIMEOUT_PER_MINUTE", "60"))
-    TRANSCRIPTION_TIMEOUT_MAX = int(os.getenv("TRANSCRIPTION_TIMEOUT_MAX", "600"))
-    TRANSCRIPTION_TIMEOUT_MIN = int(os.getenv("TRANSCRIPTION_TIMEOUT_MIN", "120"))
+    # Rebuttal detection timeouts (includes transcription + semantic analysis + LLM evaluation)
+    # SIGNIFICANTLY INCREASED: Previous 60-90s was causing 72.5% timeout rate
+    # Logs show files need 30-60s for transcription alone, plus semantic + LLM time
+    REBUTTAL_DETECTION_TIMEOUT_MIN = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MIN", "90"))  # 1.5 minutes minimum
+    REBUTTAL_DETECTION_TIMEOUT_BASE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_BASE", "240"))  # 4 minutes base
+    REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE", "90"))  # +1.5 min per audio minute
+    REBUTTAL_DETECTION_TIMEOUT_MAX = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MAX", "900"))  # 15 minutes maximum
+
 
 
 class SecurityConfig:
