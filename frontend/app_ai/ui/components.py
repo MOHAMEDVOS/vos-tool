@@ -8,11 +8,14 @@ import streamlit as st
 try:
     from frontend.app_ai.ui.report_dashboard import show_interactive_report
 except ImportError:
-    # Fallback for local dev vs cloud paths
     try:
         from .report_dashboard import show_interactive_report
-    except:
-         from report_dashboard import show_interactive_report
+    except ImportError:
+        # Last resort fallback (if running from UI folder directly)
+        import sys
+        import os
+        sys.path.append(os.path.dirname(__file__))
+        from report_dashboard import show_interactive_report
 logger = logging.getLogger(__name__)
 
 
