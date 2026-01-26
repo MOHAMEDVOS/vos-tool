@@ -30,7 +30,7 @@ class GroqClient:
         
         self.model = model
         self.temperature = float(os.getenv("GROQ_TEMPERATURE", "0.2"))
-        self.max_tokens = int(os.getenv("GROQ_MAX_TOKENS", "300"))
+        self.max_tokens = int(os.getenv("GROQ_MAX_TOKENS", "3000"))  # Increased for full reports
         self.timeout = int(os.getenv("GROQ_TIMEOUT", "10"))
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
         
