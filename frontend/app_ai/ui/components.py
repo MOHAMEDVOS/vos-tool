@@ -249,92 +249,22 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
                 else:
                     st.warning("AI narrative could not be generated. Showing structured data below.")
 
-                # Fallback / Detailed Table (Optional view)
-                st.markdown("---")
-                st.markdown("#### Detailed Metrics Breakdown")
-
-                issue_table = report.get('issue_table', {})
-
-                audit_rows = []
-                action_rows = []
-
-                def _add_row(target_list, key: str):
-                    item = issue_table.get(key) or {}
-                    target_list.append({
-                        "Item": item.get('label', key),
-                        "Feedback": str(item.get('Feedback') or item.get('feedback') or 'N/A'),
-                        "Rating": str(item.get('rating', 'N/A')),
-                        "Action needed / Notes": item.get('notes', 'N/A') or 'N/A',
-                    })
-
-                _add_row(audit_rows, 'effort_issue')
-                _add_row(audit_rows, 'rebuttal_issue')
-                _add_row(audit_rows, 'releasing_issue')
-                _add_row(audit_rows, 'tonality_issue')
-                _add_row(action_rows, 'agents_coaching')
-                _add_row(action_rows, 'agents_allocation')
-                _add_row(action_rows, 'campaign_list')
-
-                def _color_feedback(val: str) -> str:
-                    if val == "Yes":
-                        return 'background-color: rgba(248,113,113,0.35); color: #111827;'
-                    if val == "No":
-                        return 'background-color: rgba(74,222,128,0.35); color: #052e16;'
-                    return ''
-
-                def _color_rating(val: str) -> str:
-                    if val == "High":
-                        return 'background-color: rgba(248,113,113,0.35);'
-                    if val == "Medium":
-                        return 'background-color: rgba(250,204,21,0.35);'
-                    if val == "Low":
-                        return 'background-color: rgba(74,222,128,0.35);'
-                    return ''
-
-                def _render_table(rows_data, title: str):
-                    df_local = pd.DataFrame(rows_data)
-                    styled = df_local.style.applymap(_color_feedback, subset=["Feedback"]).applymap(
-                        _color_rating, subset=["Rating"]
-                    )
-                    st.markdown(f"**{title}**")
-                    st.dataframe(
-                        styled,
-                        width='stretch',
-                        hide_index=True,
-                    )
-
-                if audit_rows:
-                    _render_table(audit_rows, "Auditing feedback")
-                if action_rows:
-                    _render_table(action_rows, "Action Points")
-
-                st.caption("Issue Rating Ratio: Low < 30%  |  Medium 30% - 50%  |  High > 50%")
-                
-                # AI-generated overall campaign summary (text box)
-                ai_summary = report.get('ai_summary')
-                if isinstance(ai_summary, str) and ai_summary.strip():
-                    st.markdown("---")
-                    st.markdown("#### AI Campaign Summary")
-                    # Display as a text area with built-in copy option
-                    st.text_area("Summary", value=ai_summary, height=200, key="ai_summary_text")
-                
-                
-    # Clear data option - scoped to the selected campaign
-    st.markdown("---")
-    if st.button("Clear Selected Campaign Data", type="secondary"):
-        if st.session_state.get('confirm_clear_campaign', False):
-            dashboard_manager.clear_campaign_audit_data(
-                st.session_state.get('username'),
-                selected_campaign
-            )
-            st.success(f"Campaign audit data for '{selected_campaign}' cleared successfully!")
-            # Clear the loaded data from session state
-            if 'campaign_dashboard_data' in st.session_state:
-                del st.session_state.campaign_dashboard_data
-            st.rerun()
-        else:
-            st.session_state['confirm_clear_campaign'] = True
-            st.warning("Click again to confirm clearing this campaign's audit data.")
+        # Clear data option - scoped to the selected campaign
+        st.markdown("---")
+        if st.button("Clear Selected Campaign Data", type="secondary"):
+            if st.session_state.get('confirm_clear_campaign', False):
+                dashboard_manager.clear_campaign_audit_data(
+                    st.session_state.get('username'),
+                    selected_campaign
+                )
+                st.success(f"Campaign audit data for '{selected_campaign}' cleared successfully!")
+                # Clear the loaded data from session state
+                if 'campaign_dashboard_data' in st.session_state:
+                    del st.session_state.campaign_dashboard_data
+                st.rerun()
+            else:
+                st.session_state['confirm_clear_campaign'] = True
+                st.warning("Click again to confirm clearing this campaign's audit data.")
 
 
 def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):
