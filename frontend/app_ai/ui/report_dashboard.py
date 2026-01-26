@@ -1,8 +1,17 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
+
+# Robust import for Plotly
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    # Define dummy functions or handle checks later
+    px = None
+    go = None
 
 def show_interactive_report(df: pd.DataFrame, report_data: dict):
     """
@@ -108,10 +117,20 @@ def show_interactive_report(df: pd.DataFrame, report_data: dict):
         # B. Donut Charts for Key Metrics
         st.subheader("Key Performance Indicators")
         
-        # Helper for Chart
+        # Helper for Chart or Fallback
         def create_donut(good, bad, title):
+            total = good + bad
+            
+            # Fallback if Plotly is missing
+            if not PLOTLY_AVAILABLE:
+                st.markdown(f"**{title}**")
+                ratio = good / total if total > 0 else 0.0
+                st.progress(ratio)
+                st.caption(f"Good: {int(good)} | Bad: {int(bad)} ({int(ratio*100)}%)")
+                return None
+
             # Safe handling if metrics are missing
-            if good + bad == 0:
+            if total == 0:
                 values = [1, 0] # Dummy
                 labels = ['No Data', '']
                 colors = ['#cccccc', '#ffffff']
@@ -143,17 +162,20 @@ def show_interactive_report(df: pd.DataFrame, report_data: dict):
         # Late Hello
         lh_stats = metric_summaries.get('Late Hello', {'good_count': 0, 'bad_count': 0})
         with m_cols1:
-            st.plotly_chart(create_donut(lh_stats.get('good_count',0), lh_stats.get('bad_count',0), "Late Hello Compliance"), use_container_width=True)
+            fig = create_donut(lh_stats.get('good_count',0), lh_stats.get('bad_count',0), "Late Hello Compliance")
+            if fig: st.plotly_chart(fig, use_container_width=True)
 
         # Rebuttals
         rb_stats = metric_summaries.get('Rebuttals', {'good_count': 0, 'bad_count': 0})
         with m_cols2:
-             st.plotly_chart(create_donut(rb_stats.get('good_count',0), rb_stats.get('bad_count',0), "Rebuttal Usage"), use_container_width=True)
+             fig = create_donut(rb_stats.get('good_count',0), rb_stats.get('bad_count',0), "Rebuttal Usage")
+             if fig: st.plotly_chart(fig, use_container_width=True)
 
         # Releasing
         rl_stats = metric_summaries.get('Early Call Release', {'good_count': 0, 'bad_count': 0})
         with m_cols3:
-             st.plotly_chart(create_donut(rl_stats.get('good_count',0), rl_stats.get('bad_count',0), "Call Completion (No Release)"), use_container_width=True)
+             fig = create_donut(rl_stats.get('good_count',0), rl_stats.get('bad_count',0), "Call Completion (No Release)")
+             if fig: st.plotly_chart(fig, use_container_width=True)
              
         # Second Row
         m_cols4, m_cols5, m_cols6 = st.columns(3)
@@ -161,17 +183,20 @@ def show_interactive_report(df: pd.DataFrame, report_data: dict):
         # Intro
         intro_stats = metric_summaries.get('Agent Introduction', {'good_count': 0, 'bad_count': 0})
         with m_cols4:
-             st.plotly_chart(create_donut(intro_stats.get('good_count',0), intro_stats.get('bad_count',0), "Agent Introduction"), use_container_width=True)
+             fig = create_donut(intro_stats.get('good_count',0), intro_stats.get('bad_count',0), "Agent Introduction")
+             if fig: st.plotly_chart(fig, use_container_width=True)
 
         # Reason
         reason_stats = metric_summaries.get('Reason for Calling', {'good_count': 0, 'bad_count': 0})
         with m_cols5:
-             st.plotly_chart(create_donut(reason_stats.get('good_count',0), reason_stats.get('bad_count',0), "Reason Stated"), use_container_width=True)
+             fig = create_donut(reason_stats.get('good_count',0), reason_stats.get('bad_count',0), "Reason Stated")
+             if fig: st.plotly_chart(fig, use_container_width=True)
              
         # Owner Name
         owner_stats = metric_summaries.get('Owner Name Confirmation', {'good_count': 0, 'bad_count': 0})
         with m_cols6:
-             st.plotly_chart(create_donut(owner_stats.get('good_count',0), owner_stats.get('bad_count',0), "Owner Confirmation"), use_container_width=True)
+             fig = create_donut(owner_stats.get('good_count',0), owner_stats.get('bad_count',0), "Owner Confirmation")
+             if fig: st.plotly_chart(fig, use_container_width=True)
 
 
     # === TAB 2: AGENT PERFORMANCE ===
