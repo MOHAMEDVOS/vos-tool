@@ -4,6 +4,15 @@ import logging
 import pandas as pd
 import streamlit as st
 
+# Import Interactive Report Dashboard
+try:
+    from frontend.app_ai.ui.report_dashboard import show_interactive_report
+except ImportError:
+    # Fallback for local dev vs cloud paths
+    try:
+        from .report_dashboard import show_interactive_report
+    except:
+         from report_dashboard import show_interactive_report
 logger = logging.getLogger(__name__)
 
 
@@ -240,14 +249,15 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
                 else:
                     st.error(f"Report Error: {report['error']}")
             else:
-                # Display LLM Narrative
-                st.markdown("### 📋 Campaign Performance Report")
-                
-                llm_narrative = report.get('llm_narrative')
-                if llm_narrative:
-                    st.markdown(llm_narrative)
-                else:
-                    st.warning("AI narrative could not be generated. Showing structured data below.")
+                # Display Interactive Report
+                st.markdown("---")
+                try:
+                    show_interactive_report(df, report)
+                except Exception as e:
+                    st.error(f"Error loading interactive dashboard: {e}")
+                    # Fallback to narrative if UI fails
+                    if report.get('llm_narrative'):
+                        st.markdown(report.get('llm_narrative'))
 
         # Clear data option - scoped to the selected campaign
         st.markdown("---")
