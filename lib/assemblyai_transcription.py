@@ -351,6 +351,7 @@ class AssemblyAITranscriptionEngine:
             # Configure settings
             config_params = {
                 "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None else True,  # Enable by default for dual-channel
+                "multichannel": True,  # Enable multichannel for stereo audio (left=agent, right=owner)
                 "language_detection": True,
                 "punctuate": True,
                 "format_text": True,
@@ -511,6 +512,7 @@ class AssemblyAITranscriptionEngine:
                 "start": utterance.start if hasattr(utterance, 'start') else None,
                 "end": utterance.end if hasattr(utterance, 'end') else None,
                 "speaker": utterance.speaker if hasattr(utterance, 'speaker') else None,
+                "channel": utterance.channel if hasattr(utterance, 'channel') else None,  # Multichannel support
                 "confidence": utterance.confidence if hasattr(utterance, 'confidence') else None,
             }
             result.append(utterance_dict)
@@ -532,15 +534,16 @@ class AssemblyAITranscriptionEngine:
     def format_as_dialogue(self, utterances: List[Dict[str, Any]]) -> str:
         """
         Format speaker-separated utterances as chronological dialogue.
+        Supports both channel-based (multichannel) and speaker-based (diarization) formatting.
         
         Args:
-            utterances: List of utterance dicts with 'speaker', 'text', 'start' fields
+            utterances: List of utterance dicts with 'speaker', 'channel', 'text', 'start' fields
             
         Returns:
             Formatted dialogue string like:
-            Speaker A: Hello there
-            Speaker B: Who is this?
-            Speaker A: This is Mark calling about your property
+            Agent: Hello there
+            Owner: Who is this?
+            Agent: This is Mark calling about your property
         """
         if not utterances:
             return ""
@@ -548,23 +551,39 @@ class AssemblyAITranscriptionEngine:
         # Sort utterances chronologically by start time
         sorted_utterances = sorted(utterances, key=lambda u: u.get('start', 0))
         
+        # Determine if we're using multichannel (channel-based) or diarization (speaker-based)
+        has_channels = any(u.get('channel') is not None for u in sorted_utterances)
+        
         # Format as dialogue
         dialogue_lines = []
         for utterance in sorted_utterances:
-            speaker = utterance.get('speaker', 'Unknown')
             text = utterance.get('text', '').strip()
-            if text:
-                dialogue_lines.append(f"{speaker}: {text}")
+            if not text:
+                continue
+            
+            # Determine speaker label
+            if has_channels:
+                # Multichannel mode: Use channel numbers to determine speaker
+                channel = utterance.get('channel')
+                speaker = "Agent" if channel == 0 else "Owner" if channel == 1 else f"Channel {channel}"
+            else:
+                # Diarization mode: Use speaker labels
+                speaker = utterance.get('speaker', 'Unknown')
+            
+            dialogue_lines.append(f"{speaker}: {text}")
         
         return "\n".join(dialogue_lines)
     
     def extract_speaker_transcript(self, utterances: List[Dict[str, Any]], speaker_label: str) -> str:
         """
         Extract transcript for a specific speaker only.
+        Supports both channel-based (multichannel) and speaker-based (diarization) extraction.
         
         Args:
-            utterances: List of utterance dicts with 'speaker' and 'text' fields
-            speaker_label: Speaker label to extract (e.g., 'A', 'B', 'Speaker A')
+            utterances: List of utterance dicts with 'speaker', 'channel', and 'text' fields
+            speaker_label: Speaker label to extract:
+                          - For multichannel: "A" = channel 0 (left/agent), "B" = channel 1 (right/owner)
+                          - For diarization: "A", "B", "Speaker A", "Speaker B", etc.
             
         Returns:
             Concatenated transcript for the specified speaker
@@ -572,12 +591,28 @@ class AssemblyAITranscriptionEngine:
         if not utterances:
             return ""
         
+        # Determine if we're using multichannel (channel-based) or diarization (speaker-based)
+        has_channels = any(u.get('channel') is not None for u in utterances)
+        
         speaker_texts = []
-        for utterance in utterances:
-            if utterance.get('speaker') == speaker_label:
-                text = utterance.get('text', '').strip()
-                if text:
-                    speaker_texts.append(text)
+        
+        if has_channels:
+            # Multichannel mode: Use channel numbers
+            # Channel 0 (left) = Agent (A), Channel 1 (right) = Owner (B)
+            target_channel = 0 if speaker_label == "A" else 1
+            
+            for utterance in utterances:
+                if utterance.get('channel') == target_channel:
+                    text = utterance.get('text', '').strip()
+                    if text:
+                        speaker_texts.append(text)
+        else:
+            # Diarization mode: Use speaker labels
+            for utterance in utterances:
+                if utterance.get('speaker') == speaker_label:
+                    text = utterance.get('text', '').strip()
+                    if text:
+                        speaker_texts.append(text)
         
         return " ".join(speaker_texts)
     
