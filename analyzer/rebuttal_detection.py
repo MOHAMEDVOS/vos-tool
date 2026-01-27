@@ -1752,6 +1752,34 @@ class KeywordRepository:
         ]
     }
 
+    REBUTTAL_REGEX_PATTERNS = {
+        "OTHER_PROPERTY_FAMILY": [
+            # Pattern 1: Any other properties
+            r'any\s+other\s+propert', r'another\s+propert', r'any\s+properties',
+            r'other\s+propert', r'additional\s+propert',
+            
+            # Pattern 2: General property inquiry
+            r'property\s+for\s+sale', r'property\s+to\s+sell', r'propert.*sell',
+            r'sell.*propert', r'sale.*propert',
+            
+            # Pattern 3: Know someone
+            r'know\s+someone', r'know\s+anyone', r'know.*selling',
+            r'refer.*propert', r'recommend.*propert',
+            
+            # Pattern 4: Business declaration + invitation
+            r'we\s+buy\s+propert', r'i\s+buy\s+propert', r'buying\s+propert',
+            r'invest.*propert', r'purchas.*propert',
+            
+            # Pattern 5: Pivot phrases
+            r'since.*phone', r'before.*let.*go', r'by\s+the\s+way',
+            r'while.*have.*you', r'apolog.*but.*since',
+            
+            # Pattern 6: Ownership questions
+            r'do\s+you\s+own.*propert', r'do\s+you\s+have.*propert',
+            r'own\s+any\s+propert', r'have\s+any\s+propert'
+        ]
+    }
+
     def _load_learned_phrases(self) -> Dict[str, List[str]]:
         """Load learned phrases from PostgreSQL database or JSON file."""
         try:
@@ -1863,6 +1891,10 @@ class KeywordRepository:
         
         return merged_phrases
 
+    def get_all_regex_patterns(self) -> Dict[str, List[str]]:
+        """Get all rebuttal regex patterns organized by category."""
+        return self.REBUTTAL_REGEX_PATTERNS
+
     def get_phrases_by_category(self, category: str) -> List[str]:
         """Get phrases for a specific category (includes learned phrases)."""
         all_phrases = self.get_all_phrases()
@@ -1963,6 +1995,11 @@ class SemanticDetectionEngine:
         exact_matches = self._detect_exact_matches(transcript_lower)
         matches.extend(exact_matches)
 
+        # 1.5 NEW: Regex matching (flexible patterns)
+        logger.debug("Running regex pattern matching...")
+        regex_matches = self._detect_regex_matches(transcript_lower)
+        matches.extend(regex_matches)
+
         # 2. Secondary: Semantic matching (AI-powered)
         if self.semantic_model is not None:
             logger.debug("Running semantic AI matching...")
@@ -2046,7 +2083,30 @@ class SemanticDetectionEngine:
         text = re.sub(r"[.,!?;:\\-]", " ", text)
         # Collapse multiple whitespace into single spaces
         text = re.sub(r"\s+", " ", text).strip()
+        text = re.sub(r"\s+", " ", text).strip()
         return text
+
+    def _detect_regex_matches(self, transcript_lower: str) -> List[Dict[str, Any]]:
+        """Detect matches using regex patterns for flexible matching."""
+        import re
+        matches = []
+        
+        # Use existing normalize logic for consistency, but regexes are designed for lower case text
+        # We rely on the input being lower case, which it is from detect_rebuttal
+        
+        for category, patterns in self.keyword_repo.get_all_regex_patterns().items():
+            for pattern in patterns:
+                if re.search(pattern, transcript_lower):
+                    # Found a match using regex
+                    match_text = re.search(pattern, transcript_lower).group(0)
+                    matches.append({
+                        'phrase': f"REGEX: {pattern}", # Indicate it's a regex match
+                        'category': category,
+                        'confidence': 1.0, # High confidence for regex matches
+                        'match_type': 'regex',
+                        'matched_phrase': match_text
+                    })
+        return matches
 
     def _detect_exact_matches(self, transcript_lower: str) -> List[Dict[str, Any]]:
         """Detect exact phrase matches with punctuation-insensitive matching."""
