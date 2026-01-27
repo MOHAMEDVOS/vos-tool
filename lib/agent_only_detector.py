@@ -63,22 +63,31 @@ class LocalTranscriptionEngine:
         logger.debug(f"Transcribing {len(audio_segment)}ms audio with AssemblyAI API")
         
         try:
-            import tempfile
-            import os
+            # Export audio segment to temp file (Robust Windows method)
+            # Use a dedicated temp filename that definitely doesn't exist
+            import uuid
             
-            # Export audio segment to temp file
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                audio_segment.export(tmp.name, format="wav")
-                tmp_path = tmp.name
+            # Ensure temp dir exists
+            temp_dir = os.path.join(tempfile.gettempdir(), "vos_debug")
+            os.makedirs(temp_dir, exist_ok=True)
             
+            tmp_filename = f"seg_{uuid.uuid4().hex}.mp3"
+            tmp_path = os.path.join(temp_dir, tmp_filename)
+            
+            # Export to the file - pydub handles opening/closing
+            # Use MP3 to reduce upload time significantly
+            audio_segment.export(tmp_path, format="mp3", bitrate="32k")
+            
+            # Now it's just a regular file on disk, safe to read
             result = self.assemblyai_engine.transcribe_file(
                 tmp_path,
-                enable_speaker_diarization=False  # Disable for single-segment transcription
+                enable_speaker_diarization=False
             )
             
-            # Clean up temp file
+            # Clean up
             try:
-                os.unlink(tmp_path)
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
             except:
                 pass
             

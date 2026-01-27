@@ -331,10 +331,11 @@ class AssemblyAITranscriptionEngine:
         """
         start_time = time.time()
         
-        # Check cache first
-        cached_result = self.cache.get(audio_file_path)
-        if cached_result:
-            return cached_result
+        # Check cache first (unless disabled)
+        if os.environ.get("ASSEMBLYAI_DISABLE_CACHE", "false").lower() != "true":
+            cached_result = self.cache.get(audio_file_path)
+            if cached_result:
+                return cached_result
         
         # Get timeout from config if not provided
         if timeout is None:
@@ -362,11 +363,20 @@ class AssemblyAITranscriptionEngine:
                 
             config = aai.TranscriptionConfig(**config_params)
             
-            logger.debug(f"Transcribing file: {audio_file_path} (timeout: {timeout}s)")
+            # DIAGNOSTIC: Log file size to check for bloat
+            try:
+                file_size_mb = os.path.getsize(audio_file_path) / (1024 * 1024)
+                logger.debug(f"Transcribing file: {audio_file_path} (Size: {file_size_mb:.2f} MB, Timeout: {timeout}s)")
+            except Exception:
+                logger.debug(f"Transcribing file: {audio_file_path} (Timeout: {timeout}s)")
             
             # Submit for transcription with local retry for connection issues
             transcript_submission = None
             submission_error = None
+            
+            # DIAGNOSTIC: Measure upload time
+            upload_start = time.time()
+            
             for attempt in range(3):
                 try:
                     transcript_submission = self.transcriber.submit(audio_file_path, config=config)
@@ -379,6 +389,9 @@ class AssemblyAITranscriptionEngine:
                         raise # Auth error, don't retry
                     time.sleep(1)
             
+            upload_duration = time.time() - upload_start
+            logger.info(f"⏱️ Upload took {upload_duration:.2f}s for {Path(audio_file_path).name}")
+            
             if not transcript_submission:
                 raise Exception(f"Failed to submit to AssemblyAI after 3 attempts: {submission_error}")
 
@@ -387,10 +400,30 @@ class AssemblyAITranscriptionEngine:
             # Poll for completion
             poll_interval = 2.0
             elapsed = 0.0
+            poll_count = 0
+            
+            # DIAGNOSTIC: Track phases
+            queue_start_time = None
+            processing_start_time = None
+            last_status = "unknown"
             
             while elapsed < timeout:
+                poll_count += 1
                 try:
                     transcript = aai.Transcript.get_by_id(transcript_id)
+                    current_status = transcript.status
+                    
+                    # Log state transitions
+                    if current_status != last_status:
+                        if current_status == "queued":
+                            queue_start_time = time.time()
+                            logger.info(f"⏱️ Job {transcript_id} entered QUEUE (poll #{poll_count})")
+                        elif current_status == "processing":
+                            processing_start_time = time.time()
+                            queue_duration = time.time() - (queue_start_time or upload_start + upload_duration)
+                            logger.info(f"⏱️ Job {transcript_id} started PROCESSING after {queue_duration:.2f}s in queue")
+                        last_status = current_status
+                        
                 except Exception as e:
                     # Check for 404 Not Found (fatal error, transcript ID invalid/deleted)
                     error_str = str(e)
@@ -406,6 +439,20 @@ class AssemblyAITranscriptionEngine:
 
                 if transcript.status == aai.TranscriptStatus.completed:
                     processing_time_ms = int((time.time() - start_time) * 1000)
+                    
+                    # DIAGNOSTIC: Final timing breakdown
+                    total_time = time.time() - start_time
+                    proc_duration = time.time() - (processing_start_time or time.time())
+                    queue_duration = (processing_start_time or time.time()) - (queue_start_time or upload_start + upload_duration)
+                    
+                    logger.info(
+                        f"✅ TIMING BREAKDOWN for {Path(audio_file_path).name}:\n"
+                        f"   Upload:     {upload_duration:.2f}s\n"
+                        f"   Queue:      {queue_duration:.2f}s\n"
+                        f"   Processing: {proc_duration:.2f}s\n"
+                        f"   Total:      {total_time:.2f}s\n"
+                        f"   Polls:      {poll_count}"
+                    )
                     
                     # Extract results
                     result = {
@@ -433,9 +480,15 @@ class AssemblyAITranscriptionEngine:
                 elapsed += poll_interval
             
             if result_container["result"] is None and elapsed >= timeout:
-                raise TimeoutError(f"Transcription timed out after {timeout} seconds")
+                raise TimeoutError(
+                    f"Transcription timed out after {timeout} seconds "
+                    f"(Status: {last_status}, Polls: {poll_count})"
+                )
 
         except Exception as e:
+            if 'processing_time_ms' not in locals():
+                processing_time_ms = int((time.time() - start_time) * 1000)
+            
             result_container["exception"] = e
         
         if result_container["exception"]:

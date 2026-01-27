@@ -151,12 +151,23 @@ class AudioProcessor:
                 return result
             
             # OPTIMIZATION: Prepare temp file for AssemblyAI early (before other detections)
+            # OPTIMIZATION: Prepare temp file for AssemblyAI early (before other detections)
             import tempfile
+            import os
+            import uuid
             temp_file = None
             try:
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                    agent_audio.export(tmp.name, format="wav", parameters=["-ac", "1", "-ar", "16000"])
-                    temp_file = tmp.name
+                # Robust Windows method: Use dedicated directory + UUID
+                debug_dir = os.path.join(tempfile.gettempdir(), "vos_debug")
+                os.makedirs(debug_dir, exist_ok=True)
+                
+                temp_filename = f"proc_{uuid.uuid4().hex}.mp3"
+                temp_path = os.path.join(debug_dir, temp_filename)
+                
+                # Export agent audio to this file (MP3 32k mono)
+                # Lower bitrate needed for speech-to-text, saves massive bandwidth
+                agent_audio.export(temp_path, format="mp3", bitrate="32k", parameters=["-ac", "1", "-ar", "16000"])
+                temp_file = temp_path
             except Exception as temp_error:
                 logger.error(f"Failed to create temp file for transcription: {temp_error}")
                 temp_file = None
