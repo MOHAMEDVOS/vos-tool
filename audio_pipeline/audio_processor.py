@@ -51,9 +51,8 @@ except (ModuleNotFoundError, ImportError):
 
 
 # Shared executor pool for all AudioProcessor instances to avoid nested deadlock
-# max_workers=5 reduces API rate limit pressure while maintaining good concurrency
-# Allows ~2-3 concurrent files to be processed with all detections running in parallel
-_shared_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="AudioProc")
+# max_workers=6 allows 2 concurrent files (3 tasks each) or 3 concurrent files (2 tasks each)
+_shared_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="AudioProc")
 logger = logging.getLogger(__name__)
 _agent_detectors: Dict[str, AgentOnlyRebuttalDetector] = {}
 _agent_detectors_lock = threading.Lock()
@@ -151,23 +150,12 @@ class AudioProcessor:
                 return result
             
             # OPTIMIZATION: Prepare temp file for AssemblyAI early (before other detections)
-            # OPTIMIZATION: Prepare temp file for AssemblyAI early (before other detections)
             import tempfile
-            import os
-            import uuid
             temp_file = None
             try:
-                # Robust Windows method: Use dedicated directory + UUID
-                debug_dir = os.path.join(tempfile.gettempdir(), "vos_debug")
-                os.makedirs(debug_dir, exist_ok=True)
-                
-                temp_filename = f"proc_{uuid.uuid4().hex}.mp3"
-                temp_path = os.path.join(debug_dir, temp_filename)
-                
-                # Export agent audio to this file (MP3 32k mono)
-                # Lower bitrate needed for speech-to-text, saves massive bandwidth
-                agent_audio.export(temp_path, format="mp3", bitrate="32k", parameters=["-ac", "1", "-ar", "16000"])
-                temp_file = temp_path
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                    agent_audio.export(tmp.name, format="wav", parameters=["-ac", "1", "-ar", "16000"])
+                    temp_file = tmp.name
             except Exception as temp_error:
                 logger.error(f"Failed to create temp file for transcription: {temp_error}")
                 temp_file = None

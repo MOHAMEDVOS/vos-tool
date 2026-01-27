@@ -30,26 +30,24 @@ class GroqClient:
         
         self.model = model
         self.temperature = float(os.getenv("GROQ_TEMPERATURE", "0.2"))
-        self.max_tokens = int(os.getenv("GROQ_MAX_TOKENS", "3000"))  # Increased for full reports
+        self.max_tokens = int(os.getenv("GROQ_MAX_TOKENS", "300"))
         self.timeout = int(os.getenv("GROQ_TIMEOUT", "10"))
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
         
         logger.info(f"GroqClient initialized with model: {self.model}")
     
-    def create_completion(self, messages: List[Dict[str, str]], retry_attempts: int = 5, json_mode: bool = True) -> Dict[str, Any]:
+    def create_completion(self, messages: List[Dict[str, str]], retry_attempts: int = 3) -> Dict[str, Any]:
         """
-        Create a chat completion with enhanced retry logic.
+        Create a chat completion with retry logic.
         
         Args:
             messages: List of message dicts with 'role' and 'content'
-            retry_attempts: Number of retry attempts on failure (increased to 5 for rate limits)
-            json_mode: Whether to force JSON output format (default: True)
+            retry_attempts: Number of retry attempts on failure
             
         Returns:
             Response dict with 'choices' containing the completion
         """
         import requests
-        import random
         
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -61,10 +59,8 @@ class GroqClient:
             "messages": messages,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
+            "response_format": {"type": "json_object"}  # Force JSON response
         }
-        
-        if json_mode:
-            payload["response_format"] = {"type": "json_object"}  # Force JSON response
         
         last_error = None
         
@@ -82,17 +78,11 @@ class GroqClient:
                     logger.debug(f"GroqCloud API success (attempt {attempt + 1})")
                     return result
                 elif response.status_code == 429:
-                    # Rate limit - exponential backoff with jitter
-                    if attempt < retry_attempts - 1:
-                        base_wait = min(60, 5 * (2 ** attempt))  # 5s, 10s, 20s, 40s, 60s (capped)
-                        jitter = random.uniform(0, base_wait * 0.1)  # Add 0-10% jitter
-                        wait_time = base_wait + jitter
-                        logger.warning(
-                            f"⚠️ GroqCloud rate limit hit (attempt {attempt + 1}/{retry_attempts}), "
-                            f"waiting {wait_time:.1f}s before retry..."
-                        )
-                        time.sleep(wait_time)
-                        continue
+                    # Rate limit - wait and retry
+                    wait_time = (2 ** attempt) * 1  # Exponential backoff
+                    logger.warning(f"Rate limited, waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                    continue
                 else:
                     error_msg = f"GroqCloud API error {response.status_code}: {response.text}"
                     logger.error(error_msg)
@@ -101,13 +91,11 @@ class GroqClient:
             except requests.exceptions.Timeout:
                 logger.warning(f"Request timeout (attempt {attempt + 1}/{retry_attempts})")
                 last_error = "Request timeout"
-                if attempt < retry_attempts - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                time.sleep(1)
             except Exception as e:
                 logger.error(f"GroqCloud API request failed: {e}")
                 last_error = str(e)
-                if attempt < retry_attempts - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                time.sleep(1)
         
         raise Exception(f"GroqCloud API failed after {retry_attempts} attempts. Last error: {last_error}")
 

@@ -22,14 +22,6 @@ import time
 import contextlib
 from lib.ai_campaign_report import generate_ai_campaign_summary, generate_ai_issue_notes
 
-# Import report generator
-try:
-    from analyzer.report_generator import CampaignReportGenerator
-    REPORT_GENERATOR_AVAILABLE = True
-except ImportError as e:
-    REPORT_GENERATOR_AVAILABLE = False
-    logging.warning(f"Report generator not available: {e}")
-
 # File locking imports (cross-platform)
 try:
     if os.name == 'posix':  # Unix/Linux/Mac
@@ -3531,25 +3523,8 @@ class DashboardManager:
             disposition_counts = df['Disposition'].value_counts().to_dict()
 
         # Behavioral factors
-        # Audit Type Analysis
-        audit_counts = {'Heavy Audit': 0, 'Lite Audit': 0}
-        if 'Audit Type' in df.columns:
-            audit_counts.update(df['Audit Type'].value_counts().to_dict())
-
-        # Behavioral factors
-        # Rebuttal Metric: Filter for Heavy Audits ONLY (Lite Audits don't check rebuttals)
-        rebuttal_yes = 0
-        rebuttal_no = 0
-        if 'Rebuttal Detection' in df.columns:
-            if 'Audit Type' in df.columns:
-                # Only count rebuttals for Heavy Audits
-                heavy_df = df[df['Audit Type'] == 'Heavy Audit']
-                rebuttal_yes = len(heavy_df[heavy_df['Rebuttal Detection'] == 'Yes'])
-                rebuttal_no = len(heavy_df[heavy_df['Rebuttal Detection'] == 'No'])
-            else:
-                # Fallback: Count all if Audit Type not present
-                rebuttal_yes = len(df[df['Rebuttal Detection'] == 'Yes'])
-                rebuttal_no = len(df[df['Rebuttal Detection'] == 'No'])
+        rebuttal_yes = len(df[df.get('Rebuttal Detection') == 'Yes']) if 'Rebuttal Detection' in df.columns else 0
+        rebuttal_no = len(df[df.get('Rebuttal Detection') == 'No']) if 'Rebuttal Detection' in df.columns else 0
 
         releasing_yes = len(df[df.get('Releasing Detection') == 'Yes']) if 'Releasing Detection' in df.columns else 0
         releasing_no = len(df[df.get('Releasing Detection') == 'No']) if 'Releasing Detection' in df.columns else 0
@@ -3673,149 +3648,6 @@ class DashboardManager:
         if total_calls > 50 and nyi_pct < 15 and wrong_number_pct < 10:
             observations.append("Successful campaign with low rejection and high accuracy.")
             recommendations.append("Scale effective calling methods and expand training.")
-
-        # --- NEW: Detailed Metrics Calculation for Refined Report ---
-        
-        # 1. Quality Score Distribution
-        quality_scores = []
-        if 'Intro Score' in df.columns:
-            # Clean and convert scores: "100%" -> 100, "N/A" -> None
-            for score_raw in df['Intro Score']:
-                try:
-                    if pd.isna(score_raw) or str(score_raw).upper() == 'N/A':
-                        continue
-                    score_str = str(score_raw).replace('%', '').strip()
-                    quality_scores.append(float(score_str))
-                except ValueError:
-                    continue
-        
-        avg_quality_score = 0
-        sorted_score_dist = {}
-        if quality_scores:
-            avg_quality_score = sum(quality_scores) / len(quality_scores)
-            # Count distribution (e.g., {100.0: 15, 83.3: 5})
-            from collections import Counter
-            score_counts = Counter(quality_scores)
-            # Format for JSON: {"100%": {"count": 15, "percentage": 63}}
-            total_scored = len(quality_scores)
-            for score, count in score_counts.items():
-                pct = (count / total_scored) * 100
-                sorted_score_dist[f"{int(score)}%"] = {"count": count, "percentage": round(pct, 1)}
-
-        # 2. Metric Summaries (Good vs Bad counts for all metrics)
-        metric_summaries = {}
-        target_columns = {
-            'Late Hello': 'Late Hello Detection',
-            'Early Call Release': 'Releasing Detection',
-            'Rebuttals': 'Rebuttal Detection',
-            'Owner Name Confirmation': 'Owner Name',
-            'Agent Introduction': 'Agent Intro',
-            'Reason for Calling': 'Reason for calling'
-        }
-        
-        # Define what constitutes "Good" vs "Bad" for each column
-        # Most are "Yes" = Good, EXCEPT Late Hello/Releasing where "Yes" = Bad
-        bad_values = {
-            'Late Hello Detection': ['Yes'], 
-            'Releasing Detection': ['Yes'],
-            'Rebuttal Detection': ['No'],
-            'Owner Name': ['No'],
-            'Agent Intro': ['No'],
-            'Reason for calling': ['No']
-        }
-
-        for label, col_name in target_columns.items():
-            if col_name in df.columns:
-                # Filter for Audit Type if needed (Rebuttals only for Heavy)
-                target_df = df
-                if col_name == 'Rebuttal Detection' and 'Audit Type' in df.columns:
-                     target_df = df[df['Audit Type'] == 'Heavy Audit']
-
-                # Normalize and count
-                values = target_df[col_name].fillna('N/A').astype(str)
-                total_metric = len(values)
-                if total_metric == 0:
-                    continue
-
-                bad_set = bad_values.get(col_name, ['No']) # Default Bad is 'No'
-                bad_count = 0
-                good_count = 0
-                
-                for v in values:
-                    if v.upper() == 'N/A': continue
-                    # Check if bad
-                    is_bad = False
-                    for b in bad_set:
-                        if v.upper() == b.upper():
-                            is_bad = True
-                            break
-                    if is_bad:
-                        bad_count += 1
-                    else:
-                        good_count += 1
-                
-                valid_total = bad_count + good_count
-                if valid_total > 0:
-                    metric_summaries[label] = {
-                        "good_count": good_count,
-                        "bad_count": bad_count,
-                        "good_pct": round((good_count / valid_total) * 100, 1),
-                        "bad_pct": round((bad_count / valid_total) * 100, 1),
-                        "total": valid_total
-                    }
-
-        # 3. Agent Performance Details (Per Agent Stats)
-        agent_performance_details = {}
-        if 'Agent Name' in df.columns:
-            for agent in df['Agent Name'].dropna().unique():
-                agent_df = df[df['Agent Name'] == agent]
-                agent_calls = len(agent_df)
-                
-                # Calculate Agent Average Score
-                agent_scores = []
-                if 'Intro Score' in agent_df.columns:
-                    for score_raw in agent_df['Intro Score']:
-                        try:
-                            if pd.isna(score_raw) or str(score_raw).upper() == 'N/A': continue
-                            agent_scores.append(float(str(score_raw).replace('%', '').strip()))
-                        except: continue
-                
-                agent_avg_score = sum(agent_scores) / len(agent_scores) if agent_scores else 0
-                
-                # Calculate failures per metric for this agent
-                failures = {}
-                for label, col_name in target_columns.items():
-                    if col_name in agent_df.columns:
-                        # Audit Type Check for Rebuttals
-                        metric_df = agent_df
-                        if col_name == 'Rebuttal Detection' and 'Audit Type' in metric_df.columns:
-                            metric_df = metric_df[metric_df['Audit Type'] == 'Heavy Audit']
-                        
-                        vals = metric_df[col_name].fillna('N/A').astype(str)
-                        bad_set = bad_values.get(col_name, ['No'])
-                        
-                        fail_count = 0
-                        valid_count = 0
-                        for v in vals:
-                            if v.upper() == 'N/A': continue
-                            valid_count += 1
-                            for b in bad_set:
-                                if v.upper() == b.upper():
-                                    fail_count += 1
-                                    break
-                        
-                        if valid_count > 0:
-                            failures[label] = {
-                                "fail_count": fail_count,
-                                "total": valid_count,
-                                "fail_rate": round((fail_count / valid_count) * 100, 1)
-                            }
-                
-                agent_performance_details[agent] = {
-                    "total_calls": agent_calls,
-                    "average_score": round(agent_avg_score, 1),
-                    "metric_failures": failures
-                }
 
         # Generate AI-powered observations using patterns
         ai_observations = self._generate_ai_insights(
@@ -4018,12 +3850,6 @@ class DashboardManager:
             "recommendations": recommendations,
             "campaign_name": campaign_name,
             "date_range": date_range_label,
-            "audit_counts": audit_counts,
-            # NEW: Granular Metrics for Detailed Report
-            "quality_score_distribution": sorted_score_dist,
-            "average_quality_score": avg_quality_score,
-            "metric_summaries": metric_summaries,
-            "agent_performance_details": agent_performance_details,
         }
 
         try:
@@ -4031,19 +3857,6 @@ class DashboardManager:
         except Exception as e:
             logger.warning(f"AI summary generation failed: {e}")
             ai_summary = None
-
-        # NEW: Generate Full LLM Narrative Report
-        llm_narrative = None
-        if REPORT_GENERATOR_AVAILABLE:
-            try:
-                # Run in thread to not block if possible, but for now synchronous is safer for Streamlit
-                # initialization. Given user accepted wait time, sync is fine.
-                generator = CampaignReportGenerator()
-                llm_narrative = generator.generate_report(campaign_metrics)
-                logger.info("Generated LLM campaign narrative successfully")
-            except Exception as e:
-                logger.error(f"Failed to generate LLM report: {e}")
-                llm_narrative = f"Could not generate AI report: {str(e)}"
 
         # Let AI refine per-issue notes where feedback is Yes; keep fallbacks otherwise
         try:
@@ -4066,7 +3879,6 @@ class DashboardManager:
             'recommendations': recommendations,
             'issue_table': issue_table,
             'ai_summary': ai_summary,
-            'llm_narrative': llm_narrative,  # Add the narrative to the result
         }
 
     def _generate_ai_insights(self, df: pd.DataFrame, disposition_counts: dict, behavioral_ratios: dict) -> list:

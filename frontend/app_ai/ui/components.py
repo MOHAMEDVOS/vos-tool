@@ -4,18 +4,6 @@ import logging
 import pandas as pd
 import streamlit as st
 
-# Import Interactive Report Dashboard
-try:
-    from frontend.app_ai.ui.report_dashboard import show_interactive_report
-except ImportError:
-    try:
-        from .report_dashboard import show_interactive_report
-    except ImportError:
-        # Last resort fallback (if running from UI folder directly)
-        import sys
-        import os
-        sys.path.append(os.path.dirname(__file__))
-        from report_dashboard import show_interactive_report
 logger = logging.getLogger(__name__)
 
 
@@ -54,7 +42,7 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
     
     # Load Data button
     if st.button("Load Campaign Data", type="primary", key="load_campaign_data"):
-        with st.spinner("Loading campaign data and generating AI report..."):
+        with st.spinner("Loading campaign data..."):
             # Load campaign data for the selected date range
             df = dashboard_manager.load_campaign_audit_data(
                 selected_campaign, 
@@ -69,16 +57,6 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             
             # Store in session state
             st.session_state.campaign_dashboard_data = df
-            
-            # Auto-generate performance report immediately
-            if not df.empty:
-                try:
-                    report = dashboard_manager.generate_performance_report(df, st.session_state.get('username'))
-                    st.session_state.performance_report = report
-                except Exception as e:
-                    logger.error(f"Error auto-generating report: {e}")
-                    # Continue without report if it fails
-            
             st.success(f"Loaded {len(df)} records for campaign '{selected_campaign}'")
     
     # Display results if data is loaded
@@ -241,56 +219,123 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             key="campaign_csv_download"
         )
 
-        # Display Performance Report (Auto-Generated)
-        st.markdown("---")
-        if 'performance_report' in st.session_state:
-            report = st.session_state.performance_report
+        # Generate Performance Report section
+        with st.expander("Performance Report", expanded=False):
             
-            if 'error' in report:
-                if report['error'] == 'No audit data available for analysis':
-                    st.info("No audit data available yet. Run some agent audits to generate performance insights.")
-                else:
-                    st.error(f"Report Error: {report['error']}")
-            else:
-                # Display LLM Narrative (Simple Text Report)
-                st.markdown("### 📋 Campaign Performance Report")
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                if st.button("Generate Performance Report", type="primary"):
+                    with st.spinner("Analyzing audit data and generating insights..."):
+                        try:
+                            report = dashboard_manager.generate_performance_report(df, st.session_state.get('username'))
+                            st.session_state.performance_report = report
+                            st.success("Performance report generated successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error generating report: {str(e)}")
+            
+            with col2:
+                if 'performance_report' in st.session_state:
+                    if st.button("Clear Report", help="Remove the current report"):
+                        del st.session_state.performance_report
+                        st.rerun()
+            
+            # Display the report if it exists
+            if 'performance_report' in st.session_state:
+                report = st.session_state.performance_report
                 
-                llm_narrative = report.get('llm_narrative')
-                
-                if llm_narrative:
-                    # 1. Visual Display (Formatted)
-                    st.markdown(llm_narrative)
-                    
-                    st.markdown("---")
-                    st.caption("👇 **Copy Report Text Below** (Click inside > Ctrl+A > Ctrl+C)")
-                    
-                    # 2. Raw Text for Copying (User Request)
-                    st.text_area(
-                        label="Report Source", 
-                        value=llm_narrative, 
-                        height=300,
-                        key="report_copy_area",
-                        help="Copy this text to share with team leaders."
-                    )
-                else:
-                    st.warning("AI narrative could not be generated.")
+                if 'error' in report:
+                    if report['error'] == 'No audit data available for analysis':
+                        st.info("No audit data available yet. Run some agent audits to generate performance insights.")
+                    else:
+                        st.error(f"Report Error: {report['error']}")
+                    return  # Exit early - don't try to access other report keys
 
-        # Clear data option - scoped to the selected campaign
-        st.markdown("---")
-        if st.button("Clear Selected Campaign Data", type="secondary"):
-            if st.session_state.get('confirm_clear_campaign', False):
-                dashboard_manager.clear_campaign_audit_data(
-                    st.session_state.get('username'),
-                    selected_campaign
-                )
-                st.success(f"Campaign audit data for '{selected_campaign}' cleared successfully!")
-                # Clear the loaded data from session state
-                if 'campaign_dashboard_data' in st.session_state:
-                    del st.session_state.campaign_dashboard_data
-                st.rerun()
-            else:
-                st.session_state['confirm_clear_campaign'] = True
-                st.warning("Click again to confirm clearing this campaign's audit data.")
+                # Campaign Performance Report table-style UI using Streamlit dataframe
+                st.markdown("#### Campaign Performance Report")
+
+                issue_table = report.get('issue_table', {})
+
+                audit_rows = []
+                action_rows = []
+
+                def _add_row(target_list, key: str):
+                    item = issue_table.get(key) or {}
+                    target_list.append({
+                        "Item": item.get('label', key),
+                        "Feedback": str(item.get('Feedback') or item.get('feedback') or 'N/A'),
+                        "Rating": str(item.get('rating', 'N/A')),
+                        "Action needed / Notes": item.get('notes', 'N/A') or 'N/A',
+                    })
+
+                _add_row(audit_rows, 'effort_issue')
+                _add_row(audit_rows, 'rebuttal_issue')
+                _add_row(audit_rows, 'releasing_issue')
+                _add_row(audit_rows, 'tonality_issue')
+                _add_row(action_rows, 'agents_coaching')
+                _add_row(action_rows, 'agents_allocation')
+                _add_row(action_rows, 'campaign_list')
+
+                def _color_feedback(val: str) -> str:
+                    if val == "Yes":
+                        return 'background-color: rgba(248,113,113,0.35); color: #111827;'
+                    if val == "No":
+                        return 'background-color: rgba(74,222,128,0.35); color: #052e16;'
+                    return ''
+
+                def _color_rating(val: str) -> str:
+                    if val == "High":
+                        return 'background-color: rgba(248,113,113,0.35);'
+                    if val == "Medium":
+                        return 'background-color: rgba(250,204,21,0.35);'
+                    if val == "Low":
+                        return 'background-color: rgba(74,222,128,0.35);'
+                    return ''
+
+                def _render_table(rows_data, title: str):
+                    df_local = pd.DataFrame(rows_data)
+                    styled = df_local.style.applymap(_color_feedback, subset=["Feedback"]).applymap(
+                        _color_rating, subset=["Rating"]
+                    )
+                    st.markdown(f"**{title}**")
+                    st.dataframe(
+                        styled,
+                        width='stretch',
+                        hide_index=True,
+                    )
+
+                if audit_rows:
+                    _render_table(audit_rows, "Auditing feedback")
+                if action_rows:
+                    _render_table(action_rows, "Action Points")
+
+                st.caption("Issue Rating Ratio: Low < 30%  |  Medium 30% - 50%  |  High > 50%")
+                
+                # AI-generated overall campaign summary (text box)
+                ai_summary = report.get('ai_summary')
+                if isinstance(ai_summary, str) and ai_summary.strip():
+                    st.markdown("---")
+                    st.markdown("#### AI Campaign Summary")
+                    # Display as a text area with built-in copy option
+                    st.text_area("Summary", value=ai_summary, height=200, key="ai_summary_text")
+                
+                
+    # Clear data option - scoped to the selected campaign
+    st.markdown("---")
+    if st.button("Clear Selected Campaign Data", type="secondary"):
+        if st.session_state.get('confirm_clear_campaign', False):
+            dashboard_manager.clear_campaign_audit_data(
+                st.session_state.get('username'),
+                selected_campaign
+            )
+            st.success(f"Campaign audit data for '{selected_campaign}' cleared successfully!")
+            # Clear the loaded data from session state
+            if 'campaign_dashboard_data' in st.session_state:
+                del st.session_state.campaign_dashboard_data
+            st.rerun()
+        else:
+            st.session_state['confirm_clear_campaign'] = True
+            st.warning("Click again to confirm clearing this campaign's audit data.")
 
 
 def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):

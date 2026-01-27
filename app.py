@@ -3101,4 +3101,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# Force rebuild for plotly dependency update
