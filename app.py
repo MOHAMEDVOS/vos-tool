@@ -2470,16 +2470,11 @@ def show_agent_audit_dashboard():
         'Status',
         'Dialer Name',
         'Audit Type',
-        'Feedback',
         'Auditor'
     ]
     
     # Handle column name variations - check all possible variations
     column_name_mapping = {}
-    
-    # Check for "Feedback" variations
-    if 'Feedback' not in display_df.columns and 'feedback' in display_df.columns:
-        column_name_mapping['feedback'] = 'Feedback'
     
     # Check for "Reason for calling" variations
     if 'Reason for Calling' in display_df.columns:

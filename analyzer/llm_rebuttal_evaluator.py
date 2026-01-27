@@ -117,61 +117,39 @@ class RebuttalPromptBuilder:
         "spouse_decision": "customer needs to consult with spouse/partner"
     }
     
-    SYSTEM_PROMPT = """ROLE:
-    You are a Call Quality Auditor validating real estate cold calls. Your task is to determine whether the agent attempted a rebuttal to discover if the contact owns or sells any property—even after rejection or a wrong-number response.
+    SYSTEM_PROMPT = """You are an expert evaluator for sales call quality assurance. Your task is to determine whether a sales agent successfully addressed a customer's objection in a phone conversation.
 
-    You must reason semantically, not literally. Assume imperfect English, indirect phrasing, and ESL patterns.
+Context: These are Egyptian real estate agents speaking English with varying accent levels and informal phrasing. Focus on INTENT and MEANING, not exact wording.
 
-    CORE OBJECTIVE:
-    Determine whether the agent made any follow-up attempt to uncover property ownership, future selling intent, or real estate involvement after resistance from the contact.
-    The rebuttal does not need to be successful—only attempted.
+Evaluate whether the agent:
+1. Recognized the customer's objection
+2. Attempted to address the concern
+3. Provided value or a counter-argument
 
-    CRITICAL CONTEXT (DO NOT IGNORE):
-    * Agents are Egyptian ESL speakers
-    * They frequently use negative phrasing that still functions as a valid question
-      - "You don't have a property?" → Means: "Do you own property?"
-      - "You're not interested?" → Means: "Are you interested?"
-    * Grammar errors, repetition, or awkward structure do NOT invalidate intent
-    You are evaluating intent and function, not fluency.
+Even if the rebuttal was indirect, informal, or imperfect, mark it as detected if the agent genuinely tried to resolve the objection.
 
-    WHAT COUNTS AS A REBUTTAL (DETECT = YES):
+WHAT COUNTS AS A REBUTTAL:
+✅ Direct counter-argument ("I understand, but we have cash buyers ready now")
+✅ Offering value ("We can close in 7 days with no fees")
+✅ Asking clarifying questions ("What if we could pay cash?")
+✅ Acknowledging + redirecting ("I hear you, let me explain our process")
+✅ Providing alternatives ("How about I just send you information?")
+✅ Building rapport before addressing ("I totally understand your situation")
 
-    CASE 1: REJECTION → PIVOT
-    The contact expresses disinterest (explicit or implied), and the agent pivots to ask about ANY of the following:
-    * Other properties
-    * Future plans to sell
-    * Commercial, investment, or rental properties
-    * Ownership in general ("any property", "real estate", "house or land")
-    Even a single probing question qualifies.
+WHAT DOES NOT COUNT:
+❌ Simply moving on without addressing the objection
+❌ Only repeating the same question
+❌ Ending the call immediately
+❌ Generic pleasantries without substance ("okay, bye")
 
-    CASE 2: WRONG NUMBER / WRONG PERSON → PIVOT
-    The contact says they are the wrong person or that the agent has the wrong number, and the agent pivots to the current speaker, asking:
-    * Whether they own property
-    * Whether they have real estate of any kind
-    * Any indirect ownership check ("by chance...", "before I hang up...", etc.)
-    This includes soft pivots and courtesy-based transitions.
-
-    STRATEGIC EXCLUSIONS (DETECT = NO):
-    You must REJECT the following even if they contain keyword matches:
-    * Incoherent Fragments: Phrases that stop mid-thought without a question marker (e.g., "He owned his...", "Regarding the...", "Because if you...").
-    * Ambiguous Apologies: "Oh, I'm sorry" by itself is NOT a rebuttal. It is an ending. It only counts if followed IMMEDIATELY by a pivot (e.g., "I'm sorry, but do you have another...").
-    * Non-Semantic Filler: "Okay, thank you", "I understand", "Hello?".
-
-    INTERRUPTED ATTEMPTS (DETECT = YES):
-    If the call was interrupted (call dropped, prospect hung up), credit the agent ONLY if they started a clear question:
-    * "...but since..."
-    * "Let me ask you..."
-    * "Can I ask..."
-    * "Do you also..."
-    * "What about..."
-    * Any incomplete sentence that clearly starts a property question.
-    
-    NON-NEGOTIABLE RULES:
-    * ESL Leniency Rule: Apps lies to GRAMMAR (e.g., "You have other house?"), NOT to MEANING. If the semantic meaning is missing or incoherent, mark as FALSE.
-    * Do not assume intent without a question or pivot words.
-    * Always favor semantic intent over syntax, but reject nonsense.
-    Your job is to judge behavior, not English quality.
-    """
+RESPONSE FORMAT:
+Always respond with valid JSON only, no additional text:
+{
+  "rebuttal_detected": true or false,
+  "confidence": 0.0 to 1.0,
+  "reasoning": "brief 1-2 sentence explanation of your decision",
+  "matched_phrase": "the exact agent phrase that addressed the objection, or null if none"
+}"""
     
     def __init__(self, learned_phrases: Optional[Dict[str, List[str]]] = None):
         """
@@ -193,27 +171,44 @@ class RebuttalPromptBuilder:
         
         Args:
             transcript: Full conversation transcript
-            objection_category: Category (not used in simplified version)
+            objection_category: Category of detected objection
             semantic_hints: Optional list of phrases that had low semantic match scores
             
         Returns:
             Formatted user prompt string
         """
+        objection_text = self.OBJECTION_MAP.get(
+            objection_category,
+            f"customer objection: {objection_category}"
+        )
+        
         prompt = f"""TRANSCRIPT:
 {transcript}
 
-TASK: Did the agent ask about properties (in any form)?
+OBJECTION DETECTED: {objection_text}
+
+TASK: Did the agent attempt to address this objection?
 
 """
         
-        # Add learned phrases as examples if available (for OTHER_PROPERTY_FAMILY)
+        # Add learned phrases as examples if available
         if objection_category in self.learned_phrases:
             category_phrases = self.learned_phrases[objection_category]
             if category_phrases and len(category_phrases) > 0:
                 # Limit to top 5 to keep prompt concise
                 sample_phrases = category_phrases[:5]
-                prompt += f"""EXAMPLES OF PROPERTY QUESTIONS:
+                prompt += f"""KNOWN SUCCESSFUL REBUTTALS FOR THIS OBJECTION:
+The system has learned these phrases successfully address "{objection_text}":
 {chr(10).join(f'- "{phrase}"' for phrase in sample_phrases)}
+
+Use these as reference examples of what rebuttals look like, but recognize ANY genuine attempt to address the objection.
+
+"""
+        
+        # Add semantic hints if provided
+        if semantic_hints:
+            prompt += f"""SEMANTIC MATCH CANDIDATES (confidence < 0.70):
+{chr(10).join(f'- "{hint}"' for hint in semantic_hints[:3])}
 
 """
         

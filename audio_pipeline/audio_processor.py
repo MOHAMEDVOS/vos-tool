@@ -250,8 +250,7 @@ class AudioProcessor:
                     result['rebuttal_detection'] = {
                         'result': detection_result['result'],
                         'confidence_score': detection_result.get('confidence_score'),
-                        'transcript': detection_result.get('transcript', ''),
-                        'feedback': detection_result.get('metadata', {}).get('feedback')  # Pass LLM feedback
+                        'transcript': detection_result.get('transcript', '')
                     }
                 except TimeoutError as reb_timeout:
                     elapsed_time = time.time() - reb_start
@@ -495,8 +494,7 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
                 RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
                 RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', ''),  # Fallback for legacy key
-                "Feedback": result.get('rebuttal_detection', {}).get('feedback') if isinstance(result.get('rebuttal_detection'), dict) else None
+                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '')
             }
 
             if 'dialer_name' in result:
@@ -522,8 +520,7 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> List[Dict]:
             RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
             RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
             RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', ''),
-            "Feedback": result.get('rebuttal_detection', {}).get('feedback') if isinstance(result.get('rebuttal_detection'), dict) else None
+            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '')
         }
 
         if 'dialer_name' in result:

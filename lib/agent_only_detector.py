@@ -385,21 +385,11 @@ class AgentOnlyRebuttalDetector:
             matches = self.semantic_engine.detect_rebuttals(corrected_transcript)
 
             # Step 4: Determine final result
-            feedback = None
             if matches:
                 best_match = matches[0]  # Highest confidence
-                
-                # Check for LLM "No Rebuttal" feedback
-                if best_match.get('category') == 'No Rebuttal' or best_match.get('match_type') == 'llm_refusal':
-                    result = "No"
-                    confidence = 0.0
-                    feedback = best_match.get('feedback')
-                    logger.debug(f"LLM determined NO rebuttal. Feedback: {feedback}")
-                else:
-                    result = "Yes"
-                    confidence = best_match['confidence']
-                    feedback = best_match.get('feedback')  # Might be None for Yes result
-                    logger.debug(f"REBUTTAL DETECTED: {best_match['phrase']} (confidence: {confidence:.3f})")
+                result = "Yes"
+                confidence = best_match['confidence']
+                logger.debug(f"REBUTTAL DETECTED: {best_match['phrase']} (confidence: {confidence:.3f})")
             else:
                 result = "No"
                 confidence = 0.0
@@ -417,7 +407,6 @@ class AgentOnlyRebuttalDetector:
                 corrections_made=accent_corrections,
                 processing_time_ms=processing_time,
                 metadata={
-                    "feedback": feedback,  # Pass feedback in metadata
                     "audio_quality_score": transcription_result.get("audio_quality_score", 0.0),
                     "transcription_method": "assemblyai_api",
                     "channels_processed": 1,

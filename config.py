@@ -275,18 +275,18 @@ class ProcessingConfig:
     TIMEOUT_LITE_FILE = int(os.getenv("TIMEOUT_LITE_FILE", "60"))
     
     # Rebuttal detection timeouts (progressive based on file duration)
-    # INCREASED: Adjusted for Railway environment (0.5 vCPU) where processing runs 3-4x slower than real-time
-    # Previous values (60-90s) were causing timeouts on 20s files due to CPU starvation
-    REBUTTAL_DETECTION_TIMEOUT_BASE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_BASE", "180"))
-    REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE", "60"))
-    REBUTTAL_DETECTION_TIMEOUT_MAX = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MAX", "300"))
-    REBUTTAL_DETECTION_TIMEOUT_MIN = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MIN", "60"))
+    # OPTIMIZED: Reduced from 300-600s to 60-90s for faster batch processing
+    # Files that timeout are marked as 'No' rebuttal and don't block other files
+    REBUTTAL_DETECTION_TIMEOUT_BASE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_BASE", "60"))
+    REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_PER_MINUTE", "30"))
+    REBUTTAL_DETECTION_TIMEOUT_MAX = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MAX", "90"))
+    REBUTTAL_DETECTION_TIMEOUT_MIN = int(os.getenv("REBUTTAL_DETECTION_TIMEOUT_MIN", "30"))
     
     # Transcription timeouts
     # INCREASED for free tier AssemblyAI which can be slow due to rate limits
     TRANSCRIPTION_TIMEOUT_BASE = int(os.getenv("TRANSCRIPTION_TIMEOUT_BASE", "300"))
     TRANSCRIPTION_TIMEOUT_PER_MINUTE = int(os.getenv("TRANSCRIPTION_TIMEOUT_PER_MINUTE", "60"))
-    TRANSCRIPTION_TIMEOUT_MAX = int(os.getenv("TRANSCRIPTION_TIMEOUT_MAX", "900"))
+    TRANSCRIPTION_TIMEOUT_MAX = int(os.getenv("TRANSCRIPTION_TIMEOUT_MAX", "600"))
     TRANSCRIPTION_TIMEOUT_MIN = int(os.getenv("TRANSCRIPTION_TIMEOUT_MIN", "120"))
 
 

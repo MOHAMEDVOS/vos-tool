@@ -1065,26 +1065,15 @@ class PhraseLearningManager:
             }
 
 
-    def flush_deferred_phrases_in_background(self, total_files: int = 50):
+    def flush_deferred_phrases_in_background(self):
         """
         Flush deferred phrases in a separate thread to avoid blocking the main flow.
         This allows the UI to return results immediately while learning happens in background.
-        
-        Args:
-            total_files: Total number of files being processed (used to calculate appropriate delay)
         """
         import threading
-        import time
         
         def _background_worker():
             try:
-                # Calculate delay based on batch size to ensure all progress updates complete
-                # Formula: 3 seconds base + 1 second per 50 files, max 15 seconds
-                # Examples: 50 files = 3s, 100 files = 5s, 200 files = 7s
-                delay = min(3 + (total_files / 50), 15)
-                logger.info(f"⏱️  Waiting {delay:.1f}s for progress updates to complete before reloading embeddings...")
-                time.sleep(delay)
-                
                 # Capture phrases locally because disable_deferred_mode clears the list
                 # Actually, flush_deferred_phrases handles the clearing
                 logger.info("🚀 Starting background phrase flush...")

@@ -174,8 +174,8 @@ class DatabaseManager:
 
         try:
             # Get pool size from environment or use default
-            # Increased from 20 to 50 to support concurrent audits and prevent pool exhaustion
-            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '50'))
+            # Increased from 10 to 20 to support more concurrent users (P0 Fix #2)
+            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '20'))
             connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
 
             port = os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or db_url_parts.get('port') or '5432'

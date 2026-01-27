@@ -464,8 +464,7 @@ class BatchProcessor:
             # This allows the UI to show results immediately without waiting for embedding reload
             if phrase_manager:
                 try:
-                    # Pass total_files so the flush can calculate appropriate delay
-                    phrase_manager.flush_deferred_phrases_in_background(total_files=total_files)
+                    phrase_manager.flush_deferred_phrases_in_background()
                     # Note: Mode is disabled automatically by the method
                 except Exception as e:
                     logger.error(f"Error triggering background phrase flush: {e}")
@@ -522,8 +521,7 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
                 RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
                 RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', ''),  # Fallback for legacy key
-                "Feedback": result.get('rebuttal_detection', {}).get('feedback') if isinstance(result.get('rebuttal_detection'), dict) else None
+                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', '')  # Fallback for legacy key
             }
             
             # Add dialer name if available in metadata
@@ -616,8 +614,7 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
             RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
             RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
             RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', ''),  # Fallback for legacy key
-            "Feedback": result.get('rebuttal_detection', {}).get('feedback') if isinstance(result.get('rebuttal_detection'), dict) else None
+            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', '')  # Fallback for legacy key
         }
         
         # Add dialer name if available in metadata

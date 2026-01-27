@@ -1397,6 +1397,11 @@ class KeywordRepository:
             "don't have any properties in general",
             "you have another property you'd like to sell",
             "do you own any other property you'd like to sell",
+            # NEGATIVE PHRASING VARIATIONS (Added for better recall)
+            "you don't have a property that you may sell",
+            "you don't have a property that you might sell",
+            "you don't have any property that you may sell",
+            "you don't have any other property",
             "do you happen to have any other property",
             "any other properties besides this one",
             "any other properties aside from this one",
@@ -1958,11 +1963,10 @@ class SemanticDetectionEngine:
         if self.llm_fallback_enabled and self.llm_evaluator and best_confidence < self.llm_confidence_threshold:
             logger.info(f"🤖 LLM fallback triggered (confidence: {best_confidence:.2f} < {self.llm_confidence_threshold:.2f})")
             
-            # For fallback, use the category from the best match if available
-            # Default to OTHER_PROPERTY_FAMILY since that's the most common rebuttal pattern
-            objection_category = 'OTHER_PROPERTY_FAMILY'
+            # For fallback, use the category from the best match if available, otherwise default
+            objection_category = 'not_interested'  # Default
             if matches:
-                objection_category = matches[0].get('category', 'OTHER_PROPERTY_FAMILY')
+                objection_category = matches[0].get('category', 'not_interested')
             
             try:
                 # Call LLM evaluator
@@ -1986,14 +1990,6 @@ class SemanticDetectionEngine:
                     logger.info(f"✅ LLM detected rebuttal: '{llm_match['phrase'][:50]}...' (confidence: {llm_match['confidence']:.2f})")
                 else:
                     logger.info(f"❌ LLM did not detect rebuttal: {llm_result.get('reasoning', 'No reason provided')}")
-                    # Return feedback about why it wasn't a rebuttal
-                    return [{
-                        'phrase': '',
-                        'category': 'No Rebuttal',
-                        'confidence': 0.0,
-                        'match_type': 'llm_refusal',
-                        'feedback': llm_result.get('reasoning', 'No reasoning provided')
-                    }]
                     
             except Exception as e:
                 logger.error(f"LLM fallback evaluation failed: {e}")
