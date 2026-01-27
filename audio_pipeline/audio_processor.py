@@ -149,16 +149,10 @@ class AudioProcessor:
                 result['rebuttal_detection'] = {'result': 'Skipped', 'transcript': '', 'reason': 'too_short'}
                 return result
             
-            # OPTIMIZATION: Prepare temp file for AssemblyAI early (before other detections)
-            import tempfile
-            temp_file = None
-            try:
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                    agent_audio.export(tmp.name, format="wav", parameters=["-ac", "1", "-ar", "16000"])
-                    temp_file = tmp.name
-            except Exception as temp_error:
-                logger.error(f"Failed to create temp file for transcription: {temp_error}")
-                temp_file = None
+            # OPTIMIZATION: Use original file directly for AssemblyAI to support multichannel
+            # Use file_path if available (it should be), otherwise falls back to agent extraction if strictly needed,
+            # but for now we prioritize sending the raw file.
+            transcription_file = file_path
             
             # OPTIMIZATION: Run detections in parallel using a SHARED executor
             # This prevents Windows from hanging on thread join during local timeouts
@@ -166,19 +160,22 @@ class AudioProcessor:
             overall_start = time.time()
             
             # Submit releasing and late hello tasks (fast local detections)
+            # These still use the extracted agent_audio which is fine/correct for local analysis
             future_releasing = _shared_executor.submit(releasing_detection, agent_audio)
             future_late_hello = _shared_executor.submit(late_hello_detection, agent_audio, file_name)
             
-            # Start rebuttal detection (AssemblyAI) early if temp file was created
+            # Start rebuttal detection (AssemblyAI) using the RAW FULL FILE
             future_rebuttal = None
-            if temp_file:
+            if transcription_file and os.path.exists(transcription_file):
                 agent_detector = get_agent_detector(user_api_key)
-                original_path = file_path if file_path else (file_name if file_name else temp_file)
                 future_rebuttal = _shared_executor.submit(
                     agent_detector.detect_rebuttals_in_audio, 
-                    temp_file, 
-                    original_file_path=original_path
+                    transcription_file, 
+                    original_file_path=transcription_file
                 )
+            else:
+                 logger.error(f"Cannot run rebuttal detection: Original file path missing or invalid: {transcription_file}")
+                 # If strictly needed, we could fallback to temp file creation here, but the user explicitly requested raw audio.
             
             # Collect results as they complete
             # Releasing detection (fast, completes first ~0.5-1s)
