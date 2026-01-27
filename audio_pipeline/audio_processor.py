@@ -291,12 +291,12 @@ class AudioProcessor:
                 logger.warning(f"Could not start rebuttal detection (temp file creation failed) for {file_name}")
                 result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': 'temp_file_failed'}
             
-            # Clean up temp file
-            if temp_file:
-                try:
-                    os.unlink(temp_file)
-                except Exception:
-                    pass
+            # Clean up temp file - NO LONGER NEEDED as we use raw file
+            # if temp_file:
+            #     try:
+            #         os.unlink(temp_file)
+            #     except Exception:
+            #         pass
             
             overall_time = time.time() - overall_start
             logger.debug(f"All parallel detections completed for {file_name} in {overall_time:.2f}s")
