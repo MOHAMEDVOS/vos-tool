@@ -35,9 +35,12 @@ def setup_logging(
     # Silence noisy third-party libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
     logging.getLogger("assemblyai").setLevel(logging.WARNING)
     logging.getLogger("fsspec").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("multipart").setLevel(logging.WARNING)
 
 
 def setup_frontend_logging() -> None:
