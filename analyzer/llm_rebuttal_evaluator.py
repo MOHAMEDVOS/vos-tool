@@ -167,15 +167,17 @@ Always respond with valid JSON only, no additional text:
         self,
         transcript: str,
         objection_category: str,
-        semantic_hints: Optional[List[str]] = None
+        semantic_hints: Optional[List[str]] = None,
+        dialogue: Optional[str] = None
     ) -> str:
         """
         Build the user prompt for a specific evaluation.
         
         Args:
-            transcript: Full conversation transcript
+            transcript: Agent transcript (for backward compatibility)
             objection_category: Category of detected objection
             semantic_hints: Optional list of phrases that had low semantic match scores
+            dialogue: Full conversation dialogue (Agent + Owner) for context
             
         Returns:
             Formatted user prompt string
@@ -185,12 +187,17 @@ Always respond with valid JSON only, no additional text:
             f"customer objection: {objection_category}"
         )
         
-        prompt = f"""TRANSCRIPT:
-{transcript}
+        # Use dialogue if available for full context, otherwise fallback to transcript
+        conversation_text = dialogue if dialogue else transcript
+        
+        prompt = f"""CONVERSATION:
+{conversation_text}
 
 OBJECTION DETECTED: {objection_text}
 
 TASK: Did the agent attempt to address this objection?
+
+IMPORTANT: Consider the full conversation context. Look at what the owner (customer) said and how the agent responded. A rebuttal is when the agent addresses or attempts to overcome an objection raised by the owner.
 
 """
         
@@ -353,15 +360,17 @@ class LLMRebuttalEvaluator:
         self,
         transcript: str,
         objection_category: str,
-        semantic_candidates: Optional[List[Dict[str, Any]]] = None
+        semantic_candidates: Optional[List[Dict[str, Any]]] = None,
+        dialogue: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Evaluate whether agent addressed objection using LLM.
         
         Args:
-            transcript: Full conversation transcript
+            transcript: Agent transcript (for backward compatibility)
             objection_category: Category of detected objection
             semantic_candidates: Optional list of semantic match results with low confidence
+            dialogue: Full conversation dialogue (Agent + Owner) for enhanced context
             
         Returns:
             Dict with:
@@ -371,8 +380,9 @@ class LLMRebuttalEvaluator:
                 - matched_phrase (str or None)
                 - source (str): 'llm_evaluation'
         """
-        # Check cache first
-        cache_key = self._get_cache_key(transcript, objection_category)
+        # Check cache first (use dialogue if available for cache key)
+        cache_text = dialogue if dialogue else transcript
+        cache_key = self._get_cache_key(cache_text, objection_category)
         cached_result = self._check_cache(cache_key)
         if cached_result:
             return cached_result
@@ -387,12 +397,13 @@ class LLMRebuttalEvaluator:
                     if match.get('phrase')
                 ]
             
-            # Build prompt
+            # Build prompt with dialogue context
             system_prompt = self.prompt_builder.get_system_prompt()
             user_prompt = self.prompt_builder.build_user_prompt(
                 transcript=transcript,
                 objection_category=objection_category,
-                semantic_hints=semantic_hints
+                semantic_hints=semantic_hints,
+                dialogue=dialogue  # Pass full conversation for context
             )
             
             messages = [

@@ -1360,6 +1360,7 @@ class KeywordRepository:
     _learned_phrases_cache = None
     _learned_phrases_timestamp = None
     _learned_phrases_loaded_at = None
+    _cache_is_full_db_load = False # Track if cache includes DB data
     _cache_lock = threading.Lock()
     
     def __init__(self, skip_database: bool = False):
@@ -1790,16 +1791,22 @@ class KeywordRepository:
             
             # Check cache with lock (P0 FIX)
             with self._cache_lock:
+                # Only return cache if it matches the request type (DB vs No-DB)
+                # If we need DB (skip_database=False) but cache is partial (JSON-only), we MUST reload
+                cache_is_valid_type = (self._skip_database) or (self._cache_is_full_db_load)
+                
                 if (
                     self._learned_phrases_cache is not None
                     and self._learned_phrases_loaded_at is not None
                     and (time.time() - self._learned_phrases_loaded_at) < db_cache_seconds
+                    and cache_is_valid_type
                 ):
                     return self._learned_phrases_cache
 
             # Try to load from database first (unless skip_database is True)
             if not self._skip_database:
                 try:
+                    logger.info("Attempting to load phrases from database...")
                     from lib.database import get_db_manager
                     
                     db = get_db_manager()
@@ -1809,7 +1816,10 @@ class KeywordRepository:
                         # For faster fallback, we can set a shorter timeout for this specific query
                         # But the main fix is using skip_database=True during model initialization
                         query = "SELECT category, phrase FROM rebuttal_phrases ORDER BY category, phrase"
+                        logger.debug("Executing DB query for learned phrases...")
+                        query_start = time.time()
                         results = db.execute_query(query, fetch=True)
+                        logger.debug(f"DB query finished in {time.time()-query_start:.2f}s, rows: {len(results) if results else 0}")
                         
                         if results:
                             learned_phrases = {}
@@ -1821,11 +1831,13 @@ class KeywordRepository:
                                 learned_phrases[category].append(phrase)
                             
                             # Cache the result
-                            self._learned_phrases_cache = learned_phrases
-                            self._learned_phrases_timestamp = None  # Database doesn't have mtime
-                            self._learned_phrases_loaded_at = time.time()
+                            with self._cache_lock:
+                                self._learned_phrases_cache = learned_phrases
+                                self._learned_phrases_timestamp = None  # Database doesn't have mtime
+                                self._learned_phrases_loaded_at = time.time()
+                                self._cache_is_full_db_load = True # Mark as full DB load
                             
-                            logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
+                            logger.info(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
                             return learned_phrases
                                 
                                 
@@ -1865,6 +1877,7 @@ class KeywordRepository:
                 self._learned_phrases_cache = learned_phrases
                 self._learned_phrases_timestamp = current_mtime
                 self._learned_phrases_loaded_at = time.time()
+                self._cache_is_full_db_load = False # Mark as partial (JSON only)
             
             logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from repository")
             return learned_phrases
@@ -1988,7 +2001,7 @@ class SemanticDetectionEngine:
             self.semantic_model = None
             self.phrase_embeddings = None
 
-    def detect_rebuttals(self, transcript: str) -> List[Dict[str, Any]]:
+    def detect_rebuttals(self, transcript: str, dialogue: Optional[str] = None) -> List[Dict[str, Any]]:
         """Detect all matching rebuttal phrases using exact and semantic matching (Lazy Load enabled)."""
         # Lazy initialization: Try to get model if we don't have it yet
         # This allows retries if the model was still loading on previous calls
@@ -2048,11 +2061,12 @@ class SemanticDetectionEngine:
                 objection_category = temp_matches[0].get('category', 'not_interested')
             
             try:
-                # Call LLM evaluator
+                # Call LLM evaluator with full dialogue context
                 llm_result = self.llm_evaluator.evaluate_rebuttal(
                     transcript=transcript,
                     objection_category=objection_category,
-                    semantic_candidates=matches if matches else None
+                    semantic_candidates=matches if matches else None,
+                    dialogue=dialogue  # Pass full conversation for context
                 )
                 
                 # If LLM detected a rebuttal, add it to matches

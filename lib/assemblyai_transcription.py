@@ -350,7 +350,7 @@ class AssemblyAITranscriptionEngine:
         try:
             # Configure settings
             config_params = {
-                "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None else os.getenv("ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION", "true").lower() == "true",
+                "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None else True,  # Enable by default for dual-channel
                 "language_detection": True,
                 "punctuate": True,
                 "format_text": True,
@@ -407,18 +407,26 @@ class AssemblyAITranscriptionEngine:
                 if transcript.status == aai.TranscriptStatus.completed:
                     processing_time_ms = int((time.time() - start_time) * 1000)
                     
-                    # Extract results
+                    # Extract utterances first
+                    utterances = self._extract_utterances(transcript.utterances) if transcript.utterances else []
+                    
+                    # Extract results with dual-channel support
                     result = {
-                        "transcript": transcript.text or "",
+                        "transcript": transcript.text or "",  # Full transcript (all speakers)
                         "words": self._extract_words(transcript.words) if transcript.words else [],
-                        "utterances": self._extract_utterances(transcript.utterances) if transcript.utterances else [],
+                        "utterances": utterances,
                         "speakers": self._extract_speakers(transcript.utterances) if transcript.utterances else [],
                         "confidence": transcript.confidence if hasattr(transcript, 'confidence') else None,
                         "language_code": transcript.language_code if hasattr(transcript, 'language_code') else None,
                         "processing_time_ms": processing_time_ms,
                         "transcription_method": "assemblyai_api",
-                        "transcription_status": "completed"
+                        "transcription_status": "completed",
+                        # NEW: Dual-channel fields
+                        "dialogue": self.format_as_dialogue(utterances),  # Formatted conversation
+                        "agent_transcript": self.extract_speaker_transcript(utterances, "A"),  # Agent only
+                        "owner_transcript": self.extract_speaker_transcript(utterances, "B")   # Owner only
                     }
+
                     
                     # Cache successful result
                     self.cache.set(audio_file_path, result)
@@ -520,6 +528,58 @@ class AssemblyAITranscriptionEngine:
                 speakers.add(utterance.speaker)
         
         return sorted(list(speakers))
+    
+    def format_as_dialogue(self, utterances: List[Dict[str, Any]]) -> str:
+        """
+        Format speaker-separated utterances as chronological dialogue.
+        
+        Args:
+            utterances: List of utterance dicts with 'speaker', 'text', 'start' fields
+            
+        Returns:
+            Formatted dialogue string like:
+            Speaker A: Hello there
+            Speaker B: Who is this?
+            Speaker A: This is Mark calling about your property
+        """
+        if not utterances:
+            return ""
+        
+        # Sort utterances chronologically by start time
+        sorted_utterances = sorted(utterances, key=lambda u: u.get('start', 0))
+        
+        # Format as dialogue
+        dialogue_lines = []
+        for utterance in sorted_utterances:
+            speaker = utterance.get('speaker', 'Unknown')
+            text = utterance.get('text', '').strip()
+            if text:
+                dialogue_lines.append(f"{speaker}: {text}")
+        
+        return "\n".join(dialogue_lines)
+    
+    def extract_speaker_transcript(self, utterances: List[Dict[str, Any]], speaker_label: str) -> str:
+        """
+        Extract transcript for a specific speaker only.
+        
+        Args:
+            utterances: List of utterance dicts with 'speaker' and 'text' fields
+            speaker_label: Speaker label to extract (e.g., 'A', 'B', 'Speaker A')
+            
+        Returns:
+            Concatenated transcript for the specified speaker
+        """
+        if not utterances:
+            return ""
+        
+        speaker_texts = []
+        for utterance in utterances:
+            if utterance.get('speaker') == speaker_label:
+                text = utterance.get('text', '').strip()
+                if text:
+                    speaker_texts.append(text)
+        
+        return " ".join(speaker_texts)
     
     def transcribe_audio_segment(self, audio_segment, temp_file_path: str) -> str:
         """
