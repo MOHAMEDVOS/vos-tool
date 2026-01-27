@@ -114,7 +114,8 @@ class RebuttalPromptBuilder:
         "remove_list": "customer asked to be removed from the call list",
         "price_too_low": "customer thinks the offer price is too low",
         "needs_time": "customer needs more time to think or decide",
-        "spouse_decision": "customer needs to consult with spouse/partner"
+        "spouse_decision": "customer needs to consult with spouse/partner",
+        "wrong_number": "customer said they are not the person the agent asked for / wrong number"
     }
     
     SYSTEM_PROMPT = """You are an expert evaluator for sales call quality assurance. Your task is to determine whether a sales agent successfully addressed a customer's objection in a phone conversation.
@@ -135,6 +136,7 @@ WHAT COUNTS AS A REBUTTAL:
 ✅ Acknowledging + redirecting ("I hear you, let me explain our process")
 ✅ Providing alternatives ("How about I just send you information?")
 ✅ Building rapport before addressing ("I totally understand your situation")
+✅ Pivoting to other properties/leads ("Since I have you, do you have any property to sell?", "Do you know anyone else who might be selling?")
 
 WHAT DOES NOT COUNT:
 ❌ Simply moving on without addressing the objection

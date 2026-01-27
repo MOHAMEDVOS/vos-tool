@@ -1403,6 +1403,28 @@ class KeywordRepository:
             "you don't have any property that you may sell",
             "you don't have any other property",
             "do you happen to have any other property",
+            
+            # OPPORTUNISTIC PIVOTS (Transitional phrases)
+            "since i've got you",
+            "since i got you",
+            "since i have you",
+            "while i have you",
+            "before i let you go",
+            "before i let you go do you have",
+            "before we hang up",
+            "just before you go",
+            
+            # INDIRECT/OPPORTUNISTIC QUESTIONS
+            "do you have a piece of property",
+            "piece of property for sale",
+            "know someone who might be selling",
+            "know anyone selling",
+            "know someone by any chance", 
+            "know someone by eating",  # Common transcription error for "by any chance"
+            "we buy properties",
+            "we are buying properties",
+            "we buy houses",
+            
             "any other properties besides this one",
             "any other properties aside from this one",
             "any other houses who failed",
