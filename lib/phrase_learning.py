@@ -410,7 +410,7 @@ class PhraseLearningManager:
             logger.error(f"Failed to init repository: {e}")
     
     def track_semantic_match(self, phrase: str, category: str, confidence: float, 
-                           context: str = "", similar_to: str = ""):
+                           context: str = "", similar_to: str = "", existing_conn=None):
         """Track a semantic match for potential learning."""
         try:
             # Skip if confidence is too low
@@ -461,14 +461,18 @@ class PhraseLearningManager:
                 clean_phrase = " ".join(words)[:200].strip()
 
             # Skip if phrase is blacklisted
-            if self._is_blacklisted(clean_phrase, clean_category):
+            if self._is_blacklisted(clean_phrase, clean_category, existing_conn=existing_conn):
                 return
             
             # Skip if phrase already exists in repository
-            if self._phrase_exists_in_repository(clean_phrase, clean_category):
+            if self._phrase_exists_in_repository(clean_phrase, clean_category, existing_conn=existing_conn):
                 return
             
-            with self._db_connection() as conn:
+            # Use provided connection or acquire a new one
+            from contextlib import nullcontext
+            db_ctx = self._db_connection() if existing_conn is None else nullcontext(existing_conn)
+            
+            with db_ctx as conn:
                 # Check for duplicate by phrase text ONLY (normalized, case-insensitive) - not category
                 normalized_phrase = clean_phrase.lower().strip()
                 
@@ -540,53 +544,12 @@ class PhraseLearningManager:
                     
                     # Check if it should be auto-approved (use merged confidence)
                     # High Priority (confidence ≥ threshold): Auto-approve immediately, no frequency requirement
-                    if new_confidence >= self.auto_approve_threshold:
-                        self._auto_approve_phrase(phrase_id, clean_phrase, existing_cat)
-                    elif (new_confidence >= self.confidence_threshold and 
-                          new_count >= self.frequency_threshold):
-                        # Lower confidence: Use existing threshold and frequency requirements
-                        self._auto_approve_phrase(phrase_id, clean_phrase, existing_cat)
-                        
-                else:
-                    # Calculate quality score and canonical form for new phrase
-                    new_phrase_data = {
-                        'confidence': confidence,
-                        'detection_count': 1,
-                        'last_detected': datetime.now().isoformat(),
-                        'sample_contexts': context[:500]
-                    }
-                    quality_score = self.calculate_quality_score(new_phrase_data)
-                    canonical_form = self.normalize_to_canonical(clean_phrase)
-                    
-                    # Insert new pending phrase
-                    cursor.execute(
-                        """
-                        INSERT INTO pending_phrases 
-                        (phrase, category, confidence, sample_contexts, similar_to, quality_score, canonical_form, detection_count, last_detected)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, 1, CURRENT_TIMESTAMP)
-                        ON CONFLICT (phrase, category) DO UPDATE SET
-                            detection_count = pending_phrases.detection_count + 1,
-                            confidence = GREATEST(pending_phrases.confidence, EXCLUDED.confidence),
-                            last_detected = CURRENT_TIMESTAMP,
-                            sample_contexts = CASE
-                                WHEN pending_phrases.sample_contexts IS NULL OR pending_phrases.sample_contexts = '' THEN EXCLUDED.sample_contexts
-                                WHEN EXCLUDED.sample_contexts IS NULL OR EXCLUDED.sample_contexts = '' THEN pending_phrases.sample_contexts
-                                ELSE LEFT(pending_phrases.sample_contexts || ' | ' || EXCLUDED.sample_contexts, 500)
-                            END,
-                            quality_score = GREATEST(COALESCE(pending_phrases.quality_score, 0), COALESCE(EXCLUDED.quality_score, 0)),
-                            canonical_form = COALESCE(pending_phrases.canonical_form, EXCLUDED.canonical_form),
-                            similar_to = COALESCE(pending_phrases.similar_to, EXCLUDED.similar_to)
-                        RETURNING id
-                        """,
-                        (clean_phrase, clean_category, float(confidence), context[:500], similar_to, float(quality_score), canonical_form),
-                    )
-                    phrase_id = cursor.fetchone()[0]
-                    
-                    # Auto-approve High Priority phrases (quality score ≥ threshold or confidence ≥ threshold) immediately
                     if quality_score >= self.auto_approve_threshold or confidence >= self.auto_approve_threshold:
-                        self._auto_approve_phrase(phrase_id, clean_phrase, clean_category)
+                        self._auto_approve_phrase(phrase_id, clean_phrase, clean_category, existing_conn=conn)
                 
-                conn.commit()
+                # Only commit if we opened the connection
+                if existing_conn is None:
+                    conn.commit()
                 cursor.close()
 
                 logger.debug(f"Tracked semantic match: '{clean_phrase}' in {clean_category} (confidence: {confidence:.3f})")
@@ -594,21 +557,27 @@ class PhraseLearningManager:
         except Exception as e:
             logger.error(f"Failed to track semantic match: {e}")
     
-    def _auto_approve_phrase(self, phrase_id: int, phrase: str, category: str):
+    def _auto_approve_phrase(self, phrase_id: int, phrase: str, category: str, existing_conn=None):
         """Automatically approve a high-confidence phrase."""
         try:
-            with self._db_connection() as conn:
+            from contextlib import nullcontext
+            db_ctx = self._db_connection() if existing_conn is None else nullcontext(existing_conn)
+            
+            with db_ctx as conn:
                 # Move to approved status
                 cursor = conn.cursor()
                 cursor.execute(
                     "UPDATE pending_phrases SET status = 'auto_approved' WHERE id = %s",
                     (phrase_id,),
                 )
-                conn.commit()
+                
+                # Only commit if we opened the connection
+                if existing_conn is None:
+                    conn.commit()
                 cursor.close()
                 
                 # Add to repository
-                self._add_to_repository(phrase, category, source='auto_learned')
+                self._add_to_repository(phrase, category, source='auto_learned', existing_conn=conn)
                 
                 logger.info(f"Auto-approved phrase: '{phrase}' in {category}")
                 
@@ -825,10 +794,13 @@ class PhraseLearningManager:
         
         return base_threshold
     
-    def _is_blacklisted(self, phrase: str, category: str) -> bool:
+    def _is_blacklisted(self, phrase: str, category: str, existing_conn=None) -> bool:
         """Check if a phrase is blacklisted."""
         try:
-            with self._db_connection() as conn:
+            from contextlib import nullcontext
+            db_ctx = self._db_connection() if existing_conn is None else nullcontext(existing_conn)
+            
+            with db_ctx as conn:
                 if self.use_postgresql:
                     cursor = conn.cursor()
                     cursor.execute(
@@ -846,11 +818,14 @@ class PhraseLearningManager:
         except:
             return False
     
-    def _phrase_exists_in_repository(self, phrase: str, category: str) -> bool:
+    def _phrase_exists_in_repository(self, phrase: str, category: str, existing_conn=None) -> bool:
         """Check if phrase already exists in the repository."""
         try:
             if self.use_postgresql:
-                with self._db_connection() as conn:
+                from contextlib import nullcontext
+                db_ctx = self._db_connection() if existing_conn is None else nullcontext(existing_conn)
+                
+                with db_ctx as conn:
                     clean_phrase = phrase.lower().strip()
                     cursor = conn.cursor()
                     try:
@@ -872,7 +847,7 @@ class PhraseLearningManager:
             logger.error(f"Error checking phrase existence: {e}")
             return False
     
-    def _add_to_repository(self, phrase: str, category: str, source: str = 'manual') -> bool:
+    def _add_to_repository(self, phrase: str, category: str, source: str = 'manual', existing_conn=None) -> bool:
         """Add a phrase to the repository database."""
         try:
             clean_phrase = phrase.lower().strip()
@@ -884,7 +859,10 @@ class PhraseLearningManager:
                 return True
             
             # NORMAL MODE: Immediate processing (backward compatible)
-            with self._db_connection() as conn:
+            from contextlib import nullcontext
+            db_ctx = self._db_connection() if existing_conn is None else nullcontext(existing_conn)
+            
+            with db_ctx as conn:
                 cursor = conn.cursor()
                 try:
                     # Update repository_phrases

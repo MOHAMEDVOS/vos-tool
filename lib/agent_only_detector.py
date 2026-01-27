@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import logging
+import threading
 from typing import Dict, Any, Optional, List
 
 # Add current directory to path
@@ -321,6 +322,13 @@ class AgentOnlyTranscriptionEngine:
 class AgentOnlyRebuttalDetector:
     """Complete rebuttal detection system using AssemblyAI API for agent channel transcription."""
 
+    # Class-level cache for heavy components (P0 FIX)
+    _shared_keyword_repo = None
+    _shared_semantic_engine = None
+    _shared_formatter = None
+    _shared_corrector = None
+    _shared_lock = threading.Lock()
+
     def __init__(self, api_key: Optional[str] = None, user_api_key: Optional[str] = None, skip_database: bool = False):
         """
         Initialize agent-only rebuttal detector with AssemblyAI.
@@ -331,12 +339,21 @@ class AgentOnlyRebuttalDetector:
             skip_database: If True, skip database queries for learned phrases (faster for batch processing)
         """
         self.transcription_engine = AgentOnlyTranscriptionEngine(api_key, user_api_key)
-        self.keyword_repo = KeywordRepository(skip_database=skip_database)
-        self.semantic_engine = SemanticDetectionEngine(self.keyword_repo)
-        self.formatter = OutputFormatter()
-        # Add Egyptian accent correction for better accuracy with Egyptian-accented speech
-        self.egyptian_corrector = EgyptianAccentCorrection()
-        logger.debug("Agent-Only Rebuttal Detector initialized with AssemblyAI (Egyptian Accent Support)")
+        
+        # Initialize shared components with lock (P0 FIX)
+        with self._shared_lock:
+            if AgentOnlyRebuttalDetector._shared_keyword_repo is None:
+                AgentOnlyRebuttalDetector._shared_keyword_repo = KeywordRepository(skip_database=False) # Always load repo once
+                AgentOnlyRebuttalDetector._shared_semantic_engine = SemanticDetectionEngine(AgentOnlyRebuttalDetector._shared_keyword_repo)
+                AgentOnlyRebuttalDetector._shared_formatter = OutputFormatter()
+                AgentOnlyRebuttalDetector._shared_corrector = EgyptianAccentCorrection()
+        
+        self.keyword_repo = AgentOnlyRebuttalDetector._shared_keyword_repo
+        self.semantic_engine = AgentOnlyRebuttalDetector._shared_semantic_engine
+        self.formatter = AgentOnlyRebuttalDetector._shared_formatter
+        self.egyptian_corrector = AgentOnlyRebuttalDetector._shared_corrector
+        
+        logger.debug("Agent-Only Rebuttal Detector initialized (reusing shared engines)")
 
     def detect_rebuttals_in_audio(self, audio_file_path: str, original_file_path: Optional[str] = None) -> Dict[str, Any]:
         """

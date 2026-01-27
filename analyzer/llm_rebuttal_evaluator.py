@@ -8,6 +8,7 @@ import time
 import json
 import logging
 import hashlib
+import threading
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
@@ -232,6 +233,11 @@ Use these as reference examples of what rebuttals look like, but recognize ANY g
 class LLMRebuttalEvaluator:
     """Main orchestrator for LLM-based rebuttal evaluation."""
     
+    # Class-level cache to share across instances (P0 FIX)
+    _learned_phrases_cache = None
+    _learned_phrases_loaded_at = 0
+    _cache_lock = threading.Lock()
+    
     def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.1-8b-instant"):
         """
         Initialize LLM evaluator.
@@ -246,8 +252,8 @@ class LLMRebuttalEvaluator:
             self.cache_ttl = timedelta(minutes=5)
             self.cache_timestamps = {}
             
-            # Load learned phrases from database
-            self.learned_phrases = self._load_learned_phrases_from_db()
+            # Load learned phrases using class-level cache (P0 FIX)
+            self.learned_phrases = self._get_cached_learned_phrases()
             self.prompt_builder = RebuttalPromptBuilder(learned_phrases=self.learned_phrases)
             
             logger.info(f"LLMRebuttalEvaluator initialized with {sum(len(p) for p in self.learned_phrases.values())} learned phrases")
@@ -256,6 +262,21 @@ class LLMRebuttalEvaluator:
             logger.error(f"Failed to initialize LLMRebuttalEvaluator: {e}")
             raise
     
+    def _get_cached_learned_phrases(self) -> Dict[str, List[str]]:
+        """Get learned phrases from class-level cache or load if expired."""
+        with self._cache_lock:
+            now = time.time()
+            # 5-minute cache TTL for learned phrases
+            if self._learned_phrases_cache is not None and (now - self._learned_phrases_loaded_at) < 300:
+                logger.debug("Using class-level cache for learned phrases")
+                return self._learned_phrases_cache
+            
+            # Cache expired or not loaded, load from DB
+            logger.info("Class-level cache empty or expired, loading learned phrases from DB")
+            self._learned_phrases_cache = self._load_learned_phrases_from_db()
+            self._learned_phrases_loaded_at = now
+            return self._learned_phrases_cache
+
     def _load_learned_phrases_from_db(self) -> Dict[str, List[str]]:
         """
         Load learned phrases from PostgreSQL database.

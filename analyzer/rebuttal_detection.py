@@ -1356,6 +1356,12 @@ class PhoneticAdaptationLayer:
 class KeywordRepository:
     """Repository of rebuttal phrases organized by category."""
     
+    # Class-level cache to share across instances (P0 FIX)
+    _learned_phrases_cache = None
+    _learned_phrases_timestamp = None
+    _learned_phrases_loaded_at = None
+    _cache_lock = threading.Lock()
+    
     def __init__(self, skip_database: bool = False):
         """Initialize repository and load learned phrases.
         
@@ -1363,9 +1369,6 @@ class KeywordRepository:
             skip_database: If True, skip database queries and use only hardcoded + JSON phrases.
                           Useful for batch processing to avoid connection pool exhaustion.
         """
-        self._learned_phrases_cache = None
-        self._learned_phrases_timestamp = None
-        self._learned_phrases_loaded_at = None
         self._skip_database = skip_database
 
     REBUTTAL_PHRASES = {
@@ -1784,12 +1787,15 @@ class KeywordRepository:
         """Load learned phrases from PostgreSQL database or JSON file."""
         try:
             db_cache_seconds = int(os.getenv("REBUTTAL_DB_CACHE_SECONDS", "300"))
-            if (
-                self._learned_phrases_cache is not None
-                and self._learned_phrases_loaded_at is not None
-                and (time.time() - self._learned_phrases_loaded_at) < db_cache_seconds
-            ):
-                return self._learned_phrases_cache
+            
+            # Check cache with lock (P0 FIX)
+            with self._cache_lock:
+                if (
+                    self._learned_phrases_cache is not None
+                    and self._learned_phrases_loaded_at is not None
+                    and (time.time() - self._learned_phrases_loaded_at) < db_cache_seconds
+                ):
+                    return self._learned_phrases_cache
 
             # Try to load from database first (unless skip_database is True)
             if not self._skip_database:
@@ -1822,6 +1828,7 @@ class KeywordRepository:
                             logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
                             return learned_phrases
                                 
+                                
                 except Exception as e:
                     logger.debug(f"Could not load from database: {e}, falling back to JSON")
                     # Fallback to JSON - this ensures we can still load hardcoded phrases even if DB fails
@@ -1840,21 +1847,24 @@ class KeywordRepository:
             
             # Check file modification time for cache invalidation
             current_mtime = os.path.getmtime(repository_path)
-            if (self._learned_phrases_cache is not None and 
-                self._learned_phrases_timestamp == current_mtime):
-                return self._learned_phrases_cache
+            
+            # Check cache again before file read (P0 FIX)
+            with self._cache_lock:
+                if (self._learned_phrases_cache is not None and 
+                    self._learned_phrases_timestamp == current_mtime):
+                    return self._learned_phrases_cache
             
             # Load the repository file
             with open(repository_path, 'r', encoding='utf-8') as f:
                 repository_data = json.load(f)
             
-            # Extract phrases from the repository
-            learned_phrases = repository_data.get("phrases", {})
+            learned_phrases = repository_data.get("categories", {})
             
-            # Cache the result with timestamp
-            self._learned_phrases_cache = learned_phrases
-            self._learned_phrases_timestamp = current_mtime
-            self._learned_phrases_loaded_at = time.time()
+            # Update cache with lock
+            with self._cache_lock:
+                self._learned_phrases_cache = learned_phrases
+                self._learned_phrases_timestamp = current_mtime
+                self._learned_phrases_loaded_at = time.time()
             
             logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from repository")
             return learned_phrases
@@ -1991,19 +2001,26 @@ class SemanticDetectionEngine:
 
         # 1. Primary: Exact matching (fastest)
         logger.debug("Running exact phrase matching...")
-        logger.debug("Starting exact phrase matching")
         exact_matches = self._detect_exact_matches(transcript_lower)
         matches.extend(exact_matches)
 
+        # Calculate current best confidence
+        best_confidence = max([m['confidence'] for m in matches], default=0.0)
+        
         # 1.5 NEW: Regex matching (flexible patterns)
-        logger.debug("Running regex pattern matching...")
-        regex_matches = self._detect_regex_matches(transcript_lower)
-        matches.extend(regex_matches)
+        # Only run regex if we don't have a high-confidence exact match
+        if best_confidence < 0.95:
+            logger.debug("Running regex pattern matching...")
+            regex_matches = self._detect_regex_matches(transcript_lower)
+            matches.extend(regex_matches)
+            best_confidence = max([m['confidence'] for m in matches], default=0.0)
 
         # 2. Secondary: Semantic matching (AI-powered)
-        if self.semantic_model is not None:
+        # SHORT-CIRCUIT: Skip semantic matching if we have a high-confidence exact/regex match (efficiency fix)
+        if best_confidence >= 0.95:
+            logger.info(f"✨ High confidence exact match found ({best_confidence:.2f}), skipping semantic and LLM matching to save time")
+        elif self.semantic_model is not None:
             logger.debug("Running semantic AI matching...")
-            logger.debug("Starting semantic AI matching")
             semantic_matches = self._detect_semantic_matches(transcript)
             # Filter out semantic matches that are too similar to exact matches
             filtered_semantic_matches = self._filter_duplicate_matches(exact_matches, semantic_matches)
@@ -2011,21 +2028,24 @@ class SemanticDetectionEngine:
             
             # Track semantic matches for phrase learning
             self._track_semantic_matches_for_learning(filtered_semantic_matches, transcript)
+            
+            # Update best confidence after semantic matching
+            best_confidence = max([m['confidence'] for m in matches], default=0.0)
         else:
             logger.warning("❌ Semantic model not available, using exact matching only")
 
 
-        # Calculate best confidence from exact + semantic
-        best_confidence = max([m['confidence'] for m in matches], default=0.0)
-        
         # 3. NEW: LLM Fallback for low-confidence cases
+        # Only run LLM if best confidence is still below threshold (saves API usage)
         if self.llm_fallback_enabled and self.llm_evaluator and best_confidence < self.llm_confidence_threshold:
             logger.info(f"🤖 LLM fallback triggered (confidence: {best_confidence:.2f} < {self.llm_confidence_threshold:.2f})")
             
             # For fallback, use the category from the best match if available, otherwise default
             objection_category = 'not_interested'  # Default
             if matches:
-                objection_category = matches[0].get('category', 'not_interested')
+                # Sort matches to get the best one
+                temp_matches = sorted(matches, key=lambda x: x['confidence'], reverse=True)
+                objection_category = temp_matches[0].get('category', 'not_interested')
             
             try:
                 # Call LLM evaluator
@@ -2052,6 +2072,8 @@ class SemanticDetectionEngine:
                     
             except Exception as e:
                 logger.error(f"LLM fallback evaluation failed: {e}")
+        elif best_confidence >= self.llm_confidence_threshold:
+            logger.debug(f"⏭️ Skipping LLM fallback (confidence {best_confidence:.2f} >= {self.llm_confidence_threshold:.2f})")
         
         # Log confidence for debugging
         best_confidence_final = max([m['confidence'] for m in matches], default=0.0)
@@ -2772,10 +2794,14 @@ class RebuttalDetectionModule:
             )
 
 
-# Convenience function for easy integration
+# global instance to reuse across requests (P0 FIX)
+_detection_module = None
+_module_lock = threading.Lock()
+
 def rebuttal_detection(audio_segment: AudioSegment) -> Dict[str, Any]:
     """
     Convenience function to detect rebuttals in audio.
+    Uses a global singleton to avoid expensive re-initialization.
 
     Args:
         audio_segment: Pydub AudioSegment containing call recording
@@ -2783,5 +2809,12 @@ def rebuttal_detection(audio_segment: AudioSegment) -> Dict[str, Any]:
     Returns:
         Detection result dictionary
     """
-    module = RebuttalDetectionModule()
-    return module.detect_rebuttals(audio_segment)
+    global _detection_module
+    
+    if _detection_module is None:
+        with _module_lock:
+            if _detection_module is None:
+                logger.info("Initializing global RebuttalDetectionModule singleton")
+                _detection_module = RebuttalDetectionModule()
+                
+    return _detection_module.detect_rebuttals(audio_segment)
