@@ -409,6 +409,13 @@ class AgentOnlyRebuttalDetector:
 
             # Step 3: Detect rebuttals using corrected transcript with full dialogue context
             dialogue = transcription_result.get("dialogue", "")
+            
+            # Use dialogue for display if available (preferred for UI)
+            # Apply corrections to the dialogue string too so the display is clean
+            display_transcript = dialogue if dialogue else corrected_transcript
+            if dialogue:
+                display_transcript, _ = self.egyptian_corrector.apply_corrections(dialogue)
+
             matches = self.semantic_engine.detect_rebuttals(corrected_transcript, dialogue=dialogue)
 
             # Step 4: Determine final result
@@ -429,8 +436,8 @@ class AgentOnlyRebuttalDetector:
                 result=result,
                 confidence_score=confidence,
                 matched_phrases=matches,
-                transcript=corrected_transcript,  # ✅ CORRECTED TRANSCRIPT - This is what appears in the app's "Transcription" column
-                raw_transcript=raw_transcript,    # ❌ Raw transcript - For debugging only
+                transcript=display_transcript,  # ✅ DISPLAY TRANSCRIPT (Formatted Dialogue) - appears in App
+                raw_transcript=raw_transcript,    # Raw transcript - For debugging
                 corrections_made=accent_corrections,
                 processing_time_ms=processing_time,
                 metadata={
@@ -441,7 +448,7 @@ class AgentOnlyRebuttalDetector:
                     "accent_corrections_applied": len(accent_corrections),
                     "speakers": transcription_result.get("speakers", []),
                     "utterances_count": len(transcription_result.get("utterances", [])),
-                    "dialogue": transcription_result.get("dialogue", ""),  # Full conversation for LLM
+                    "dialogue": dialogue,  # Full conversation for LLM (also used for display now)
                     "owner_transcript": transcription_result.get("owner_transcript", "")  # Owner's words
                 }
             )
