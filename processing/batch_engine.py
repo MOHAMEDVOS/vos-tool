@@ -602,8 +602,25 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
     formatted_results = []
     
     for result in results:
-        # Skip files with errors
+        # Include files with errors so users can see what happened
         if not result.get('classification_success', False):
+            # Create error row
+            error_row = {
+                RESULT_KEYS["AGENT_NAME"]: result.get('agent_name', 'Error'),
+                RESULT_KEYS["PHONE_NUMBER"]: result.get('phone_number', ''),
+                RESULT_KEYS["TIMESTAMP"]: result.get('timestamp', ''),
+                RESULT_KEYS["DISPOSITION"]: result.get('disposition', ''),
+                RESULT_KEYS["RELEASING"]: "Error",
+                RESULT_KEYS["LATE_HELLO"]: "Error",
+                RESULT_KEYS["REBUTTAL"]: "N/A",
+                RESULT_KEYS["TRANSCRIPTION"]: f"Error: {result.get('error', 'Unknown error')}",
+                "Status": "Error",
+                "Agent Intro": "N/A",
+                "Owner Name": "N/A",
+                "Reason for calling": "N/A",
+                "Intro Score": "N/A"
+            }
+            formatted_results.append(error_row)
             continue
         
         formatted_result = {
