@@ -584,7 +584,8 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
             flagged_call['Status'] = status
             
             # Add Feedback column (LLM reasoning)
-            feedback = result.get('rebuttal_detection', {}).get('metadata', {}).get('feedback', '')
+            metadata = result.get('rebuttal_detection', {}).get('metadata', {})
+            feedback = metadata.get('feedback') or metadata.get('llm_reasoning', '')
             flagged_call['Feedback'] = feedback
             
             flagged_calls.append(flagged_call)
