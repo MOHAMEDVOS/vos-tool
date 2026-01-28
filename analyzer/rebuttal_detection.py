@@ -2150,7 +2150,8 @@ class SemanticDetectionEngine:
                     reason = llm_result.get('reasoning', 'No reason provided')
                     logger.info(f"❌ LLM did not detect rebuttal: {reason}")
                     # Store reasoning for feedback
-                    feedback_metadata['llm_reasoning'] = reason
+                    feedback_metadata['feedback'] = reason
+                    feedback_metadata['llm_reasoning'] = reason # Keep for compatibility
                     feedback_metadata['llm_confidence'] = llm_result.get('confidence', 0.0)
                     
             except Exception as e:
@@ -2171,19 +2172,23 @@ class SemanticDetectionEngine:
             logger.debug(f"✅ Best match: '{best_match['phrase']}' ({best_match['match_type']}) confidence: {best_match['confidence']:.3f}")
             
             # Populate feedback even for non-LLM matches so user knows WHY it was flagged
-            if 'llm_reasoning' not in feedback_metadata:
+            if 'feedback' not in feedback_metadata:
                 match_type = best_match.get('match_type', 'unknown')
                 phrase = best_match.get('phrase', 'unknown')
                 if match_type == 'regex':
-                    feedback_metadata['llm_reasoning'] = f"Detected via regex pattern matching: {phrase}"
+                    feedback_metadata['feedback'] = f"Detected via regex pattern matching: {phrase}"
                 elif match_type == 'exact':
-                    feedback_metadata['llm_reasoning'] = f"Detected exact keyword match: '{phrase}'"
+                    feedback_metadata['feedback'] = f"Detected exact keyword match: '{phrase}'"
                 elif match_type == 'semantic':
-                    feedback_metadata['llm_reasoning'] = f"Detected semantic similarity to: '{phrase}' (score: {best_match.get('confidence', 0):.2f})"
+                    feedback_metadata['feedback'] = f"Detected semantic similarity to: '{phrase}' (score: {best_match.get('confidence', 0):.2f})"
+                
+                # Copy to compatibility key
+                feedback_metadata['llm_reasoning'] = feedback_metadata['feedback']
         else:
             logger.debug("❌ No rebuttals detected by any method")
-            if 'llm_reasoning' not in feedback_metadata:
-                feedback_metadata['llm_reasoning'] = "No rebuttal detected. No matching keywords or LLM-identified objections found."
+            if 'feedback' not in feedback_metadata:
+                feedback_metadata['feedback'] = "No rebuttal detected. No matching keywords or LLM-identified objections found."
+                feedback_metadata['llm_reasoning'] = feedback_metadata['feedback']
 
         # Return matches AND feedback metadata (new tuple return)
         return matches, feedback_metadata

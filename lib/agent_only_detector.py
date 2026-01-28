@@ -434,10 +434,11 @@ class AgentOnlyRebuttalDetector:
             
             # Prepare feedback string for dashboard
             feedback_str = None
-            if feedback_metadata and 'llm_reasoning' in feedback_metadata:
-                feedback_str = feedback_metadata['llm_reasoning']
+            if feedback_metadata:
+                feedback_str = feedback_metadata.get('feedback') or feedback_metadata.get('llm_reasoning')
+                
                 # Format specific feedback if LLM triggered
-                if 'llm_confidence' in feedback_metadata:
+                if 'llm_confidence' in feedback_metadata and feedback_str:
                     conf = feedback_metadata['llm_confidence']
                     feedback_str = f"LLM evaluation: not_interested -> False (confidence: {conf:.2f})\n{feedback_str}"
             elif result == "No":
