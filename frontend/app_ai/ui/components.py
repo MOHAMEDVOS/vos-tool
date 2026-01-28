@@ -151,6 +151,7 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             'Late Hello Detection',
             'Rebuttal Detection',
             'Transcription',
+            'Feedback',
             'Owner Name',
             'Agent Intro',
             'Reason for calling',
@@ -418,6 +419,7 @@ def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):
         "Late Hello Detection",
         "Rebuttal Detection",
         "Transcription",
+        "Feedback",
         "Owner Name",
         "Agent Intro",
         "Reason for calling",
@@ -727,7 +729,7 @@ def show_actions_section(dashboard_manager):
     desired_order = [
         'Agent Name', 'Phone Number', 'Dialer', 'Releasing Detection', 
         'Late Hello Detection', 'Rebuttal Detection', 'Disposition', 
-        'Transcription', 'Timestamp', 'Audit Type'
+        'Transcription', 'Feedback', 'Timestamp', 'Audit Type'
     ]
     
     # Only include columns that exist in the dataframe

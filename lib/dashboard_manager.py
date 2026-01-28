@@ -2350,7 +2350,7 @@ class DashboardManager:
                 campaign_audit_columns = [
                     'Agent Name', 'Phone Number', 'Timestamp', 'Disposition',
                     'Releasing Detection', 'Late Hello Detection', 'Rebuttal Detection',
-                    'Transcription', 'Dialer Name', 'Agent Intro', 'Owner Name',
+                    'Transcription', 'Feedback', 'Dialer Name', 'Agent Intro', 'Owner Name',
                     'Reason for calling', 'Intro Score', 'Status',
                     'File Name', 'File Path', 'Call Duration', 'Confidence Score',
                     'username', 'audit_timestamp', 'Audit Type'
