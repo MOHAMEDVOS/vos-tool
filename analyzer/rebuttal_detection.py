@@ -1944,6 +1944,9 @@ class SemanticDetectionEngine:
             except Exception:
                 logger.warning("Failed to load semantic threshold from settings; using default 0.68")
         self.semantic_threshold = max(0.5, min(self.semantic_threshold, 0.9))
+        
+        # Load regex patterns for advanced detection
+        self.regex_patterns = self.keyword_repo.get_compiled_regex_patterns()
 
         # Initialize LLM evaluator for fallback (lazy loading)
         self.llm_evaluator = None
@@ -2020,11 +2023,16 @@ class SemanticDetectionEngine:
         # Calculate current best confidence
         best_confidence = max([m['confidence'] for m in matches], default=0.0)
         
-        # 1.5 NEW: Regex matching (flexible patterns)
+        # 1.5 NEW: Regex matching (flexible patterns with Context Awareness)
         # Only run regex if we don't have a high-confidence exact match
         if best_confidence < 0.95:
-            logger.debug("Running regex pattern matching...")
-            regex_matches = self._detect_regex_matches(transcript_lower)
+            logger.debug("Running regex pattern matching with context awareness...")
+            
+            # Context Awareness: Extract relevant segments (post-denial)
+            # This reduces false positives by only looking at what the Agent says AFTER an objection
+            analysis_segments = self._extract_post_denial_agent_segments(transcript, dialogue)
+            
+            regex_matches = self._detect_regex_matches(analysis_segments)
             matches.extend(regex_matches)
             best_confidence = max([m['confidence'] for m in matches], default=0.0)
 
@@ -2257,6 +2265,111 @@ class SemanticDetectionEngine:
             
         except Exception as e:
             logger.error(f"Error in semantic matching: {e}", exc_info=True)
+        
+        return matches
+
+        return matches
+
+    def _extract_post_denial_agent_segments(self, transcript: str, dialogue: Optional[str] = None) -> List[str]:
+        """
+        Extract agent segments that occur after initial denial or rejection.
+        Uses formatted dialogue (Agent:/Owner:) if available, otherwise falls back to raw transcript analysis.
+        """
+        segments = []
+        source_text = dialogue if dialogue else transcript
+        
+        # If no dialogue structure, treat whole transcript as one segment (fallback)
+        if not dialogue and "Agent:" not in source_text:
+            return [transcript]
+
+        # Regex to split dialogue into identifying speaker turns
+        # Matches "Agent: text" or "Owner: text"
+        # Handles potential newlines and spacing
+        speaker_pattern = r'(Agent|Owner):\s*(.*?)(?=(?:\n(?:Agent|Owner):|\Z))'
+        matches = re.findall(speaker_pattern, source_text, re.DOTALL | re.IGNORECASE)
+        
+        if not matches:
+             return [transcript]
+
+        # Find the first denial/rejection point from OWNER
+        denial_found = False
+        denial_patterns = [
+            r'\bno\b',
+            r'\bnot\s+the\s+owner\b',
+            r'\bnot\s+interested\b',
+            r'\bwrong\s+number\b',
+            r'\bdon\'t\s+own\b',
+            r'\bdoesn\'t\s+lives\b',
+            r'\bdoesn\'t\s+live\b',
+            r'\bnot\s+for\s+sale\b',
+            r'\bstop\s+calling\b',
+            r'\btake\s+me\s+off\b',
+            r'\bremove\s+me\b',
+        ]
+        
+        compiled_denials = [re.compile(p, re.IGNORECASE) for p in denial_patterns]
+
+        for i, (speaker, text) in enumerate(matches):
+            text = text.strip()
+            speaker = speaker.strip().capitalize()
+            
+            # Check if OWNER shows denial
+            if speaker == "Owner" and not denial_found:
+                for pattern in compiled_denials:
+                    if pattern.search(text):
+                        denial_found = True
+                        break
+            
+            # After denial, collect AGENT segments
+            elif speaker == "Agent" and denial_found and text:
+                segments.append(text)
+        
+        # If no denial found but we have dialogue, maybe return all agent segments?
+        # Or return empty? For now, if no denial is found, we might want to be conservative 
+        # and distinct from "no rebuttal".
+        # But if the user wants to find "rebuttal pattern", it implies a rebuttal to SOMETHING.
+        # If explicit denial isn't found, maybe the pattern itself is enough (e.g. "Do you have any other property").
+        # So providing ALL agent segments is safer fallback if strict denial isn't detected.
+        if not segments and matches:
+             return [m[1].strip() for m in matches if m[0].strip().capitalize() == "Agent"]
+             
+        return segments
+
+    def _detect_regex_matches(self, segments_or_text: Any) -> List[Dict[str, Any]]:
+        """
+        Detect rebuttal using robust regex patterns from KeywordRepository.
+        Args:
+            segments_or_text: List of strings (segments) or single string (transcript)
+        """
+        matches = []
+        
+        # Normalize input to list of strings
+        if isinstance(segments_or_text, str):
+            segments = [segments_or_text]
+        else:
+            segments = segments_or_text
+            
+        for segment in segments:
+            if not segment or not segment.strip():
+                continue
+                
+            segment_lower = segment.lower()
+            
+            # Check against all regex categories
+            for category, patterns in self.regex_patterns.items():
+                for pattern in patterns:
+                     match = pattern.search(segment_lower)
+                     if match:
+                         # Found a match!
+                         matches.append({
+                             "phrase": match.group(0),
+                             "confidence": 0.95,  # High confidence for regex
+                             "category": category,
+                             "match_type": "regex",
+                             "context": segment.strip()
+                         })
+                         # Optimization: We can return early or keep finding detailed matches.
+                         # Finding all matches is better for debugging.
         
         return matches
 
