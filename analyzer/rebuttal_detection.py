@@ -2147,12 +2147,20 @@ class SemanticDetectionEngine:
                     matches.append(llm_match)
                     logger.info(f"✅ LLM detected rebuttal: '{llm_match['phrase'][:50]}...' (confidence: {llm_match['confidence']:.2f})")
                 else:
+                    # LLM explicitly said no rebuttal
                     reason = llm_result.get('reasoning', 'No reason provided')
                     logger.info(f"❌ LLM did not detect rebuttal: {reason}")
+                    
                     # Store reasoning for feedback
                     feedback_metadata['feedback'] = reason
                     feedback_metadata['llm_reasoning'] = reason # Keep for compatibility
                     feedback_metadata['llm_confidence'] = llm_result.get('confidence', 0.0)
+                    
+                    # IMPORTANT: Clear any low-confidence candidates that triggered this check
+                    # LLM has the "Final Say" or "Veto Power"
+                    if matches:
+                        logger.info(f"🗑️ Clearing {len(matches)} low-confidence semantic candidates based on LLM veto")
+                        matches = []
                     
             except Exception as e:
                 logger.error(f"LLM fallback evaluation failed: {e}")
