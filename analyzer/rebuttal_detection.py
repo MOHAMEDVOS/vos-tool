@@ -1757,32 +1757,88 @@ class KeywordRepository:
     }
 
     REBUTTAL_REGEX_PATTERNS = {
+        # Pattern 1: Direct "other properties" questions
         "OTHER_PROPERTY_FAMILY": [
-            # Pattern 1: Any other properties
-            r'any\s+other\s+propert', r'another\s+propert', r'any\s+properties',
-            r'other\s+propert', r'additional\s+propert',
-            
-            # Pattern 2: General property inquiry
-            r'property\s+for\s+sale', r'property\s+to\s+sell', r'propert.*sell',
-            r'sell.*propert', r'sale.*propert',
-            
-            # Pattern 3: Know someone
-            r'know\s+someone', r'know\s+anyone', r'know.*selling',
-            r'refer.*propert', r'recommend.*propert',
-            
-            # Pattern 4: Business declaration + invitation
-            r'we\s+buy\s+propert', r'i\s+buy\s+propert', r'buying\s+propert',
-            r'invest.*propert', r'purchas.*propert',
-            
-            # Pattern 5: Pivot phrases
-            r'since.*phone', r'before.*let.*go', r'by\s+the\s+way',
-            r'while.*have.*you', r'apolog.*but.*since',
-            
-            # Pattern 6: Ownership questions
-            r'do\s+you\s+own.*propert', r'do\s+you\s+have.*propert',
-            r'own\s+any\s+propert', r'have\s+any\s+propert'
-        ]
+            r'\bany\s+other\s+propert(?:y|ies)\b',
+            r'\banother\s+propert(?:y|ies)\b',
+            r'\bother\s+propert(?:y|ies)\b',
+            r'\badditional\s+propert(?:y|ies)\b',
+            r'\bother\s+house\b',
+            r'\banother\s+house\b',
+        ],
+        
+        # Pattern 2: General property inquiries
+        "GENERAL_INQUIRY": [
+            r'\bpropert(?:y|ies).*sell\b',
+            r'\bsell.*propert(?:y|ies)\b',
+            r'\bpropert(?:y|ies)\s+for\s+sale\b',
+            r'\bpropert(?:y|ies)\s+to\s+sell\b',
+            r'\bfor\s+sale\b',
+            r'\bselling.*propert(?:y|ies)\b',
+        ],
+        
+        # Pattern 3: Ownership expansion questions
+        "OWNERSHIP_EXPANSION": [
+            r'\bdo\s+you\s+own.*propert(?:y|ies)\b',
+            r'\bdo\s+you\s+have.*propert(?:y|ies)\b',
+            r'\bown\s+any\s+propert(?:y|ies)\b',
+            r'\bhave\s+any\s+propert(?:y|ies)\b',
+            r'\bany\s+propert(?:y|ies).*own\b',
+            r'\bany\s+propert(?:y|ies).*have\b',
+        ],
+        
+        # Pattern 4: Business declaration + invitation
+        "BUSINESS_DECLARATION": [
+            r'\bwe\s+buy\s+propert(?:y|ies)\b',
+            r'\bi\s+buy\s+propert(?:y|ies)\b',
+            r'\bbuying\s+propert(?:y|ies)\b',
+            r'\binvest.*propert(?:y|ies)\b',
+            r'\bpurchas.*propert(?:y|ies)\b',
+        ],
+        
+        # Pattern 5: Pivot phrases
+        "PIVOT_PHRASE": [
+            r'\bsince.*phone\b',
+            r'\bbefore.*let.*go\b',
+            r'\bby\s+the\s+way\b',
+            r'\bwhile.*have.*you\b',
+            r'\bapolog.*but.*since\b',
+        ],
+        
+        # Pattern 6: Location-based inquiries
+        "LOCATION_BASED": [
+            r'\bpropert(?:y|ies).*in\s+(utah|colorado|kentucky|new jersey|new york|pennsylvania|texas|california|nevada|idaho)\b',
+            r'\bin\s+(utah|colorado|kentucky|new jersey|new york|pennsylvania|texas|california|nevada|idaho).*propert(?:y|ies)\b',
+        ],
+        
+        # Pattern 7: Referral questions
+        "REFERRAL": [
+            r'\bknow\s+someone\b',
+            r'\bknow\s+anyone\b',
+            r'\bknow.*selling\b',
+            r'\brefer.*propert(?:y|ies)\b',
+            r'\brecommend.*propert(?:y|ies)\b',
+        ],
+        
+        # Pattern 8: Alternative property questions
+        "ALTERNATIVE_PROPERTY": [
+            r'\bany.*propert(?:y|ies).*consider\b',
+            r'\bpropert(?:y|ies).*consider.*selling\b',
+            r'\bwould\s+you\s+consider.*propert(?:y|ies)\b',
+            r'\bmight\s+consider.*propert(?:y|ies)\b',
+        ],
     }
+
+    @classmethod
+    def get_compiled_regex_patterns(cls) -> Dict[str, List[re.Pattern]]:
+        """Return compiled regex patterns for efficiency."""
+        compiled_patterns = {}
+        for category, patterns in cls.REBUTTAL_REGEX_PATTERNS.items():
+            compiled_patterns[category] = [
+                re.compile(pattern, re.IGNORECASE | re.DOTALL) 
+                for pattern in patterns
+            ]
+        return compiled_patterns
 
     def _load_learned_phrases(self) -> Dict[str, List[str]]:
         """Load learned phrases from PostgreSQL database or JSON file."""
