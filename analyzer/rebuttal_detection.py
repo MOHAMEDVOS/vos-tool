@@ -2169,8 +2169,21 @@ class SemanticDetectionEngine:
         if matches:
             best_match = matches[0]
             logger.debug(f"✅ Best match: '{best_match['phrase']}' ({best_match['match_type']}) confidence: {best_match['confidence']:.3f}")
+            
+            # Populate feedback even for non-LLM matches so user knows WHY it was flagged
+            if 'llm_reasoning' not in feedback_metadata:
+                match_type = best_match.get('match_type', 'unknown')
+                phrase = best_match.get('phrase', 'unknown')
+                if match_type == 'regex':
+                    feedback_metadata['llm_reasoning'] = f"Detected via regex pattern matching: {phrase}"
+                elif match_type == 'exact':
+                    feedback_metadata['llm_reasoning'] = f"Detected exact keyword match: '{phrase}'"
+                elif match_type == 'semantic':
+                    feedback_metadata['llm_reasoning'] = f"Detected semantic similarity to: '{phrase}' (score: {best_match.get('confidence', 0):.2f})"
         else:
             logger.debug("❌ No rebuttals detected by any method")
+            if 'llm_reasoning' not in feedback_metadata:
+                feedback_metadata['llm_reasoning'] = "No rebuttal detected. No matching keywords or LLM-identified objections found."
 
         # Return matches AND feedback metadata (new tuple return)
         return matches, feedback_metadata

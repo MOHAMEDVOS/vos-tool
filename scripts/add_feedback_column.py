@@ -76,28 +76,61 @@ def migrate_database():
         logger.info("Backfilling feedback from metadata...")
         
         if is_postgres:
-            # PostgreSQL optimized backfill using JSONB operators
-            backfill_query = """
+            # PostgreSQL optimized backfill
+            # 1. Direct feedback field
+            backfill_query_1 = """
                 UPDATE agent_audit_results 
                 SET feedback = metadata->>'feedback' 
-                WHERE feedback IS NULL AND metadata ? 'feedback';
+                WHERE feedback IS NULL AND metadata ? 'feedback' AND metadata->>'feedback' IS NOT NULL;
             """
-            rows_updated = db_manager.execute_query(backfill_query, fetch=False)
-            logger.info(f"✓ Backfilled {rows_updated} records from metadata (PostgreSQL).")
+            
+            # 2. Extract from matched_phrases for "Yes" if feedback is missing
+            backfill_query_2 = """
+                UPDATE agent_audit_results 
+                SET feedback = 'Detected match: ' || (metadata->'matched_phrases'->0->>'phrase') || 
+                              ' (' || (metadata->'matched_phrases'->0->>'match_type') || ')'
+                WHERE feedback IS NULL 
+                AND metadata->'matched_phrases' IS NOT NULL 
+                AND jsonb_array_length(metadata->'matched_phrases') > 0;
+            """
+
+            # 3. Handle "No" cases with a generic message if no feedback exists
+            backfill_query_3 = """
+                UPDATE agent_audit_results 
+                SET feedback = 'No rebuttal detected.' 
+                WHERE feedback IS NULL AND rebuttal_detection = 'No';
+            """
+
+            rows1 = db_manager.execute_query(backfill_query_1, fetch=False)
+            rows2 = db_manager.execute_query(backfill_query_2, fetch=False)
+            rows3 = db_manager.execute_query(backfill_query_3, fetch=False)
+            logger.info(f"✓ Backfilled PostgreSQL: {rows1} from direct feedback, {rows2} from matches, {rows3} from defaults.")
         else:
-            # SQLite backfill (less optimized, row by row if needed, but let's try JSON extraction)
-            # SQLite has json_extract since 3.38.0
+            # SQLite backfill
+            logger.info("Attempting SQLite backfill...")
             try:
-                backfill_query = """
+                # 1. Direct feedback
+                db_manager.execute_query("""
                     UPDATE agent_audit_results 
                     SET feedback = json_extract(metadata, '$.feedback') 
                     WHERE feedback IS NULL AND json_extract(metadata, '$.feedback') IS NOT NULL;
-                """
-                rows_updated = db_manager.execute_query(backfill_query, fetch=False)
-                logger.info(f"✓ Backfilled {rows_updated} records from metadata (SQLite).")
+                """, fetch=False)
+                
+                # 2. Match info (best effort for SQLite)
+                db_manager.execute_query("""
+                    UPDATE agent_audit_results 
+                    SET feedback = 'Detected match: ' || json_extract(metadata, '$.matched_phrases[0].phrase')
+                    WHERE feedback IS NULL AND json_extract(metadata, '$.matched_phrases[0]') IS NOT NULL;
+                """, fetch=False)
+
+                # 3. Default "No"
+                db_manager.execute_query("""
+                    UPDATE agent_audit_results 
+                    SET feedback = 'No rebuttal detected.' 
+                    WHERE feedback IS NULL AND rebuttal_detection = 'No';
+                """, fetch=False)
             except Exception as e:
-                logger.warning(f"SQLite json_extract backfill failed (likely old version): {e}")
-                logger.info("Skipping backfill for SQLite.")
+                logger.warning(f"SQLite backfill failed or partially failed: {e}")
 
         return True
         
