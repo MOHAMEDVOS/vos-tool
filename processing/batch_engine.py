@@ -583,6 +583,10 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 status = "Critical"
             flagged_call['Status'] = status
             
+            # Add Feedback column (LLM reasoning)
+            feedback = result.get('rebuttal_detection', {}).get('metadata', {}).get('feedback', '')
+            flagged_call['Feedback'] = feedback
+            
             flagged_calls.append(flagged_call)
     
     return flagged_calls
@@ -617,8 +621,13 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
                 "Status": "Error",
                 "Agent Intro": "N/A",
                 "Owner Name": "N/A",
+                RESULT_KEYS["TRANSCRIPTION"]: f"Error: {result.get('error', 'Unknown error')}",
+                "Status": "Error",
+                "Agent Intro": "N/A",
+                "Owner Name": "N/A",
                 "Reason for calling": "N/A",
-                "Intro Score": "N/A"
+                "Intro Score": "N/A",
+                "Feedback": "N/A"
             }
             formatted_results.append(error_row)
             continue
@@ -681,6 +690,10 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
         intro_score_display = f"{intro_score_value:.0f}%"
         
         formatted_result['Intro Score'] = intro_score_display
+        
+        # Add Feedback column (LLM reasoning)
+        feedback = result.get('rebuttal_detection', {}).get('metadata', {}).get('feedback', '')
+        formatted_result['Feedback'] = feedback
         
         # Status based on intro score - percentage thresholds
         if intro_score_value >= 83:
@@ -1148,7 +1161,9 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             "Agent Intro": "N/A",
             "Owner Name": "N/A",
             "Reason for Calling": "N/A",
+            "Reason for Calling": "N/A",
             "Intro Score": "N/A",
+            "Feedback": "N/A",
             "Status": status,
             "File Name": file_path.name,
             "File Path": str(file_path)
@@ -1198,7 +1213,9 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             "Agent Intro": "N/A",
             "Owner Name": "N/A",
             "Reason for Calling": "N/A",
+            "Reason for Calling": "N/A",
             "Intro Score": "N/A",
+            "Feedback": "N/A",
             "Status": f"Error: {str(e)}"
         }
 

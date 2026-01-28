@@ -2060,7 +2060,7 @@ class SemanticDetectionEngine:
             self.semantic_model = None
             self.phrase_embeddings = None
 
-    def detect_rebuttals(self, transcript: str, dialogue: Optional[str] = None) -> List[Dict[str, Any]]:
+    def detect_rebuttals(self, transcript: str, dialogue: Optional[str] = None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Detect all matching rebuttal phrases using exact and semantic matching (Lazy Load enabled)."""
         # Lazy initialization: Try to get model if we don't have it yet
         # This allows retries if the model was still loading on previous calls
@@ -2069,6 +2069,7 @@ class SemanticDetectionEngine:
             
         logger.debug(f"🔍 Starting rebuttal detection on transcript: '{transcript[:100]}...'")
         matches = []
+        feedback_metadata = {}  # Initialize feedback container
         transcript_lower = transcript.lower()
 
         # 1. Primary: Exact matching (fastest)
@@ -2146,7 +2147,11 @@ class SemanticDetectionEngine:
                     matches.append(llm_match)
                     logger.info(f"✅ LLM detected rebuttal: '{llm_match['phrase'][:50]}...' (confidence: {llm_match['confidence']:.2f})")
                 else:
-                    logger.info(f"❌ LLM did not detect rebuttal: {llm_result.get('reasoning', 'No reason provided')}")
+                    reason = llm_result.get('reasoning', 'No reason provided')
+                    logger.info(f"❌ LLM did not detect rebuttal: {reason}")
+                    # Store reasoning for feedback
+                    feedback_metadata['llm_reasoning'] = reason
+                    feedback_metadata['llm_confidence'] = llm_result.get('confidence', 0.0)
                     
             except Exception as e:
                 logger.error(f"LLM fallback evaluation failed: {e}")
@@ -2167,7 +2172,8 @@ class SemanticDetectionEngine:
         else:
             logger.debug("❌ No rebuttals detected by any method")
 
-        return matches
+        # Return matches AND feedback metadata (new tuple return)
+        return matches, feedback_metadata
 
 
     def _normalize_for_matching(self, text: str) -> str:
@@ -2676,7 +2682,7 @@ class ValidationFramework:
         }
 
         for transcript, expected_result, expected_category in test_cases:
-            matches = self.detection_engine.detect_rebuttals(transcript)
+            matches, _ = self.detection_engine.detect_rebuttals(transcript)
             actual_result = len(matches) > 0
 
             passed = (actual_result == expected_result)
@@ -2727,6 +2733,7 @@ class OutputFormatter:
                 "processing_time_ms": processing_time_ms,
                 "audio_quality_score": metadata.get("audio_quality_score", 0.0),
                 "vosk_confidence": metadata.get("vosk_confidence", 0.0),
+                "feedback": metadata.get("feedback", None),  # Expose feedback in metadata
                 **metadata
             },
             "validation_flags": {
@@ -2933,7 +2940,7 @@ class RebuttalDetectionModule:
 
             # 5. Semantic Detection (on agent transcript only)
             logger.debug("Step 5: Semantic detection")
-            matches = self.detection_engine.detect_rebuttals(corrected_transcript)
+            matches, feedback_metadata = self.detection_engine.detect_rebuttals(corrected_transcript)
             logger.debug(f"Found {len(matches)} rebuttal matches")
 
             # 6. Determine Result
@@ -2964,6 +2971,7 @@ class RebuttalDetectionModule:
                     "vosk_confidence": 0.78,
                     "single_channel": True,
                     "audio_duration_seconds": len(normalized_agent) / 1000,
+                    "feedback": feedback_metadata.get('llm_reasoning') if feedback_metadata else None,
                     **validation["metadata"]
                 }
             )

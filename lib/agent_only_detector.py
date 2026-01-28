@@ -416,7 +416,7 @@ class AgentOnlyRebuttalDetector:
             if dialogue:
                 display_transcript, _ = self.egyptian_corrector.apply_corrections(dialogue)
 
-            matches = self.semantic_engine.detect_rebuttals(corrected_transcript, dialogue=dialogue)
+            matches, feedback_metadata = self.semantic_engine.detect_rebuttals(corrected_transcript, dialogue=dialogue)
 
             # Step 4: Determine final result
             if matches:
@@ -431,6 +431,19 @@ class AgentOnlyRebuttalDetector:
 
             # Step 5: Format final result
             processing_time = int((time.time() - start_time) * 1000)
+            
+            # Prepare feedback string for dashboard
+            feedback_str = None
+            if feedback_metadata and 'llm_reasoning' in feedback_metadata:
+                feedback_str = feedback_metadata['llm_reasoning']
+                # Format specific feedback if LLM triggered
+                if 'llm_confidence' in feedback_metadata:
+                    conf = feedback_metadata['llm_confidence']
+                    feedback_str = f"LLM evaluation: not_interested -> False (confidence: {conf:.2f})\n{feedback_str}"
+            elif result == "No":
+                 # If no LLM reasoning but result is No, we might want to explain why LLM didn't run?
+                 # Or just leave it empty if it was skipped due to high confidence or other reasons
+                 pass
 
             return self.formatter.format_result(
                 result=result,
@@ -449,7 +462,8 @@ class AgentOnlyRebuttalDetector:
                     "speakers": transcription_result.get("speakers", []),
                     "utterances_count": len(transcription_result.get("utterances", [])),
                     "dialogue": dialogue,  # Full conversation for LLM (also used for display now)
-                    "owner_transcript": transcription_result.get("owner_transcript", "")  # Owner's words
+                    "owner_transcript": transcription_result.get("owner_transcript", ""),  # Owner's words
+                    "feedback": feedback_str  # Pass feedback to formatter
                 }
             )
 

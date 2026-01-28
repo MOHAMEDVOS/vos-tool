@@ -339,7 +339,10 @@ class SemanticAudioProcessor:
         
         try:
             # Use pre-loaded semantic engine
-            matches = self.semantic_engine.detect_rebuttals(transcript)
+            matches, feedback_metadata = self.semantic_engine.detect_rebuttals(transcript)
+            
+            # Prepare feedback if available
+            feedback = feedback_metadata.get('llm_reasoning') if feedback_metadata else None
             
             if matches and len(matches) > 0:
                 best_match = matches[0]  # Highest confidence
@@ -350,7 +353,8 @@ class SemanticAudioProcessor:
                     'confidence': best_match.get('confidence', 0.0),
                     'matched_phrase': best_match.get('phrase', ''),
                     'category': best_match.get('category', ''),
-                    'all_matches': matches[:3]  # Top 3 matches
+                    'all_matches': matches[:3],  # Top 3 matches
+                    'metadata': {'feedback': feedback} if feedback else {}
                 }
             else:
                 return {
@@ -358,7 +362,8 @@ class SemanticAudioProcessor:
                     'transcript': transcript,
                     'method': 'semantic',
                     'confidence': 0.0,
-                    'matches': []
+                    'matches': [],
+                    'metadata': {'feedback': feedback} if feedback else {}
                 }
                 
         except Exception as e:
