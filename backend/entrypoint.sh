@@ -26,9 +26,18 @@ else
     echo "    This is not critical, the app will still work"
 fi
 
-# 3. Start the backend server
+# 3. Run database migrations
 echo ""
-echo "[3/3] Starting backend server..."
+echo "[3/4] Running database migrations..."
+if python scripts/add_feedback_column.py; then
+    echo "✅ Database migration successful"
+else
+    echo "⚠️  Database migration failed - proceeding anyway"
+fi
+
+# 4. Start the backend server
+echo ""
+echo "[4/4] Starting backend server..."
 echo "  Command: uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"
 echo "=========================================="
 echo ""

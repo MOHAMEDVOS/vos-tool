@@ -173,10 +173,9 @@ class DatabaseManager:
             host = 'localhost'
 
         try:
-            # Get pool size from environment or use default
-            # Increased from 10 to 20 to support more concurrent users (P0 Fix #2)
-            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '20'))
-            connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', '10'))
+            # Increased from 20 to 50 to handle parallel batch processing
+            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '50'))
+            connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', '30'))
 
             port = os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or db_url_parts.get('port') or '5432'
             database = os.getenv('POSTGRES_DB') or os.getenv('PGDATABASE') or db_url_parts.get('database') or 'vos_tool'
@@ -242,13 +241,28 @@ class DatabaseManager:
         if self.db_type == 'postgresql':
             if not self.connection_pool:
                 raise RuntimeError("PostgreSQL connection pool not initialized")
-            try:
-                conn = self.connection_pool.getconn()
-                logger.debug("Connection acquired from pool")
-                return conn
-            except Exception as e:
-                logger.error(f"Failed to get connection from pool: {e}")
-                raise
+            # Implement a blocking wait for connections (P0 FIX)
+            # This prevents threads from failing immediately when the pool is full
+            import time
+            wait_timeout = 30  # Wait up to 30 seconds
+            start_wait = time.time()
+            
+            while (time.time() - start_wait) < wait_timeout:
+                try:
+                    conn = self.connection_pool.getconn()
+                    if conn:
+                        logger.debug(f"Connection acquired from pool after {time.time() - start_wait:.2f}s wait")
+                        return conn
+                except psycopg2.pool.PoolError:
+                    # Pool is full, wait and retry
+                    time.sleep(0.5)
+                except Exception as e:
+                    logger.error(f"Error while getting connection from pool: {e}")
+                    raise
+            
+            # If we get here, we timed out
+            logger.error(f"CRITICAL: Connection pool exhausted for {wait_timeout}s")
+            raise psycopg2.pool.PoolError("connection pool exhausted after timeout")
         else:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row

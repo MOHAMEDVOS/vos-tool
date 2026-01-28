@@ -1356,6 +1356,13 @@ class PhoneticAdaptationLayer:
 class KeywordRepository:
     """Repository of rebuttal phrases organized by category."""
     
+    # Class-level cache to share across instances (P0 FIX)
+    _learned_phrases_cache = None
+    _learned_phrases_timestamp = None
+    _learned_phrases_loaded_at = None
+    _cache_is_full_db_load = False # Track if cache includes DB data
+    _cache_lock = threading.Lock()
+    
     def __init__(self, skip_database: bool = False):
         """Initialize repository and load learned phrases.
         
@@ -1363,9 +1370,6 @@ class KeywordRepository:
             skip_database: If True, skip database queries and use only hardcoded + JSON phrases.
                           Useful for batch processing to avoid connection pool exhaustion.
         """
-        self._learned_phrases_cache = None
-        self._learned_phrases_timestamp = None
-        self._learned_phrases_loaded_at = None
         self._skip_database = skip_database
 
     REBUTTAL_PHRASES = {
@@ -1397,7 +1401,34 @@ class KeywordRepository:
             "don't have any properties in general",
             "you have another property you'd like to sell",
             "do you own any other property you'd like to sell",
+            # NEGATIVE PHRASING VARIATIONS (Added for better recall)
+            "you don't have a property that you may sell",
+            "you don't have a property that you might sell",
+            "you don't have any property that you may sell",
+            "you don't have any other property",
             "do you happen to have any other property",
+            
+            # OPPORTUNISTIC PIVOTS (Transitional phrases)
+            "since i've got you",
+            "since i got you",
+            "since i have you",
+            "while i have you",
+            "before i let you go",
+            "before i let you go do you have",
+            "before we hang up",
+            "just before you go",
+            
+            # INDIRECT/OPPORTUNISTIC QUESTIONS
+            "do you have a piece of property",
+            "piece of property for sale",
+            "know someone who might be selling",
+            "know anyone selling",
+            "know someone by any chance", 
+            "know someone by eating",  # Common transcription error for "by any chance"
+            "we buy properties",
+            "we are buying properties",
+            "we buy houses",
+            
             "any other properties besides this one",
             "any other properties aside from this one",
             "any other houses who failed",
@@ -1725,20 +1756,113 @@ class KeywordRepository:
         ]
     }
 
+    REBUTTAL_REGEX_PATTERNS = {
+        # Pattern 1: Direct "other properties" questions
+        "OTHER_PROPERTY_FAMILY": [
+            r'\bany\s+other\s+propert(?:y|ies)\b',
+            r'\banother\s+propert(?:y|ies)\b',
+            r'\bother\s+propert(?:y|ies)\b',
+            r'\badditional\s+propert(?:y|ies)\b',
+            r'\bother\s+house\b',
+            r'\banother\s+house\b',
+        ],
+        
+        # Pattern 2: General property inquiries
+        "GENERAL_INQUIRY": [
+            r'\bpropert(?:y|ies).*sell\b',
+            r'\bsell.*propert(?:y|ies)\b',
+            r'\bpropert(?:y|ies)\s+for\s+sale\b',
+            r'\bpropert(?:y|ies)\s+to\s+sell\b',
+            r'\bfor\s+sale\b',
+            r'\bselling.*propert(?:y|ies)\b',
+        ],
+        
+        # Pattern 3: Ownership expansion questions
+        "OWNERSHIP_EXPANSION": [
+            r'\bdo\s+you\s+own.*propert(?:y|ies)\b',
+            r'\bdo\s+you\s+have.*propert(?:y|ies)\b',
+            r'\bown\s+any\s+propert(?:y|ies)\b',
+            r'\bhave\s+any\s+propert(?:y|ies)\b',
+            r'\bany\s+propert(?:y|ies).*own\b',
+            r'\bany\s+propert(?:y|ies).*have\b',
+        ],
+        
+        # Pattern 4: Business declaration + invitation
+        "BUSINESS_DECLARATION": [
+            r'\bwe\s+buy\s+propert(?:y|ies)\b',
+            r'\bi\s+buy\s+propert(?:y|ies)\b',
+            r'\bbuying\s+propert(?:y|ies)\b',
+            r'\binvest.*propert(?:y|ies)\b',
+            r'\bpurchas.*propert(?:y|ies)\b',
+        ],
+        
+        # Pattern 5: Pivot phrases
+        "PIVOT_PHRASE": [
+            r'\bsince.*phone\b',
+            r'\bbefore.*let.*go\b',
+            r'\bby\s+the\s+way\b',
+            r'\bwhile.*have.*you\b',
+            r'\bapolog.*but.*since\b',
+        ],
+        
+        # Pattern 6: Location-based inquiries
+        "LOCATION_BASED": [
+            r'\bpropert(?:y|ies).*in\s+(utah|colorado|kentucky|new jersey|new york|pennsylvania|texas|california|nevada|idaho)\b',
+            r'\bin\s+(utah|colorado|kentucky|new jersey|new york|pennsylvania|texas|california|nevada|idaho).*propert(?:y|ies)\b',
+        ],
+        
+        # Pattern 7: Referral questions
+        "REFERRAL": [
+            r'\bknow\s+someone\b',
+            r'\bknow\s+anyone\b',
+            r'\bknow.*selling\b',
+            r'\brefer.*propert(?:y|ies)\b',
+            r'\brecommend.*propert(?:y|ies)\b',
+        ],
+        
+        # Pattern 8: Alternative property questions
+        "ALTERNATIVE_PROPERTY": [
+            r'\bany.*propert(?:y|ies).*consider\b',
+            r'\bpropert(?:y|ies).*consider.*selling\b',
+            r'\bwould\s+you\s+consider.*propert(?:y|ies)\b',
+            r'\bmight\s+consider.*propert(?:y|ies)\b',
+        ],
+    }
+
+    @classmethod
+    def get_compiled_regex_patterns(cls) -> Dict[str, List[re.Pattern]]:
+        """Return compiled regex patterns for efficiency."""
+        compiled_patterns = {}
+        for category, patterns in cls.REBUTTAL_REGEX_PATTERNS.items():
+            compiled_patterns[category] = [
+                re.compile(pattern, re.IGNORECASE | re.DOTALL) 
+                for pattern in patterns
+            ]
+        return compiled_patterns
+
     def _load_learned_phrases(self) -> Dict[str, List[str]]:
         """Load learned phrases from PostgreSQL database or JSON file."""
         try:
             db_cache_seconds = int(os.getenv("REBUTTAL_DB_CACHE_SECONDS", "300"))
-            if (
-                self._learned_phrases_cache is not None
-                and self._learned_phrases_loaded_at is not None
-                and (time.time() - self._learned_phrases_loaded_at) < db_cache_seconds
-            ):
-                return self._learned_phrases_cache
+            
+            # Check cache with lock (P0 FIX)
+            with self._cache_lock:
+                # Only return cache if it matches the request type (DB vs No-DB)
+                # If we need DB (skip_database=False) but cache is partial (JSON-only), we MUST reload
+                cache_is_valid_type = (self._skip_database) or (self._cache_is_full_db_load)
+                
+                if (
+                    self._learned_phrases_cache is not None
+                    and self._learned_phrases_loaded_at is not None
+                    and (time.time() - self._learned_phrases_loaded_at) < db_cache_seconds
+                    and cache_is_valid_type
+                ):
+                    return self._learned_phrases_cache
 
             # Try to load from database first (unless skip_database is True)
             if not self._skip_database:
                 try:
+                    logger.info("Attempting to load phrases from database...")
                     from lib.database import get_db_manager
                     
                     db = get_db_manager()
@@ -1748,7 +1872,10 @@ class KeywordRepository:
                         # For faster fallback, we can set a shorter timeout for this specific query
                         # But the main fix is using skip_database=True during model initialization
                         query = "SELECT category, phrase FROM rebuttal_phrases ORDER BY category, phrase"
+                        logger.debug("Executing DB query for learned phrases...")
+                        query_start = time.time()
                         results = db.execute_query(query, fetch=True)
+                        logger.debug(f"DB query finished in {time.time()-query_start:.2f}s, rows: {len(results) if results else 0}")
                         
                         if results:
                             learned_phrases = {}
@@ -1760,12 +1887,15 @@ class KeywordRepository:
                                 learned_phrases[category].append(phrase)
                             
                             # Cache the result
-                            self._learned_phrases_cache = learned_phrases
-                            self._learned_phrases_timestamp = None  # Database doesn't have mtime
-                            self._learned_phrases_loaded_at = time.time()
+                            with self._cache_lock:
+                                self._learned_phrases_cache = learned_phrases
+                                self._learned_phrases_timestamp = None  # Database doesn't have mtime
+                                self._learned_phrases_loaded_at = time.time()
+                                self._cache_is_full_db_load = True # Mark as full DB load
                             
-                            logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
+                            logger.info(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from database")
                             return learned_phrases
+                                
                                 
                 except Exception as e:
                     logger.debug(f"Could not load from database: {e}, falling back to JSON")
@@ -1785,21 +1915,25 @@ class KeywordRepository:
             
             # Check file modification time for cache invalidation
             current_mtime = os.path.getmtime(repository_path)
-            if (self._learned_phrases_cache is not None and 
-                self._learned_phrases_timestamp == current_mtime):
-                return self._learned_phrases_cache
+            
+            # Check cache again before file read (P0 FIX)
+            with self._cache_lock:
+                if (self._learned_phrases_cache is not None and 
+                    self._learned_phrases_timestamp == current_mtime):
+                    return self._learned_phrases_cache
             
             # Load the repository file
             with open(repository_path, 'r', encoding='utf-8') as f:
                 repository_data = json.load(f)
             
-            # Extract phrases from the repository
-            learned_phrases = repository_data.get("phrases", {})
+            learned_phrases = repository_data.get("categories", {})
             
-            # Cache the result with timestamp
-            self._learned_phrases_cache = learned_phrases
-            self._learned_phrases_timestamp = current_mtime
-            self._learned_phrases_loaded_at = time.time()
+            # Update cache with lock
+            with self._cache_lock:
+                self._learned_phrases_cache = learned_phrases
+                self._learned_phrases_timestamp = current_mtime
+                self._learned_phrases_loaded_at = time.time()
+                self._cache_is_full_db_load = False # Mark as partial (JSON only)
             
             logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from repository")
             return learned_phrases
@@ -1836,6 +1970,10 @@ class KeywordRepository:
         
         return merged_phrases
 
+    def get_all_regex_patterns(self) -> Dict[str, List[str]]:
+        """Get all rebuttal regex patterns organized by category."""
+        return self.REBUTTAL_REGEX_PATTERNS
+
     def get_phrases_by_category(self, category: str) -> List[str]:
         """Get phrases for a specific category (includes learned phrases)."""
         all_phrases = self.get_all_phrases()
@@ -1862,6 +2000,9 @@ class SemanticDetectionEngine:
             except Exception:
                 logger.warning("Failed to load semantic threshold from settings; using default 0.68")
         self.semantic_threshold = max(0.5, min(self.semantic_threshold, 0.9))
+        
+        # Load regex patterns for advanced detection
+        self.regex_patterns = self.keyword_repo.get_compiled_regex_patterns()
 
         # Initialize LLM evaluator for fallback (lazy loading)
         self.llm_evaluator = None
@@ -1919,7 +2060,7 @@ class SemanticDetectionEngine:
             self.semantic_model = None
             self.phrase_embeddings = None
 
-    def detect_rebuttals(self, transcript: str) -> List[Dict[str, Any]]:
+    def detect_rebuttals(self, transcript: str, dialogue: Optional[str] = None) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """Detect all matching rebuttal phrases using exact and semantic matching (Lazy Load enabled)."""
         # Lazy initialization: Try to get model if we don't have it yet
         # This allows retries if the model was still loading on previous calls
@@ -1928,18 +2069,36 @@ class SemanticDetectionEngine:
             
         logger.debug(f"🔍 Starting rebuttal detection on transcript: '{transcript[:100]}...'")
         matches = []
+        feedback_metadata = {}  # Initialize feedback container
         transcript_lower = transcript.lower()
 
         # 1. Primary: Exact matching (fastest)
         logger.debug("Running exact phrase matching...")
-        logger.debug("Starting exact phrase matching")
         exact_matches = self._detect_exact_matches(transcript_lower)
         matches.extend(exact_matches)
 
+        # Calculate current best confidence
+        best_confidence = max([m['confidence'] for m in matches], default=0.0)
+        
+        # 1.5 NEW: Regex matching (flexible patterns with Context Awareness)
+        # Only run regex if we don't have a high-confidence exact match
+        if best_confidence < 0.95:
+            logger.debug("Running regex pattern matching with context awareness...")
+            
+            # Context Awareness: Extract relevant segments (post-denial)
+            # This reduces false positives by only looking at what the Agent says AFTER an objection
+            analysis_segments = self._extract_post_denial_agent_segments(transcript, dialogue)
+            
+            regex_matches = self._detect_regex_matches(analysis_segments)
+            matches.extend(regex_matches)
+            best_confidence = max([m['confidence'] for m in matches], default=0.0)
+
         # 2. Secondary: Semantic matching (AI-powered)
-        if self.semantic_model is not None:
+        # SHORT-CIRCUIT: Skip semantic matching if we have a high-confidence exact/regex match (efficiency fix)
+        if best_confidence >= 0.95:
+            logger.info(f"✨ High confidence exact match found ({best_confidence:.2f}), skipping semantic and LLM matching to save time")
+        elif self.semantic_model is not None:
             logger.debug("Running semantic AI matching...")
-            logger.debug("Starting semantic AI matching")
             semantic_matches = self._detect_semantic_matches(transcript)
             # Filter out semantic matches that are too similar to exact matches
             filtered_semantic_matches = self._filter_duplicate_matches(exact_matches, semantic_matches)
@@ -1947,28 +2106,32 @@ class SemanticDetectionEngine:
             
             # Track semantic matches for phrase learning
             self._track_semantic_matches_for_learning(filtered_semantic_matches, transcript)
+            
+            # Update best confidence after semantic matching
+            best_confidence = max([m['confidence'] for m in matches], default=0.0)
         else:
             logger.warning("❌ Semantic model not available, using exact matching only")
 
 
-        # Calculate best confidence from exact + semantic
-        best_confidence = max([m['confidence'] for m in matches], default=0.0)
-        
         # 3. NEW: LLM Fallback for low-confidence cases
+        # Only run LLM if best confidence is still below threshold (saves API usage)
         if self.llm_fallback_enabled and self.llm_evaluator and best_confidence < self.llm_confidence_threshold:
             logger.info(f"🤖 LLM fallback triggered (confidence: {best_confidence:.2f} < {self.llm_confidence_threshold:.2f})")
             
             # For fallback, use the category from the best match if available, otherwise default
             objection_category = 'not_interested'  # Default
             if matches:
-                objection_category = matches[0].get('category', 'not_interested')
+                # Sort matches to get the best one
+                temp_matches = sorted(matches, key=lambda x: x['confidence'], reverse=True)
+                objection_category = temp_matches[0].get('category', 'not_interested')
             
             try:
-                # Call LLM evaluator
+                # Call LLM evaluator with full dialogue context
                 llm_result = self.llm_evaluator.evaluate_rebuttal(
                     transcript=transcript,
                     objection_category=objection_category,
-                    semantic_candidates=matches if matches else None
+                    semantic_candidates=matches if matches else None,
+                    dialogue=dialogue  # Pass full conversation for context
                 )
                 
                 # If LLM detected a rebuttal, add it to matches
@@ -1984,10 +2147,25 @@ class SemanticDetectionEngine:
                     matches.append(llm_match)
                     logger.info(f"✅ LLM detected rebuttal: '{llm_match['phrase'][:50]}...' (confidence: {llm_match['confidence']:.2f})")
                 else:
-                    logger.info(f"❌ LLM did not detect rebuttal: {llm_result.get('reasoning', 'No reason provided')}")
+                    # LLM explicitly said no rebuttal
+                    reason = llm_result.get('reasoning', 'No reason provided')
+                    logger.info(f"❌ LLM did not detect rebuttal: {reason}")
+                    
+                    # Store reasoning for feedback
+                    feedback_metadata['feedback'] = reason
+                    feedback_metadata['llm_reasoning'] = reason # Keep for compatibility
+                    feedback_metadata['llm_confidence'] = llm_result.get('confidence', 0.0)
+                    
+                    # IMPORTANT: Clear any low-confidence candidates that triggered this check
+                    # LLM has the "Final Say" or "Veto Power"
+                    if matches:
+                        logger.info(f"🗑️ Clearing {len(matches)} low-confidence semantic candidates based on LLM veto")
+                        matches = []
                     
             except Exception as e:
                 logger.error(f"LLM fallback evaluation failed: {e}")
+        elif best_confidence >= self.llm_confidence_threshold:
+            logger.debug(f"⏭️ Skipping LLM fallback (confidence {best_confidence:.2f} >= {self.llm_confidence_threshold:.2f})")
         
         # Log confidence for debugging
         best_confidence_final = max([m['confidence'] for m in matches], default=0.0)
@@ -2000,10 +2178,28 @@ class SemanticDetectionEngine:
         if matches:
             best_match = matches[0]
             logger.debug(f"✅ Best match: '{best_match['phrase']}' ({best_match['match_type']}) confidence: {best_match['confidence']:.3f}")
+            
+            # Populate feedback even for non-LLM matches so user knows WHY it was flagged
+            if 'feedback' not in feedback_metadata:
+                match_type = best_match.get('match_type', 'unknown')
+                phrase = best_match.get('phrase', 'unknown')
+                if match_type == 'regex':
+                    feedback_metadata['feedback'] = f"Detected via regex pattern matching: {phrase}"
+                elif match_type == 'exact':
+                    feedback_metadata['feedback'] = f"Detected exact keyword match: '{phrase}'"
+                elif match_type == 'semantic':
+                    feedback_metadata['feedback'] = f"Detected semantic similarity to: '{phrase}' (score: {best_match.get('confidence', 0):.2f})"
+                
+                # Copy to compatibility key
+                feedback_metadata['llm_reasoning'] = feedback_metadata['feedback']
         else:
             logger.debug("❌ No rebuttals detected by any method")
+            if 'feedback' not in feedback_metadata:
+                feedback_metadata['feedback'] = "No rebuttal detected. No matching keywords or LLM-identified objections found."
+                feedback_metadata['llm_reasoning'] = feedback_metadata['feedback']
 
-        return matches
+        # Return matches AND feedback metadata (new tuple return)
+        return matches, feedback_metadata
 
 
     def _normalize_for_matching(self, text: str) -> str:
@@ -2019,7 +2215,30 @@ class SemanticDetectionEngine:
         text = re.sub(r"[.,!?;:\\-]", " ", text)
         # Collapse multiple whitespace into single spaces
         text = re.sub(r"\s+", " ", text).strip()
+        text = re.sub(r"\s+", " ", text).strip()
         return text
+
+    def _detect_regex_matches(self, transcript_lower: str) -> List[Dict[str, Any]]:
+        """Detect matches using regex patterns for flexible matching."""
+        import re
+        matches = []
+        
+        # Use existing normalize logic for consistency, but regexes are designed for lower case text
+        # We rely on the input being lower case, which it is from detect_rebuttal
+        
+        for category, patterns in self.keyword_repo.get_all_regex_patterns().items():
+            for pattern in patterns:
+                if re.search(pattern, transcript_lower):
+                    # Found a match using regex
+                    match_text = re.search(pattern, transcript_lower).group(0)
+                    matches.append({
+                        'phrase': f"REGEX: {pattern}", # Indicate it's a regex match
+                        'category': category,
+                        'confidence': 1.0, # High confidence for regex matches
+                        'match_type': 'regex',
+                        'matched_phrase': match_text
+                    })
+        return matches
 
     def _detect_exact_matches(self, transcript_lower: str) -> List[Dict[str, Any]]:
         """Detect exact phrase matches with punctuation-insensitive matching."""
@@ -2134,6 +2353,111 @@ class SemanticDetectionEngine:
             
         except Exception as e:
             logger.error(f"Error in semantic matching: {e}", exc_info=True)
+        
+        return matches
+
+        return matches
+
+    def _extract_post_denial_agent_segments(self, transcript: str, dialogue: Optional[str] = None) -> List[str]:
+        """
+        Extract agent segments that occur after initial denial or rejection.
+        Uses formatted dialogue (Agent:/Owner:) if available, otherwise falls back to raw transcript analysis.
+        """
+        segments = []
+        source_text = dialogue if dialogue else transcript
+        
+        # If no dialogue structure, treat whole transcript as one segment (fallback)
+        if not dialogue and "Agent:" not in source_text:
+            return [transcript]
+
+        # Regex to split dialogue into identifying speaker turns
+        # Matches "Agent: text" or "Owner: text"
+        # Handles potential newlines and spacing
+        speaker_pattern = r'(Agent|Owner):\s*(.*?)(?=(?:\n(?:Agent|Owner):|\Z))'
+        matches = re.findall(speaker_pattern, source_text, re.DOTALL | re.IGNORECASE)
+        
+        if not matches:
+             return [transcript]
+
+        # Find the first denial/rejection point from OWNER
+        denial_found = False
+        denial_patterns = [
+            r'\bno\b',
+            r'\bnot\s+the\s+owner\b',
+            r'\bnot\s+interested\b',
+            r'\bwrong\s+number\b',
+            r'\bdon\'t\s+own\b',
+            r'\bdoesn\'t\s+lives\b',
+            r'\bdoesn\'t\s+live\b',
+            r'\bnot\s+for\s+sale\b',
+            r'\bstop\s+calling\b',
+            r'\btake\s+me\s+off\b',
+            r'\bremove\s+me\b',
+        ]
+        
+        compiled_denials = [re.compile(p, re.IGNORECASE) for p in denial_patterns]
+
+        for i, (speaker, text) in enumerate(matches):
+            text = text.strip()
+            speaker = speaker.strip().capitalize()
+            
+            # Check if OWNER shows denial
+            if speaker == "Owner" and not denial_found:
+                for pattern in compiled_denials:
+                    if pattern.search(text):
+                        denial_found = True
+                        break
+            
+            # After denial, collect AGENT segments
+            elif speaker == "Agent" and denial_found and text:
+                segments.append(text)
+        
+        # If no denial found but we have dialogue, maybe return all agent segments?
+        # Or return empty? For now, if no denial is found, we might want to be conservative 
+        # and distinct from "no rebuttal".
+        # But if the user wants to find "rebuttal pattern", it implies a rebuttal to SOMETHING.
+        # If explicit denial isn't found, maybe the pattern itself is enough (e.g. "Do you have any other property").
+        # So providing ALL agent segments is safer fallback if strict denial isn't detected.
+        if not segments and matches:
+             return [m[1].strip() for m in matches if m[0].strip().capitalize() == "Agent"]
+             
+        return segments
+
+    def _detect_regex_matches(self, segments_or_text: Any) -> List[Dict[str, Any]]:
+        """
+        Detect rebuttal using robust regex patterns from KeywordRepository.
+        Args:
+            segments_or_text: List of strings (segments) or single string (transcript)
+        """
+        matches = []
+        
+        # Normalize input to list of strings
+        if isinstance(segments_or_text, str):
+            segments = [segments_or_text]
+        else:
+            segments = segments_or_text
+            
+        for segment in segments:
+            if not segment or not segment.strip():
+                continue
+                
+            segment_lower = segment.lower()
+            
+            # Check against all regex categories
+            for category, patterns in self.regex_patterns.items():
+                for pattern in patterns:
+                     match = pattern.search(segment_lower)
+                     if match:
+                         # Found a match!
+                         matches.append({
+                             "phrase": match.group(0),
+                             "confidence": 0.95,  # High confidence for regex
+                             "category": category,
+                             "match_type": "regex",
+                             "context": segment.strip()
+                         })
+                         # Optimization: We can return early or keep finding detailed matches.
+                         # Finding all matches is better for debugging.
         
         return matches
 
@@ -2384,7 +2708,7 @@ class ValidationFramework:
         }
 
         for transcript, expected_result, expected_category in test_cases:
-            matches = self.detection_engine.detect_rebuttals(transcript)
+            matches, _ = self.detection_engine.detect_rebuttals(transcript)
             actual_result = len(matches) > 0
 
             passed = (actual_result == expected_result)
@@ -2435,6 +2759,7 @@ class OutputFormatter:
                 "processing_time_ms": processing_time_ms,
                 "audio_quality_score": metadata.get("audio_quality_score", 0.0),
                 "vosk_confidence": metadata.get("vosk_confidence", 0.0),
+                "feedback": metadata.get("feedback", None),  # Expose feedback in metadata
                 **metadata
             },
             "validation_flags": {
@@ -2641,7 +2966,7 @@ class RebuttalDetectionModule:
 
             # 5. Semantic Detection (on agent transcript only)
             logger.debug("Step 5: Semantic detection")
-            matches = self.detection_engine.detect_rebuttals(corrected_transcript)
+            matches, feedback_metadata = self.detection_engine.detect_rebuttals(corrected_transcript)
             logger.debug(f"Found {len(matches)} rebuttal matches")
 
             # 6. Determine Result
@@ -2672,6 +2997,7 @@ class RebuttalDetectionModule:
                     "vosk_confidence": 0.78,
                     "single_channel": True,
                     "audio_duration_seconds": len(normalized_agent) / 1000,
+                    "feedback": feedback_metadata.get('llm_reasoning') if feedback_metadata else None,
                     **validation["metadata"]
                 }
             )
@@ -2685,10 +3011,14 @@ class RebuttalDetectionModule:
             )
 
 
-# Convenience function for easy integration
+# global instance to reuse across requests (P0 FIX)
+_detection_module = None
+_module_lock = threading.Lock()
+
 def rebuttal_detection(audio_segment: AudioSegment) -> Dict[str, Any]:
     """
     Convenience function to detect rebuttals in audio.
+    Uses a global singleton to avoid expensive re-initialization.
 
     Args:
         audio_segment: Pydub AudioSegment containing call recording
@@ -2696,5 +3026,12 @@ def rebuttal_detection(audio_segment: AudioSegment) -> Dict[str, Any]:
     Returns:
         Detection result dictionary
     """
-    module = RebuttalDetectionModule()
-    return module.detect_rebuttals(audio_segment)
+    global _detection_module
+    
+    if _detection_module is None:
+        with _module_lock:
+            if _detection_module is None:
+                logger.info("Initializing global RebuttalDetectionModule singleton")
+                _detection_module = RebuttalDetectionModule()
+                
+    return _detection_module.detect_rebuttals(audio_segment)

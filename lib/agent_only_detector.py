@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import logging
+import threading
 from typing import Dict, Any, Optional, List
 
 # Add current directory to path
@@ -218,12 +219,11 @@ class AgentOnlyTranscriptionEngine:
                     "error": ""
                 }
 
-            # Transcribe with fast-path settings (no diarization for speed)
-            # Disable language detection to avoid failures on low/zero-speech clips
-            # Pass timeout explicitly to ensure consistent behavior
+            # Transcribe with speaker diarization enabled for dual-channel support
+            # This provides full conversation context while extracting agent-only text for detection
             result = self.local_engine.assemblyai_engine.transcribe_file(
                 audio_file_path,
-                enable_speaker_diarization=False,  # Disabled for faster processing
+                enable_speaker_diarization=True,  # ENABLED for dual-channel context
                 timeout=timeout,
                 options={
                     "language_detection": False,
@@ -232,10 +232,18 @@ class AgentOnlyTranscriptionEngine:
             )
             
             # Extract agent transcript from speaker-separated utterances
-            # For now, return full transcript (can be enhanced to identify agent speaker)
-            agent_transcript = result.get("transcript", "")
+            # Speaker A is typically the agent (first speaker in most call recordings)
+            agent_transcript = result.get("agent_transcript", "")
+            
+            # Fallback: if no agent_transcript (old cache or mono audio), use full transcript
+            if not agent_transcript:
+                agent_transcript = result.get("transcript", "")
+            
+            # Store full dialogue for LLM context
+            dialogue = result.get("dialogue", "")
             speakers = result.get("speakers", [])
             utterances = result.get("utterances", [])
+
             
             processing_time = int((time.time() - start_time) * 1000)
             
@@ -248,13 +256,15 @@ class AgentOnlyTranscriptionEngine:
                     logger.warning(f"Failed to cache transcription: {cache_error}")
             
             return {
-                "transcript": agent_transcript,
-                "full_transcript": agent_transcript,  # Full transcript for now
+                "transcript": agent_transcript,  # Agent-only transcript for detection
+                "full_transcript": result.get("transcript", ""),  # Full transcript (all speakers)
+                "dialogue": dialogue,  # Formatted conversation for LLM context
+                "owner_transcript": result.get("owner_transcript", ""),  # Owner-only transcript
                 "speakers": speakers,
                 "utterances": utterances,
                 "processing_time_ms": processing_time,
                 "transcription_method": "assemblyai_api",
-                "channels_processed": 1,  # Agent only
+                "channels_processed": 2,  # Dual-channel with speaker diarization
                 "transcription_status": result.get("transcription_status", "unknown"),
                 "transcription_error": result.get("transcription_error"),
                 "error": "" if agent_transcript else "transcription_failed"
@@ -321,6 +331,13 @@ class AgentOnlyTranscriptionEngine:
 class AgentOnlyRebuttalDetector:
     """Complete rebuttal detection system using AssemblyAI API for agent channel transcription."""
 
+    # Class-level cache for heavy components (P0 FIX)
+    _shared_keyword_repo = None
+    _shared_semantic_engine = None
+    _shared_formatter = None
+    _shared_corrector = None
+    _shared_lock = threading.Lock()
+
     def __init__(self, api_key: Optional[str] = None, user_api_key: Optional[str] = None, skip_database: bool = False):
         """
         Initialize agent-only rebuttal detector with AssemblyAI.
@@ -331,12 +348,21 @@ class AgentOnlyRebuttalDetector:
             skip_database: If True, skip database queries for learned phrases (faster for batch processing)
         """
         self.transcription_engine = AgentOnlyTranscriptionEngine(api_key, user_api_key)
-        self.keyword_repo = KeywordRepository(skip_database=skip_database)
-        self.semantic_engine = SemanticDetectionEngine(self.keyword_repo)
-        self.formatter = OutputFormatter()
-        # Add Egyptian accent correction for better accuracy with Egyptian-accented speech
-        self.egyptian_corrector = EgyptianAccentCorrection()
-        logger.debug("Agent-Only Rebuttal Detector initialized with AssemblyAI (Egyptian Accent Support)")
+        
+        # Initialize shared components with lock (P0 FIX)
+        with self._shared_lock:
+            if AgentOnlyRebuttalDetector._shared_keyword_repo is None:
+                AgentOnlyRebuttalDetector._shared_keyword_repo = KeywordRepository(skip_database=False) # Always load repo once
+                AgentOnlyRebuttalDetector._shared_semantic_engine = SemanticDetectionEngine(AgentOnlyRebuttalDetector._shared_keyword_repo)
+                AgentOnlyRebuttalDetector._shared_formatter = OutputFormatter()
+                AgentOnlyRebuttalDetector._shared_corrector = EgyptianAccentCorrection()
+        
+        self.keyword_repo = AgentOnlyRebuttalDetector._shared_keyword_repo
+        self.semantic_engine = AgentOnlyRebuttalDetector._shared_semantic_engine
+        self.formatter = AgentOnlyRebuttalDetector._shared_formatter
+        self.egyptian_corrector = AgentOnlyRebuttalDetector._shared_corrector
+        
+        logger.debug("Agent-Only Rebuttal Detector initialized (reusing shared engines)")
 
     def detect_rebuttals_in_audio(self, audio_file_path: str, original_file_path: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -381,8 +407,16 @@ class AgentOnlyRebuttalDetector:
             logger.debug(f"Applied {len(accent_corrections)} Egyptian accent corrections")
             logger.debug(f"Final corrected transcript (displayed in app): '{corrected_transcript[:100]}...'")
 
-            # Step 3: Detect rebuttals using corrected transcript
-            matches = self.semantic_engine.detect_rebuttals(corrected_transcript)
+            # Step 3: Detect rebuttals using corrected transcript with full dialogue context
+            dialogue = transcription_result.get("dialogue", "")
+            
+            # Use dialogue for display if available (preferred for UI)
+            # Apply corrections to the dialogue string too so the display is clean
+            display_transcript = dialogue if dialogue else corrected_transcript
+            if dialogue:
+                display_transcript, _ = self.egyptian_corrector.apply_corrections(dialogue)
+
+            matches, feedback_metadata = self.semantic_engine.detect_rebuttals(corrected_transcript, dialogue=dialogue)
 
             # Step 4: Determine final result
             if matches:
@@ -397,23 +431,40 @@ class AgentOnlyRebuttalDetector:
 
             # Step 5: Format final result
             processing_time = int((time.time() - start_time) * 1000)
+            
+            # Prepare feedback string for dashboard
+            feedback_str = None
+            if feedback_metadata:
+                feedback_str = feedback_metadata.get('feedback') or feedback_metadata.get('llm_reasoning')
+                
+                # Format specific feedback if LLM triggered
+                if 'llm_confidence' in feedback_metadata and feedback_str:
+                    conf = feedback_metadata['llm_confidence']
+                    feedback_str = f"LLM evaluation: not_interested -> False (confidence: {conf:.2f})\n{feedback_str}"
+            elif result == "No":
+                 # If no LLM reasoning but result is No, we might want to explain why LLM didn't run?
+                 # Or just leave it empty if it was skipped due to high confidence or other reasons
+                 pass
 
             return self.formatter.format_result(
                 result=result,
                 confidence_score=confidence,
                 matched_phrases=matches,
-                transcript=corrected_transcript,  # ✅ CORRECTED TRANSCRIPT - This is what appears in the app's "Transcription" column
-                raw_transcript=raw_transcript,    # ❌ Raw transcript - For debugging only
+                transcript=display_transcript,  # ✅ DISPLAY TRANSCRIPT (Formatted Dialogue) - appears in App
+                raw_transcript=raw_transcript,    # Raw transcript - For debugging
                 corrections_made=accent_corrections,
                 processing_time_ms=processing_time,
                 metadata={
                     "audio_quality_score": transcription_result.get("audio_quality_score", 0.0),
                     "transcription_method": "assemblyai_api",
-                    "channels_processed": 1,
-                    "agent_only_mode": True,
+                    "channels_processed": 2,  # Dual-channel with speaker diarization
+                    "agent_only_mode": False,  # Now processing both speakers
                     "accent_corrections_applied": len(accent_corrections),
                     "speakers": transcription_result.get("speakers", []),
-                    "utterances_count": len(transcription_result.get("utterances", []))
+                    "utterances_count": len(transcription_result.get("utterances", [])),
+                    "dialogue": dialogue,  # Full conversation for LLM (also used for display now)
+                    "owner_transcript": transcription_result.get("owner_transcript", ""),  # Owner's words
+                    "feedback": feedback_str  # Pass feedback to formatter
                 }
             )
 

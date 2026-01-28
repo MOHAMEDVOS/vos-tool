@@ -350,7 +350,8 @@ class AssemblyAITranscriptionEngine:
         try:
             # Configure settings
             config_params = {
-                "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None else os.getenv("ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION", "true").lower() == "true",
+                "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None else True,  # Enable by default for dual-channel
+                "multichannel": True,  # Enable multichannel for stereo audio (left=agent, right=owner)
                 "language_detection": True,
                 "punctuate": True,
                 "format_text": True,
@@ -407,18 +408,26 @@ class AssemblyAITranscriptionEngine:
                 if transcript.status == aai.TranscriptStatus.completed:
                     processing_time_ms = int((time.time() - start_time) * 1000)
                     
-                    # Extract results
+                    # Extract utterances first
+                    utterances = self._extract_utterances(transcript.utterances) if transcript.utterances else []
+                    
+                    # Extract results with dual-channel support
                     result = {
-                        "transcript": transcript.text or "",
+                        "transcript": transcript.text or "",  # Full transcript (all speakers)
                         "words": self._extract_words(transcript.words) if transcript.words else [],
-                        "utterances": self._extract_utterances(transcript.utterances) if transcript.utterances else [],
+                        "utterances": utterances,
                         "speakers": self._extract_speakers(transcript.utterances) if transcript.utterances else [],
                         "confidence": transcript.confidence if hasattr(transcript, 'confidence') else None,
                         "language_code": transcript.language_code if hasattr(transcript, 'language_code') else None,
                         "processing_time_ms": processing_time_ms,
                         "transcription_method": "assemblyai_api",
-                        "transcription_status": "completed"
+                        "transcription_status": "completed",
+                        # NEW: Dual-channel fields
+                        "dialogue": self.format_as_dialogue(utterances),  # Formatted conversation
+                        "agent_transcript": self.extract_speaker_transcript(utterances, "A"),  # Agent only
+                        "owner_transcript": self.extract_speaker_transcript(utterances, "B")   # Owner only
                     }
+
                     
                     # Cache successful result
                     self.cache.set(audio_file_path, result)
@@ -503,6 +512,7 @@ class AssemblyAITranscriptionEngine:
                 "start": utterance.start if hasattr(utterance, 'start') else None,
                 "end": utterance.end if hasattr(utterance, 'end') else None,
                 "speaker": utterance.speaker if hasattr(utterance, 'speaker') else None,
+                "channel": utterance.channel if hasattr(utterance, 'channel') else None,  # Multichannel support
                 "confidence": utterance.confidence if hasattr(utterance, 'confidence') else None,
             }
             result.append(utterance_dict)
@@ -520,6 +530,91 @@ class AssemblyAITranscriptionEngine:
                 speakers.add(utterance.speaker)
         
         return sorted(list(speakers))
+    
+    def format_as_dialogue(self, utterances: List[Dict[str, Any]]) -> str:
+        """
+        Format speaker-separated utterances as chronological dialogue.
+        Supports both channel-based (multichannel) and speaker-based (diarization) formatting.
+        
+        Args:
+            utterances: List of utterance dicts with 'speaker', 'channel', 'text', 'start' fields
+            
+        Returns:
+            Formatted dialogue string like:
+            Agent: Hello there
+            Owner: Who is this?
+            Agent: This is Mark calling about your property
+        """
+        if not utterances:
+            return ""
+        
+        # Sort utterances chronologically by start time
+        sorted_utterances = sorted(utterances, key=lambda u: u.get('start', 0))
+        
+        # Determine if we're using multichannel (channel-based) or diarization (speaker-based)
+        has_channels = any(u.get('channel') is not None for u in sorted_utterances)
+        
+        # Format as dialogue
+        dialogue_lines = []
+        for utterance in sorted_utterances:
+            text = utterance.get('text', '').strip()
+            if not text:
+                continue
+            
+            # Determine speaker label
+            if has_channels:
+                # Multichannel mode: Use channel numbers to determine speaker
+                channel = utterance.get('channel')
+                speaker = "Agent" if channel == 0 else "Owner" if channel == 1 else f"Channel {channel}"
+            else:
+                # Diarization mode: Use speaker labels
+                speaker = utterance.get('speaker', 'Unknown')
+            
+            dialogue_lines.append(f"{speaker}: {text}")
+        
+        return "\n".join(dialogue_lines)
+    
+    def extract_speaker_transcript(self, utterances: List[Dict[str, Any]], speaker_label: str) -> str:
+        """
+        Extract transcript for a specific speaker only.
+        Supports both channel-based (multichannel) and speaker-based (diarization) extraction.
+        
+        Args:
+            utterances: List of utterance dicts with 'speaker', 'channel', and 'text' fields
+            speaker_label: Speaker label to extract:
+                          - For multichannel: "A" = channel 0 (left/agent), "B" = channel 1 (right/owner)
+                          - For diarization: "A", "B", "Speaker A", "Speaker B", etc.
+            
+        Returns:
+            Concatenated transcript for the specified speaker
+        """
+        if not utterances:
+            return ""
+        
+        # Determine if we're using multichannel (channel-based) or diarization (speaker-based)
+        has_channels = any(u.get('channel') is not None for u in utterances)
+        
+        speaker_texts = []
+        
+        if has_channels:
+            # Multichannel mode: Use channel numbers
+            # Channel 0 (left) = Agent (A), Channel 1 (right) = Owner (B)
+            target_channel = 0 if speaker_label == "A" else 1
+            
+            for utterance in utterances:
+                if utterance.get('channel') == target_channel:
+                    text = utterance.get('text', '').strip()
+                    if text:
+                        speaker_texts.append(text)
+        else:
+            # Diarization mode: Use speaker labels
+            for utterance in utterances:
+                if utterance.get('speaker') == speaker_label:
+                    text = utterance.get('text', '').strip()
+                    if text:
+                        speaker_texts.append(text)
+        
+        return " ".join(speaker_texts)
     
     def transcribe_audio_segment(self, audio_segment, temp_file_path: str) -> str:
         """

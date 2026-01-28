@@ -8,6 +8,7 @@ import time
 import json
 import logging
 import hashlib
+import threading
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
@@ -114,7 +115,8 @@ class RebuttalPromptBuilder:
         "remove_list": "customer asked to be removed from the call list",
         "price_too_low": "customer thinks the offer price is too low",
         "needs_time": "customer needs more time to think or decide",
-        "spouse_decision": "customer needs to consult with spouse/partner"
+        "spouse_decision": "customer needs to consult with spouse/partner",
+        "wrong_number": "customer said they are not the person the agent asked for / wrong number"
     }
     
     SYSTEM_PROMPT = """You are an expert evaluator for sales call quality assurance. Your task is to determine whether a sales agent successfully addressed a customer's objection in a phone conversation.
@@ -135,6 +137,7 @@ WHAT COUNTS AS A REBUTTAL:
 ✅ Acknowledging + redirecting ("I hear you, let me explain our process")
 ✅ Providing alternatives ("How about I just send you information?")
 ✅ Building rapport before addressing ("I totally understand your situation")
+✅ Pivoting to other properties/leads ("Since I have you, do you have any property to sell?", "Do you know anyone else who might be selling?")
 
 WHAT DOES NOT COUNT:
 ❌ Simply moving on without addressing the objection
@@ -164,15 +167,17 @@ Always respond with valid JSON only, no additional text:
         self,
         transcript: str,
         objection_category: str,
-        semantic_hints: Optional[List[str]] = None
+        semantic_hints: Optional[List[str]] = None,
+        dialogue: Optional[str] = None
     ) -> str:
         """
         Build the user prompt for a specific evaluation.
         
         Args:
-            transcript: Full conversation transcript
+            transcript: Agent transcript (for backward compatibility)
             objection_category: Category of detected objection
             semantic_hints: Optional list of phrases that had low semantic match scores
+            dialogue: Full conversation dialogue (Agent + Owner) for context
             
         Returns:
             Formatted user prompt string
@@ -182,12 +187,17 @@ Always respond with valid JSON only, no additional text:
             f"customer objection: {objection_category}"
         )
         
-        prompt = f"""TRANSCRIPT:
-{transcript}
+        # Use dialogue if available for full context, otherwise fallback to transcript
+        conversation_text = dialogue if dialogue else transcript
+        
+        prompt = f"""CONVERSATION:
+{conversation_text}
 
 OBJECTION DETECTED: {objection_text}
 
 TASK: Did the agent attempt to address this objection?
+
+IMPORTANT: Consider the full conversation context. Look at what the owner (customer) said and how the agent responded. A rebuttal is when the agent addresses or attempts to overcome an objection raised by the owner.
 
 """
         
@@ -230,6 +240,11 @@ Use these as reference examples of what rebuttals look like, but recognize ANY g
 class LLMRebuttalEvaluator:
     """Main orchestrator for LLM-based rebuttal evaluation."""
     
+    # Class-level cache to share across instances (P0 FIX)
+    _learned_phrases_cache = None
+    _learned_phrases_loaded_at = 0
+    _cache_lock = threading.Lock()
+    
     def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.1-8b-instant"):
         """
         Initialize LLM evaluator.
@@ -244,8 +259,8 @@ class LLMRebuttalEvaluator:
             self.cache_ttl = timedelta(minutes=5)
             self.cache_timestamps = {}
             
-            # Load learned phrases from database
-            self.learned_phrases = self._load_learned_phrases_from_db()
+            # Load learned phrases using class-level cache (P0 FIX)
+            self.learned_phrases = self._get_cached_learned_phrases()
             self.prompt_builder = RebuttalPromptBuilder(learned_phrases=self.learned_phrases)
             
             logger.info(f"LLMRebuttalEvaluator initialized with {sum(len(p) for p in self.learned_phrases.values())} learned phrases")
@@ -254,6 +269,21 @@ class LLMRebuttalEvaluator:
             logger.error(f"Failed to initialize LLMRebuttalEvaluator: {e}")
             raise
     
+    def _get_cached_learned_phrases(self) -> Dict[str, List[str]]:
+        """Get learned phrases from class-level cache or load if expired."""
+        with self._cache_lock:
+            now = time.time()
+            # 5-minute cache TTL for learned phrases
+            if self._learned_phrases_cache is not None and (now - self._learned_phrases_loaded_at) < 300:
+                logger.debug("Using class-level cache for learned phrases")
+                return self._learned_phrases_cache
+            
+            # Cache expired or not loaded, load from DB
+            logger.info("Class-level cache empty or expired, loading learned phrases from DB")
+            self._learned_phrases_cache = self._load_learned_phrases_from_db()
+            self._learned_phrases_loaded_at = now
+            return self._learned_phrases_cache
+
     def _load_learned_phrases_from_db(self) -> Dict[str, List[str]]:
         """
         Load learned phrases from PostgreSQL database.
@@ -330,15 +360,17 @@ class LLMRebuttalEvaluator:
         self,
         transcript: str,
         objection_category: str,
-        semantic_candidates: Optional[List[Dict[str, Any]]] = None
+        semantic_candidates: Optional[List[Dict[str, Any]]] = None,
+        dialogue: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Evaluate whether agent addressed objection using LLM.
         
         Args:
-            transcript: Full conversation transcript
+            transcript: Agent transcript (for backward compatibility)
             objection_category: Category of detected objection
             semantic_candidates: Optional list of semantic match results with low confidence
+            dialogue: Full conversation dialogue (Agent + Owner) for enhanced context
             
         Returns:
             Dict with:
@@ -348,8 +380,9 @@ class LLMRebuttalEvaluator:
                 - matched_phrase (str or None)
                 - source (str): 'llm_evaluation'
         """
-        # Check cache first
-        cache_key = self._get_cache_key(transcript, objection_category)
+        # Check cache first (use dialogue if available for cache key)
+        cache_text = dialogue if dialogue else transcript
+        cache_key = self._get_cache_key(cache_text, objection_category)
         cached_result = self._check_cache(cache_key)
         if cached_result:
             return cached_result
@@ -364,12 +397,13 @@ class LLMRebuttalEvaluator:
                     if match.get('phrase')
                 ]
             
-            # Build prompt
+            # Build prompt with dialogue context
             system_prompt = self.prompt_builder.get_system_prompt()
             user_prompt = self.prompt_builder.build_user_prompt(
                 transcript=transcript,
                 objection_category=objection_category,
-                semantic_hints=semantic_hints
+                semantic_hints=semantic_hints,
+                dialogue=dialogue  # Pass full conversation for context
             )
             
             messages = [

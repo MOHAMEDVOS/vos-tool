@@ -2153,8 +2153,8 @@ class DashboardManager:
                         INSERT INTO agent_audit_results 
                         (username, agent_name, file_name, file_path, releasing_detection, 
                          late_hello_detection, rebuttal_detection, timestamp, call_duration, 
-                         transcript, confidence_score, metadata)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         transcript, confidence_score, feedback, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """
                 params_list = []
                 for record in df_dict:
@@ -2195,6 +2195,7 @@ class DashboardManager:
                             record.get('Call Duration'),
                             transcription,
                             record.get('Confidence Score'),
+                            record.get('Feedback'),
                             json.dumps(record) if record else None,
                         )
                     )
@@ -2204,7 +2205,7 @@ class DashboardManager:
                     INSERT INTO agent_audit_results 
                     (username, agent_name, file_name, file_path, releasing_detection, 
                      late_hello_detection, rebuttal_detection, timestamp, call_duration, 
-                     transcript, confidence_score, metadata)
+                     transcript, confidence_score, feedback, metadata)
                     VALUES %s
                 """
                 
@@ -2316,6 +2317,7 @@ class DashboardManager:
                         'Call Duration': row.get('call_duration'),
                         'Transcription': row.get('transcript', ''),  # Map database 'transcript' to 'Transcription'
                         'Confidence Score': row.get('confidence_score'),
+                        'Feedback': row.get('feedback'),
                         'username': row.get('username'),
                         'audit_timestamp': row.get('created_at').isoformat() if row.get('created_at') else None
                     }
@@ -2334,6 +2336,8 @@ class DashboardManager:
                                 record['Timestamp'] = row.get('timestamp')
                             if row.get('transcript'):
                                 record['Transcription'] = row.get('transcript')
+                            if row.get('feedback'):
+                                record['Feedback'] = row.get('feedback')
                         except Exception as e:
                             logger.warning(f"Error parsing metadata: {e}")
                             pass
@@ -2346,7 +2350,7 @@ class DashboardManager:
                 campaign_audit_columns = [
                     'Agent Name', 'Phone Number', 'Timestamp', 'Disposition',
                     'Releasing Detection', 'Late Hello Detection', 'Rebuttal Detection',
-                    'Transcription', 'Dialer Name', 'Agent Intro', 'Owner Name',
+                    'Transcription', 'Feedback', 'Dialer Name', 'Agent Intro', 'Owner Name',
                     'Reason for calling', 'Intro Score', 'Status',
                     'File Name', 'File Path', 'Call Duration', 'Confidence Score',
                     'username', 'audit_timestamp', 'Audit Type'
