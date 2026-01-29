@@ -15,7 +15,6 @@ import signal
 import hashlib
 import json
 from datetime import datetime, timedelta
-import requests
 from functools import wraps
 
 # Add project root to path
@@ -23,8 +22,42 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logger = logging.getLogger(__name__)
 
-# Note: Global API key initialization removed to support multi-user isolation.
-# API keys are now handled per-instance in AssemblyAITranscriptionEngine.
+# Auto-initialize API key from database if possible
+try:
+    # Try to get user's API key from database
+    #  Attempt to determine current user from session state or environment
+    current_user = None
+    try:
+        import streamlit as st
+        if hasattr(st, 'session_state') and 'username' in st.session_state:
+            current_user = st.session_state['username']
+    except:
+        pass
+    
+    if not current_user:
+        current_user = os.getenv('VOS_USER', 'Mohamed Abdo')  # Fallback
+    
+    from lib.dashboard_manager import user_manager
+    user_api_key = user_manager.get_user_assemblyai_key(current_user)
+    
+    if user_api_key:
+        aai.settings.api_key = user_api_key
+        logger.debug(f"Auto-initialized AssemblyAI API key from database for user: {current_user}")
+    else:
+        # Fallback to environment variable
+        env_key = os.getenv("ASSEMBLYAI_API_KEY")
+        if env_key:
+            aai.settings.api_key = env_key
+            logger.debug("Using AssemblyAI API key from environment variable")
+except Exception as e:
+    logger.warning(f"Could not auto-initialize API key from database: {e}")
+    # Try environment fallback
+    try:
+        env_key = os.getenv("ASSEMBLYAI_API_KEY")
+        if env_key:
+            aai.settings.api_key = env_key
+    except:
+        pass
 
 
 def retry_api_call(max_retries=3, backoff_factor=2, retry_on_rate_limit=True):
@@ -265,25 +298,17 @@ class AssemblyAITranscriptionEngine:
             user_api_key: User's specific API key (takes precedence over api_key)
         """
         # Use user's API key first, then fallback to provided key, then environment, then global settings
-        # Get effective API key, prioritize user-specific key
-        self.effective_api_key = user_api_key or api_key or os.getenv("ASSEMBLYAI_API_KEY", "")
+        effective_api_key = user_api_key or api_key or os.getenv("ASSEMBLYAI_API_KEY", "") or aai.settings.api_key
         
-        # If still no key, check global settings as a last-resort fallback
-        if not self.effective_api_key:
-            self.effective_api_key = aai.settings.api_key
-            
-        if not self.effective_api_key:
+        if not effective_api_key:
             raise ValueError("AssemblyAI API key required. Set ASSEMBLYAI_API_KEY environment variable or provide user API key.")
         
-        # CRITICAL FIX: Initialize isolated client per instance
-        # This prevents separate user sessions from overwriting each other's global aai.settings.api_key
-        # and resolves the "404 Not Found" errors during concurrent audits.
-        from assemblyai.types import Settings
-        from assemblyai.client import Client
+        if effective_api_key == aai.settings.api_key:
+            logger.debug("Using AssemblyAI API key from aai.settings fallback")
+        else:
+            aai.settings.api_key = effective_api_key
         
-        custom_settings = Settings(api_key=self.effective_api_key)
-        self.client = Client(settings=custom_settings)
-        self.transcriber = aai.Transcriber(client=self.client)
+        self.transcriber = aai.Transcriber()
         
         # Initialize transcription cache
         cache_dir = os.getenv('TRANSCRIPTION_CACHE_DIR', '.cache/transcriptions')
@@ -364,66 +389,54 @@ class AssemblyAITranscriptionEngine:
             poll_interval = 2.0
             elapsed = 0.0
             
-            headers = {"authorization": self.effective_api_key}
-            api_url = f"https://api.assemblyai.com/v2/transcript/{transcript_id}"
-            
             while elapsed < timeout:
                 try:
-                    # Use manual HTTP request to ensure we use the correct API key
-                    # This bypasses the SDK's global settings limitation for polling
-                    response = requests.get(api_url, headers=headers)
-                    if response.status_code == 404:
-                         logger.error(f"Fatal error polling AssemblyAI: Transcript {transcript_id} not found (404). Aborting polling.")
-                         raise Exception(f"Transcript {transcript_id} not found")
-                    
-                    response.raise_for_status()
-                    transcript_data = response.json()
-                    status = transcript_data.get('status')
-                    
+                    transcript = aai.Transcript.get_by_id(transcript_id)
                 except Exception as e:
-                    # Ignore transient network errors during polling unless it's a 404
+                    # Check for 404 Not Found (fatal error, transcript ID invalid/deleted)
                     error_str = str(e)
-                    if "404" in error_str:
-                         raise e
-                    
+                    if "404" in error_str and "Not Found" in error_str:
+                        logger.error(f"Fatal error polling AssemblyAI: Transcript {transcript_id} not found (404). Aborting polling.")
+                        raise e
+                        
+                    # Ignore other transient network errors during polling
                     logger.warning(f"Transient error polling AssemblyAI: {e}")
                     time.sleep(poll_interval)
                     elapsed += poll_interval
                     continue
 
-                if status == 'completed':
+                if transcript.status == aai.TranscriptStatus.completed:
                     processing_time_ms = int((time.time() - start_time) * 1000)
                     
                     # Extract utterances first
-                    utterances_data = transcript_data.get('utterances', [])
-                    utterances = self._extract_utterances(utterances_data)
+                    utterances = self._extract_utterances(transcript.utterances) if transcript.utterances else []
                     
                     # Extract results with dual-channel support
                     result = {
-                        "transcript": transcript_data.get('text', "") or "",
-                        "words": self._extract_words(transcript_data.get('words', [])),
+                        "transcript": transcript.text or "",  # Full transcript (all speakers)
+                        "words": self._extract_words(transcript.words) if transcript.words else [],
                         "utterances": utterances,
-                        "speakers": self._extract_speakers(utterances_data),
-                        "confidence": transcript_data.get('confidence'),
-                        "language_code": transcript_data.get('language_code'),
+                        "speakers": self._extract_speakers(transcript.utterances) if transcript.utterances else [],
+                        "confidence": transcript.confidence if hasattr(transcript, 'confidence') else None,
+                        "language_code": transcript.language_code if hasattr(transcript, 'language_code') else None,
                         "processing_time_ms": processing_time_ms,
                         "transcription_method": "assemblyai_api",
                         "transcription_status": "completed",
                         # NEW: Dual-channel fields
-                        "dialogue": self.format_as_dialogue(utterances),
-                        "agent_transcript": self.extract_speaker_transcript(utterances, "A"),
-                        "owner_transcript": self.extract_speaker_transcript(utterances, "B")
+                        "dialogue": self.format_as_dialogue(utterances),  # Formatted conversation
+                        "agent_transcript": self.extract_speaker_transcript(utterances, "A"),  # Agent only
+                        "owner_transcript": self.extract_speaker_transcript(utterances, "B")   # Owner only
                     }
 
+                    
                     # Cache successful result
                     self.cache.set(audio_file_path, result)
                     
                     result_container["result"] = result
                     break
                     
-                elif status == 'error':
-                     error_msg = transcript_data.get('error', 'Unknown error')
-                     raise Exception(f"Transcription failed: {error_msg}")
+                elif transcript.status == aai.TranscriptStatus.error:
+                     raise Exception(f"Transcription failed: {transcript.error}")
                 
                 time.sleep(poll_interval)
                 elapsed += poll_interval
@@ -475,28 +488,14 @@ class AssemblyAITranscriptionEngine:
         
         result = []
         for word in words:
-            # Handle both SDK objects and JSON dicts
-            if isinstance(word, dict):
-                text = word.get('text', '')
-                start = word.get('start')
-                end = word.get('end')
-                confidence = word.get('confidence')
-                speaker = word.get('speaker')
-            else:
-                text = word.text if hasattr(word, 'text') else str(word)
-                start = word.start if hasattr(word, 'start') else None
-                end = word.end if hasattr(word, 'end') else None
-                confidence = word.confidence if hasattr(word, 'confidence') else None
-                speaker = word.speaker if hasattr(word, 'speaker') else None
-
             word_dict = {
-                "text": text,
-                "start": start,
-                "end": end,
-                "confidence": confidence,
+                "text": word.text if hasattr(word, 'text') else str(word),
+                "start": word.start if hasattr(word, 'start') else None,
+                "end": word.end if hasattr(word, 'end') else None,
+                "confidence": word.confidence if hasattr(word, 'confidence') else None,
             }
-            if speaker:
-                word_dict["speaker"] = speaker
+            if hasattr(word, 'speaker'):
+                word_dict["speaker"] = word.speaker
             result.append(word_dict)
         
         return result
@@ -508,29 +507,13 @@ class AssemblyAITranscriptionEngine:
         
         result = []
         for utterance in utterances:
-            # Handle both SDK objects and JSON dicts
-            if isinstance(utterance, dict):
-                text = utterance.get('text', '')
-                start = utterance.get('start')
-                end = utterance.get('end')
-                speaker = utterance.get('speaker')
-                channel = utterance.get('channel')
-                confidence = utterance.get('confidence')
-            else:
-                text = utterance.text if hasattr(utterance, 'text') else str(utterance)
-                start = utterance.start if hasattr(utterance, 'start') else None
-                end = utterance.end if hasattr(utterance, 'end') else None
-                speaker = utterance.speaker if hasattr(utterance, 'speaker') else None
-                channel = utterance.channel if hasattr(utterance, 'channel') else None
-                confidence = utterance.confidence if hasattr(utterance, 'confidence') else None
-
             utterance_dict = {
-                "text": text,
-                "start": start,
-                "end": end,
-                "speaker": speaker,
-                "channel": channel,  # Multichannel support
-                "confidence": confidence,
+                "text": utterance.text if hasattr(utterance, 'text') else str(utterance),
+                "start": utterance.start if hasattr(utterance, 'start') else None,
+                "end": utterance.end if hasattr(utterance, 'end') else None,
+                "speaker": utterance.speaker if hasattr(utterance, 'speaker') else None,
+                "channel": utterance.channel if hasattr(utterance, 'channel') else None,  # Multichannel support
+                "confidence": utterance.confidence if hasattr(utterance, 'confidence') else None,
             }
             result.append(utterance_dict)
         
@@ -543,14 +526,8 @@ class AssemblyAITranscriptionEngine:
         
         speakers = set()
         for utterance in utterances:
-            speaker = None
-            if isinstance(utterance, dict):
-                speaker = utterance.get('speaker')
-            elif hasattr(utterance, 'speaker'):
-                speaker = utterance.speaker
-                
-            if speaker:
-                speakers.add(speaker)
+            if hasattr(utterance, 'speaker') and utterance.speaker:
+                speakers.add(utterance.speaker)
         
         return sorted(list(speakers))
     

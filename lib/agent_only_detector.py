@@ -67,9 +67,9 @@ class LocalTranscriptionEngine:
             import tempfile
             import os
             
-            # Export audio segment to temp file (limited to 1 thread to save system resources)
+            # Export audio segment to temp file
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                audio_segment.export(tmp.name, format="wav", parameters=["-threads", "1"])
+                audio_segment.export(tmp.name, format="wav")
                 tmp_path = tmp.name
             
             result = self.assemblyai_engine.transcribe_file(

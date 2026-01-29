@@ -110,7 +110,6 @@ COPY cloud-migration/init.sql /app/cloud-migration/init.sql
 COPY cloud-migration/migration_schema.sql /app/cloud-migration/migration_schema.sql
 COPY config.py /app/
 COPY scripts/preload_models.py /app/scripts/preload_models.py
-COPY scripts/add_feedback_column.py /app/scripts/add_feedback_column.py
 COPY backend/entrypoint.sh /app/entrypoint.sh
 
 # Make entrypoint script executable
