@@ -224,19 +224,20 @@ class TranscriptionEngine:
     Uses AssemblyAI API exclusively for cloud-based speech-to-text transcription.
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, user_api_key: Optional[str] = None):
         """
         Initialize transcription engine with AssemblyAI API.
         
         Args:
             api_key: AssemblyAI API key. If not provided, reads from environment.
+            user_api_key: User-specific API key for isolation.
         
         Raises:
             ValueError: If API key is not available.
         """
         try:
             from lib.assemblyai_transcription import AssemblyAITranscriptionEngine
-            self.assemblyai_engine = AssemblyAITranscriptionEngine(api_key)
+            self.assemblyai_engine = AssemblyAITranscriptionEngine(api_key=api_key, user_api_key=user_api_key)
             logger.info("TranscriptionEngine initialized with AssemblyAI API")
         except ValueError as e:
             logger.error(f"AssemblyAI API key required: {e}")
@@ -2782,10 +2783,10 @@ class OutputFormatter:
 class RebuttalDetectionModule:
     """Main rebuttal detection module focusing on agent speech analysis."""
 
-    def __init__(self):
+    def __init__(self, api_key: Optional[str] = None, user_api_key: Optional[str] = None):
         self.data_ingestion = DataIngestionLayer()
         self.preprocessing = PreprocessingPipeline()
-        self.transcription = TranscriptionEngine()
+        self.transcription = TranscriptionEngine(api_key=api_key, user_api_key=user_api_key)
         self.phonetic_adaptation = PhoneticAdaptationLayer()
         self.keyword_repo = KeywordRepository()
         self.detection_engine = SemanticDetectionEngine(self.keyword_repo)
@@ -3015,19 +3016,28 @@ class RebuttalDetectionModule:
 _detection_module = None
 _module_lock = threading.Lock()
 
-def rebuttal_detection(audio_segment: AudioSegment) -> Dict[str, Any]:
+def rebuttal_detection(audio_segment: AudioSegment, user_api_key: Optional[str] = None) -> Dict[str, Any]:
     """
     Convenience function to detect rebuttals in audio.
-    Uses a global singleton to avoid expensive re-initialization.
+    Uses a global singleton to avoid expensive re-initialization, 
+    UNLESS a user_api_key is provided, in which case a fresh instance is created.
 
     Args:
         audio_segment: Pydub AudioSegment containing call recording
+        user_api_key: Optional user-specific API key for isolation
 
     Returns:
         Detection result dictionary
     """
     global _detection_module
     
+    # If user_api_key is provided, we MUST bypass the singleton to ensure isolation
+    if user_api_key:
+        logger.debug("Creating isolated RebuttalDetectionModule for user-specific API key")
+        isolated_module = RebuttalDetectionModule(user_api_key=user_api_key)
+        return isolated_module.detect_rebuttals(audio_segment)
+    
+    # Otherwise use the global singleton
     if _detection_module is None:
         with _module_lock:
             if _detection_module is None:
