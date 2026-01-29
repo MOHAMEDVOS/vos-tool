@@ -4,6 +4,9 @@
 
 set -e  # Exit on error
 
+# Disable progress bars globally for cleaner logs
+export DISABLE_TQDM=1
+
 echo "=========================================="
 echo "VOS Tool Backend - Railway Startup"
 echo "=========================================="
