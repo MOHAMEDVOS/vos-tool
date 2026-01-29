@@ -18,21 +18,28 @@ echo "  HF_HOME: ${HF_HOME:-not set}"
 
 # 2. Preload models (optional, non-blocking)
 echo ""
-echo "[2/3] Preloading semantic models..."
-if python scripts/preload_models.py; then
-    echo "✅ Model preload successful"
+echo "[2/4] Preloading semantic models..."
+if [ -f scripts/preload_models.py ]; then
+    if python scripts/preload_models.py; then
+        echo "✅ Model preload successful"
+    else
+        echo "⚠️  Model preload failed - app will use exact matching fallback"
+    fi
 else
-    echo "⚠️  Model preload failed - app will use exact matching fallback"
-    echo "    This is not critical, the app will still work"
+    echo "⚠️  preload_models.py not found, skipping preload"
 fi
 
 # 3. Run database migrations
 echo ""
 echo "[3/4] Running database migrations..."
-if python scripts/add_feedback_column.py; then
-    echo "✅ Database migration successful"
+if [ -f scripts/add_feedback_column.py ]; then
+    if python scripts/add_feedback_column.py; then
+        echo "✅ Database migration successful"
+    else
+        echo "⚠️  Database migration failed - proceeding anyway"
+    fi
 else
-    echo "⚠️  Database migration failed - proceeding anyway"
+    echo "⚠️  add_feedback_column.py not found, skipping migration"
 fi
 
 # 4. Start the backend server

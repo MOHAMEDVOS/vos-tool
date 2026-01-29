@@ -109,7 +109,7 @@ RUN echo "Schema cachebust=${SCHEMA_CACHEBUST}"
 COPY cloud-migration/init.sql /app/cloud-migration/init.sql
 COPY cloud-migration/migration_schema.sql /app/cloud-migration/migration_schema.sql
 COPY config.py /app/
-COPY scripts/preload_models.py /app/scripts/preload_models.py
+COPY scripts/ /app/scripts/
 COPY backend/entrypoint.sh /app/entrypoint.sh
 
 # Make entrypoint script executable
