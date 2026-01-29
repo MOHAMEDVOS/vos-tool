@@ -22,42 +22,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logger = logging.getLogger(__name__)
 
-# Auto-initialize API key from database if possible
-try:
-    # Try to get user's API key from database
-    #  Attempt to determine current user from session state or environment
-    current_user = None
-    try:
-        import streamlit as st
-        if hasattr(st, 'session_state') and 'username' in st.session_state:
-            current_user = st.session_state['username']
-    except:
-        pass
-    
-    if not current_user:
-        current_user = os.getenv('VOS_USER', 'Mohamed Abdo')  # Fallback
-    
-    from lib.dashboard_manager import user_manager
-    user_api_key = user_manager.get_user_assemblyai_key(current_user)
-    
-    if user_api_key:
-        aai.settings.api_key = user_api_key
-        logger.debug(f"Auto-initialized AssemblyAI API key from database for user: {current_user}")
-    else:
-        # Fallback to environment variable
-        env_key = os.getenv("ASSEMBLYAI_API_KEY")
-        if env_key:
-            aai.settings.api_key = env_key
-            logger.debug("Using AssemblyAI API key from environment variable")
-except Exception as e:
-    logger.warning(f"Could not auto-initialize API key from database: {e}")
-    # Try environment fallback
-    try:
-        env_key = os.getenv("ASSEMBLYAI_API_KEY")
-        if env_key:
-            aai.settings.api_key = env_key
-    except:
-        pass
+# Note: Global API key initialization removed to support multi-user isolation.
+# API keys are now handled per-instance in AssemblyAITranscriptionEngine.
 
 
 def retry_api_call(max_retries=3, backoff_factor=2, retry_on_rate_limit=True):
@@ -298,17 +264,25 @@ class AssemblyAITranscriptionEngine:
             user_api_key: User's specific API key (takes precedence over api_key)
         """
         # Use user's API key first, then fallback to provided key, then environment, then global settings
-        effective_api_key = user_api_key or api_key or os.getenv("ASSEMBLYAI_API_KEY", "") or aai.settings.api_key
+        # Get effective API key, prioritize user-specific key
+        self.effective_api_key = user_api_key or api_key or os.getenv("ASSEMBLYAI_API_KEY", "")
         
-        if not effective_api_key:
+        # If still no key, check global settings as a last-resort fallback
+        if not self.effective_api_key:
+            self.effective_api_key = aai.settings.api_key
+            
+        if not self.effective_api_key:
             raise ValueError("AssemblyAI API key required. Set ASSEMBLYAI_API_KEY environment variable or provide user API key.")
         
-        if effective_api_key == aai.settings.api_key:
-            logger.debug("Using AssemblyAI API key from aai.settings fallback")
-        else:
-            aai.settings.api_key = effective_api_key
+        # CRITICAL FIX: Initialize isolated client per instance
+        # This prevents separate user sessions from overwriting each other's global aai.settings.api_key
+        # and resolves the "404 Not Found" errors during concurrent audits.
+        from assemblyai.types import Settings
+        from assemblyai.client import Client
         
-        self.transcriber = aai.Transcriber()
+        custom_settings = Settings(api_key=self.effective_api_key)
+        self.client = Client(settings=custom_settings)
+        self.transcriber = aai.Transcriber(client=self.client)
         
         # Initialize transcription cache
         cache_dir = os.getenv('TRANSCRIPTION_CACHE_DIR', '.cache/transcriptions')
@@ -391,7 +365,7 @@ class AssemblyAITranscriptionEngine:
             
             while elapsed < timeout:
                 try:
-                    transcript = aai.Transcript.get_by_id(transcript_id)
+                    transcript = aai.Transcript.get_by_id(transcript_id, client=self.client)
                 except Exception as e:
                     # Check for 404 Not Found (fatal error, transcript ID invalid/deleted)
                     error_str = str(e)
