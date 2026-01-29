@@ -66,7 +66,7 @@ class BatchProcessor:
                 default_workers = min(cpu_count, 20)
                 logger.info(f"Paid AssemblyAI account detected, using {default_workers} workers")
             else:
-                # Free accounts: Use 5 workers (max allowed for free accounts)
+                # Free accounts: Use 5 workers (limit-tested with FFmpeg thread optimization)
                 default_workers = min(cpu_count, 5)
                 logger.info(f"Free AssemblyAI account (default), using {default_workers} workers (max 5 for free accounts)")
             max_workers = default_workers

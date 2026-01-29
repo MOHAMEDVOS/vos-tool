@@ -114,11 +114,12 @@ class AudioProcessor:
 
     def load_audio_file(self, file_path: Path) -> Optional[AudioSegment]:
         try:
-            return AudioSegment.from_mp3(file_path)
+            # OPTIMIZATION: Limit FFmpeg to 1 thread per process to save system resources
+            return AudioSegment.from_mp3(file_path, parameters=["-threads", "1"])
         except Exception:
             for format_name in ['wav', 'mp4', 'm4a']:
                 try:
-                    return AudioSegment.from_file(str(file_path), format=format_name)
+                    return AudioSegment.from_file(str(file_path), format=format_name, parameters=["-threads", "1"])
                 except Exception:
                     continue
             return None

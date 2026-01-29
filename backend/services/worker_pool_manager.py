@@ -45,7 +45,7 @@ class WorkerPoolManager:
         if account_type == "paid":
             return min(cpu_count, 20)  # Paid: up to 20 workers
         else:
-            return min(cpu_count, 5)  # Free: max 5 workers
+            return min(cpu_count, 5)  # Free: restored to 5 with thread optimization
     
     def _calculate_max_workers_per_user(self) -> int:
         """Calculate max workers per user based on expected concurrent users."""
