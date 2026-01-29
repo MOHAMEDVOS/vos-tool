@@ -44,6 +44,7 @@ class SecurityManager:
         # Priority 2: Try to get key directly from environment
         env_key = os.getenv('ENCRYPTION_KEY')
         if env_key:
+            env_key = env_key.strip().strip('"').strip("'")
             try:
                 # Validate the key format
                 Fernet(env_key.encode())
