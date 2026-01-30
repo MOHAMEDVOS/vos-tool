@@ -136,7 +136,14 @@ class DatabaseManager:
     def _init_postgresql(self):
         """Initialize PostgreSQL connection pool."""
         # Priority: DATABASE_URL (Railway aggregate), then POSTGRES_URL, then individual variables
-        db_url = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL') or os.getenv('POSTGRES_PRIVATE_URL')
+        # Fixed: Added _PUBLIC_URL fallbacks to be more user-proof
+        db_url = (
+            os.getenv('DATABASE_URL') or 
+            os.getenv('POSTGRES_URL') or 
+            os.getenv('POSTGRES_PRIVATE_URL') or
+            os.getenv('DATABASE_PUBLIC_URL') or
+            os.getenv('POSTGRES_PUBLIC_URL')
+        )
         
         if db_url:
             masked_url = db_url.split('@')[-1] if '@' in db_url else '[HIDDEN]'

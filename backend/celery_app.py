@@ -13,7 +13,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Get Redis URL from environment (default to localhost)
 # Priority: REDIS_URL (Public), then REDIS_PRIVATE_URL (Internal/Recommended)
-redis_url = os.getenv('REDIS_URL') or os.getenv('REDIS_PRIVATE_URL') or 'redis://localhost:6379/0'
+# Fixed: Added REDIS_PUBLIC_URL fallback for user-proofing
+redis_url = (
+    os.getenv('REDIS_URL') or 
+    os.getenv('REDIS_PRIVATE_URL') or 
+    os.getenv('REDIS_PUBLIC_URL') or
+    'redis://localhost:6379/0'
+)
 
 if not os.getenv('REDIS_URL') and not os.getenv('REDIS_PRIVATE_URL'):
     print("⚠️  WARNING: REDIS_URL/REDIS_PRIVATE_URL not found in environment.")

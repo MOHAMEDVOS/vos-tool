@@ -37,7 +37,12 @@ def _get_cors_origins() -> List[str]:
 
 
 # Database
-_db_url = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL', '')
+_db_url = (
+    os.getenv('DATABASE_URL') or 
+    os.getenv('POSTGRES_URL') or 
+    os.getenv('DATABASE_PUBLIC_URL') or
+    os.getenv('POSTGRES_PUBLIC_URL', '')
+)
 _db_parts = {}
 if _db_url:
     try:
