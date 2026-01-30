@@ -48,6 +48,6 @@ celery_app.conf.update(
 )
 
 # Auto-discover tasks in backend/tasks/ folder
-celery_app.autodiscover_tasks(['backend.tasks'])
+celery_app.autodiscover_tasks(['backend.job_tasks'])
 
 print("✅ Celery app configured successfully")
