@@ -8,62 +8,40 @@ logger = logging.getLogger(__name__)
 
 
 def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
-    """Display Campaign Audit Dashboard with persistent data and date filtering."""
+    """Display Campaign Audit Dashboard with organized tabbed layout."""
     
-    st.markdown("### Campaign Audit Dashboard")
+    st.markdown("### 📊 Campaign Audit Dashboard")
     
-    # Campaign selection
+    # Campaign selection and filters in a compact row
     available_campaigns = dashboard_manager.get_available_campaigns(st.session_state.get('username'))
     
     if not available_campaigns:
         st.warning("No campaign audit data available. Run a Campaign Audit first to see results here.")
         return
     
-    selected_campaign = st.selectbox(
-        "Select Campaign",
-        options=available_campaigns,
-        key="campaign_select"
-    )
+    # Compact filter row
+    filter_cols = st.columns([2, 1, 1, 1])
+    with filter_cols[0]:
+        selected_campaign = st.selectbox("Campaign", options=available_campaigns, key="campaign_select", label_visibility="collapsed")
+    with filter_cols[1]:
+        start_date = st.date_input("From", value=date.today() - timedelta(days=90), key="campaign_start_date", label_visibility="collapsed")
+    with filter_cols[2]:
+        end_date = st.date_input("To", value=date.today(), key="campaign_end_date", label_visibility="collapsed")
+    with filter_cols[3]:
+        load_clicked = st.button("🔄 Load", type="primary", key="load_campaign_data", use_container_width=True)
     
-    # Date range filter
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date = st.date_input(
-            "Call Start Date (filters by when calls were made)",
-            value=date.today() - timedelta(days=90),
-            key="campaign_start_date"
-        )
-    with col2:
-        end_date = st.date_input(
-            "Call End Date (filters by when calls were made)", 
-            value=date.today(),
-            key="campaign_end_date"
-        )
-    
-    # Load Data button
-    if st.button("Load Campaign Data", type="primary", key="load_campaign_data"):
-        with st.spinner("Loading campaign data..."):
-            # Load campaign data for the selected date range
-            df = dashboard_manager.load_campaign_audit_data(
-                selected_campaign, 
-                start_date, 
-                end_date, 
-                st.session_state.get('username')
-            )
-            
-            # Ensure we have a valid DataFrame
+    if load_clicked:
+        with st.spinner("Loading..."):
+            df = dashboard_manager.load_campaign_audit_data(selected_campaign, start_date, end_date, st.session_state.get('username'))
             if not isinstance(df, pd.DataFrame):
                 df = pd.DataFrame()
-            
-            # Store in session state
             st.session_state.campaign_dashboard_data = df
-            st.success(f"Loaded {len(df)} records for campaign '{selected_campaign}'")
+            st.toast(f"✅ Loaded {len(df)} records")
     
     # Display results if data is loaded
     if "campaign_dashboard_data" in st.session_state:
         df = st.session_state.campaign_dashboard_data
         
-        # Ensure we have a valid DataFrame
         if not isinstance(df, pd.DataFrame):
             df = pd.DataFrame()
 
@@ -71,197 +49,249 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             st.warning("No data found for the selected date range.")
             return
 
-        # Apply Lite Audit filtering: only show flagged calls for Lite Audit,
-        # keep Heavy Audit data unchanged.
+        # Apply Lite Audit filtering
         try:
             if "Audit Type" in df.columns:
-                # Separate heavy and lite
                 heavy_mask = df["Audit Type"] == "Heavy Audit"
                 lite_mask = df["Audit Type"] == "Lite Audit"
-
                 heavy_df = df[heavy_mask]
                 lite_df = df[lite_mask]
-
-                # For Lite Audit, only keep flagged calls where releasing or late hello
-                # detections are "Yes". Prefer detection column names used by the
-                # processing pipeline, with a fallback to simpler names if present.
                 if not lite_df.empty:
-                    if {"Releasing Detection", "Late Hello Detection"}.issubset(
-                        lite_df.columns
-                    ):
-                        lite_df = lite_df[
-                            (lite_df["Releasing Detection"] == "Yes")
-                            | (lite_df["Late Hello Detection"] == "Yes")
-                        ]
+                    if {"Releasing Detection", "Late Hello Detection"}.issubset(lite_df.columns):
+                        lite_df = lite_df[(lite_df["Releasing Detection"] == "Yes") | (lite_df["Late Hello Detection"] == "Yes")]
                     elif {"Releasing", "Late Hello"}.issubset(lite_df.columns):
-                        lite_df = lite_df[
-                            (lite_df["Releasing"] == "Yes")
-                            | (lite_df["Late Hello"] == "Yes")
-                        ]
-
-                # Combine back (Heavy unchanged, Lite filtered)
+                        lite_df = lite_df[(lite_df["Releasing"] == "Yes") | (lite_df["Late Hello"] == "Yes")]
                 df = pd.concat([heavy_df, lite_df], ignore_index=True)
         except Exception:
-            # Fail gracefully: if anything goes wrong, show unfiltered data
             pass
-        
-        # Get metrics using the existing audit metrics function
-        metrics = dashboard_manager.get_audit_metrics(df)
-        
-        # Display summary statistics
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            st.metric("Total Calls", metrics['total_calls'])
-        with col2:
-            st.metric("Flagged Calls", metrics['flagged_calls'])
-        with col3:
-            st.metric("Releasing Calls", metrics['releasing_calls'])
-        with col4:
-            st.metric("Late Hello Calls", metrics['late_hello_calls'])
-        with col5:
-            st.metric("Missing Rebuttals", metrics['rebuttal_calls'])
-        
-        # Date range info
         
         if 'Agent Name' in df.columns:
             df = df.sort_values('Agent Name', ascending=True, key=lambda col: col.str.lower()).reset_index(drop=True)
-
-        # AI REPORT GENERATION
-        st.markdown("---")
-        col_report, col_export = st.columns([1, 1])
         
-        with col_report:
-            if st.button("🤖 Generate AI Report", type="primary", key="generate_ai_report"):
-                with st.spinner("Generating AI-powered insights..."):
-                    try:
-                        from lib.campaign_report_generator import get_report_generator
-                        
-                        report_gen = get_report_generator()
-                        report = report_gen.generate_report(df, selected_campaign)
-                        
-                        st.session_state['campaign_ai_report'] = report
-                        st.success("✅ AI Report generated successfully!")
-                    except Exception as e:
-                        st.error(f"Failed to generate AI report: {str(e)}")
-                        logger.error(f"AI report generation failed: {e}", exc_info=True)
+        metrics = dashboard_manager.get_audit_metrics(df)
         
-        # Display AI report if generated
-        if 'campaign_ai_report' in st.session_state:
-            st.markdown("---")
-            st.markdown(st.session_state['campaign_ai_report'])
-            st.markdown("---")
-
-        # Remove unwanted columns from display (keep in data for CSV export)
-        columns_to_hide = ['File Name', 'File Path', 'Call Duration', 'Confidence Score', 'audit_timestamp']
-        display_df = df.copy()
-        for col in columns_to_hide:
-            if col in display_df.columns:
-                display_df = display_df.drop(columns=[col])
+        # ═══════════════════════════════════════════════════════════════════
+        # STYLED METRICS ROW - Professional cards with color coding
+        # ═══════════════════════════════════════════════════════════════════
+        st.markdown("""
+        <style>
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .metric-card.success { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+        .metric-card.warning { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .metric-card.info { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+        .metric-value { font-size: 28px; font-weight: bold; margin: 5px 0; }
+        .metric-label { font-size: 12px; opacity: 0.9; text-transform: uppercase; }
+        </style>
+        """, unsafe_allow_html=True)
         
-        # Rename 'username' to 'Auditor' for display if it exists
-        if 'username' in display_df.columns:
-            display_df = display_df.rename(columns={'username': 'Auditor'})
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.markdown(f'<div class="metric-card info"><div class="metric-label">Total Calls</div><div class="metric-value">{metrics["total_calls"]}</div></div>', unsafe_allow_html=True)
+        m2.markdown(f'<div class="metric-card warning"><div class="metric-label">Flagged</div><div class="metric-value">{metrics["flagged_calls"]}</div></div>', unsafe_allow_html=True)
+        m3.markdown(f'<div class="metric-card warning"><div class="metric-label">Releasing</div><div class="metric-value">{metrics["releasing_calls"]}</div></div>', unsafe_allow_html=True)
+        m4.markdown(f'<div class="metric-card warning"><div class="metric-label">Late Hello</div><div class="metric-value">{metrics["late_hello_calls"]}</div></div>', unsafe_allow_html=True)
+        m5.markdown(f'<div class="metric-card warning"><div class="metric-label">No Rebuttal</div><div class="metric-value">{metrics["rebuttal_calls"]}</div></div>', unsafe_allow_html=True)
         
-        # Rename 'audit_type' to 'Audit Type' if it exists
-        if 'audit_type' in display_df.columns:
-            display_df = display_df.rename(columns={'audit_type': 'Audit Type'})
+        st.markdown("<br>", unsafe_allow_html=True)
         
-        # Standard column order (matching the image)
-        standard_column_order = [
-            'Agent Name',
-            'Phone Number',
-            'Timestamp',
-            'Disposition',
-            'Releasing Detection',
-            'Late Hello Detection',
-            'Rebuttal Detection',
-            'Transcription',
-            'Feedback',
-            'Owner Name',
-            'Agent Intro',
-            'Reason for calling',
-            'Intro Score',
-            'Status',
-            'Dialer Name',
-            'Audit Type',
-            'Auditor'
-        ]
+        # ═══════════════════════════════════════════════════════════════════
+        # TABBED INTERFACE - Organized sections
+        # ═══════════════════════════════════════════════════════════════════
+        tab_overview, tab_details, tab_agents = st.tabs(["📊 Overview & AI Report", "📋 Call Details", "👥 Agent Summary"])
         
-        # Handle column name variations - check all possible variations
-        column_name_mapping = {}
-        
-        # Check for "Reason for calling" variations
-        if 'Reason for Calling' in display_df.columns:
-            column_name_mapping['Reason for Calling'] = 'Reason for calling'
-        elif 'Reason for calling' not in display_df.columns:
-            # Check for other possible variations
-            for col in display_df.columns:
-                if 'reason' in col.lower() and 'calling' in col.lower():
-                    column_name_mapping[col] = 'Reason for calling'
-                    break
-        
-        # Check for "Dialer Name" variations
-        if 'dialer_name' in display_df.columns:
-            column_name_mapping['dialer_name'] = 'Dialer Name'
-        elif 'Dialer Name' not in display_df.columns:
-            # Check for other possible variations
-            for col in display_df.columns:
-                if 'dialer' in col.lower():
-                    column_name_mapping[col] = 'Dialer Name'
-                    break
-        
-        # Apply column name mappings
-        if column_name_mapping:
-            display_df = display_df.rename(columns=column_name_mapping)
-        
-        # Add missing columns with default values
-        for col in standard_column_order:
-            if col not in display_df.columns:
-                if col in ['Rebuttal Detection', 'Transcription', 'Agent Intro', 'Owner Name', 'Intro Score', 'Status', 'Audit Type']:
-                    display_df[col] = 'N/A'
+        # ─────────────────────────────────────────────────────────────────
+        # TAB 1: OVERVIEW & AI REPORT
+        # ─────────────────────────────────────────────────────────────────
+        with tab_overview:
+            col_ai, col_kpi = st.columns([2, 1])
+            
+            with col_ai:
+                st.markdown("#### 🤖 AI Performance Report")
+                if st.button("Generate AI Report", type="primary", key="generate_ai_report", use_container_width=True):
+                    with st.spinner("Analyzing campaign data..."):
+                        try:
+                            from lib.campaign_report_generator import get_report_generator
+                            report_gen = get_report_generator()
+                            report = report_gen.generate_report(df, selected_campaign)
+                            st.session_state['campaign_ai_report'] = report
+                        except Exception as e:
+                            st.error(f"Failed: {str(e)}")
+                            logger.error(f"AI report failed: {e}", exc_info=True)
+                
+                if 'campaign_ai_report' in st.session_state:
+                    st.markdown(st.session_state['campaign_ai_report'])
                 else:
-                    display_df[col] = ''
+                    st.info("Click 'Generate AI Report' for performance insights.")
+            
+            with col_kpi:
+                st.markdown("#### 📈 Quick Stats")
+                
+                # Calculate percentages
+                total = metrics['total_calls']
+                releasing_pct = round(metrics['releasing_calls'] / total * 100, 1) if total > 0 else 0
+                latehello_pct = round(metrics['late_hello_calls'] / total * 100, 1) if total > 0 else 0
+                rebuttal_pct = round((total - metrics['rebuttal_calls']) / total * 100, 1) if total > 0 else 0
+                
+                st.markdown(f"""
+                | Metric | Count | Rate |
+                |--------|-------|------|
+                | ✅ Clean Calls | {total - metrics['flagged_calls']} | {round((total - metrics['flagged_calls'])/total*100, 1) if total > 0 else 0}% |
+                | ⚠️ Releasing | {metrics['releasing_calls']} | {releasing_pct}% |
+                | ⚠️ Late Hello | {metrics['late_hello_calls']} | {latehello_pct}% |
+                | ✅ Used Rebuttal | {total - metrics['rebuttal_calls']} | {rebuttal_pct}% |
+                """)
+                
+                # Unique agents
+                unique_agents = df['Agent Name'].nunique() if 'Agent Name' in df.columns else 0
+                st.markdown(f"**Agents Audited:** {unique_agents}")
         
-        # Reorder columns to match standard order
-        existing_standard_cols = [col for col in standard_column_order if col in display_df.columns]
-        remaining_cols = [col for col in display_df.columns if col not in standard_column_order]
+        # ─────────────────────────────────────────────────────────────────
+        # TAB 2: CALL DETAILS (Full Data Table)
+        # ─────────────────────────────────────────────────────────────────
+        with tab_details:
+            # Prepare display dataframe
+            columns_to_hide = ['File Name', 'File Path', 'Call Duration', 'Confidence Score', 'audit_timestamp']
+            display_df = df.copy()
+            for col in columns_to_hide:
+                if col in display_df.columns:
+                    display_df = display_df.drop(columns=[col])
+            
+            if 'username' in display_df.columns:
+                display_df = display_df.rename(columns={'username': 'Auditor'})
+            if 'audit_type' in display_df.columns:
+                display_df = display_df.rename(columns={'audit_type': 'Audit Type'})
+            
+            # Compact column order for main view
+            key_columns = ['Agent Name', 'Phone Number', 'Timestamp', 'Releasing Detection', 
+                           'Late Hello Detection', 'Rebuttal Detection', 'Intro Score', 'Status']
+            
+            # Filter options
+            filter_col1, filter_col2 = st.columns([1, 1])
+            with filter_col1:
+                show_flagged_only = st.checkbox("Show Flagged Only", key="show_flagged_only")
+            with filter_col2:
+                agent_filter = st.selectbox("Filter by Agent", options=["All Agents"] + df['Agent Name'].unique().tolist() if 'Agent Name' in df.columns else ["All Agents"], key="agent_filter")
+            
+            # Apply filters
+            filtered_df = display_df.copy()
+            if show_flagged_only:
+                if 'Releasing Detection' in filtered_df.columns and 'Late Hello Detection' in filtered_df.columns:
+                    filtered_df = filtered_df[(filtered_df['Releasing Detection'] == 'Yes') | (filtered_df['Late Hello Detection'] == 'Yes')]
+            if agent_filter != "All Agents" and 'Agent Name' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['Agent Name'] == agent_filter]
+            
+            # Show key columns first
+            existing_key_cols = [c for c in key_columns if c in filtered_df.columns]
+            other_cols = [c for c in filtered_df.columns if c not in key_columns]
+            ordered_df = filtered_df[existing_key_cols + other_cols]
+            
+            st.dataframe(ordered_df, height=400, use_container_width=True)
+            
+            # Expand transcription viewer
+            with st.expander("📝 View Full Transcriptions", expanded=False):
+                if 'Transcription' in df.columns:
+                    for idx, row in df.head(10).iterrows():
+                        agent = row.get('Agent Name', 'Unknown')
+                        transcript = row.get('Transcription', 'N/A')
+                        st.markdown(f"**{agent}** ({row.get('Timestamp', '')})")
+                        st.text_area("", value=transcript, height=100, key=f"transcript_{idx}", disabled=True)
+                else:
+                    st.info("No transcriptions available.")
+            
+            # Download
+            csv_data, filename = generate_csv_data(display_df, f"campaign_audit_{selected_campaign}")
+            st.download_button("📥 Download Full CSV", data=csv_data, file_name=filename, mime="text/csv", key="campaign_csv_download")
         
-        # Final column order: standard columns first, then any remaining columns
-        display_df = display_df[existing_standard_cols + remaining_cols]
-
-        # Display the data table (after any Lite/Heavy filtering)
-        st.dataframe(display_df, width="stretch")
-
-        # Download options - CSV only (respecting same filtering)
-        # Use display_df for CSV to include the renamed 'Auditor' column
-        csv_data, filename = generate_csv_data(
-            display_df, f"campaign_audit_{selected_campaign}"
-        )
-        st.download_button(
-            label="Download CSV",
-            data=csv_data,
-            file_name=filename,
-            mime="text/csv",
-            key="campaign_csv_download"
-        )
-
-
-    # Clear data option - scoped to the selected campaign
-    st.markdown("---")
-    if st.button("Clear Selected Campaign Data", type="secondary"):
-        if st.session_state.get('confirm_clear_campaign', False):
-            dashboard_manager.clear_campaign_audit_data(
-                st.session_state.get('username'),
-                selected_campaign
-            )
-            st.success(f"Campaign audit data for '{selected_campaign}' cleared successfully!")
-            # Clear the loaded data from session state
-            if 'campaign_dashboard_data' in st.session_state:
-                del st.session_state.campaign_dashboard_data
-            st.rerun()
-        else:
-            st.session_state['confirm_clear_campaign'] = True
-            st.warning("Click again to confirm clearing this campaign's audit data.")
+        # ─────────────────────────────────────────────────────────────────
+        # TAB 3: AGENT SUMMARY (Compact agent performance view)
+        # ─────────────────────────────────────────────────────────────────
+        with tab_agents:
+            if 'Agent Name' in df.columns:
+                st.markdown("#### Agent Performance Summary")
+                
+                # Build agent summary table
+                agent_summary = []
+                for agent in df['Agent Name'].unique():
+                    agent_df = df[df['Agent Name'] == agent]
+                    calls = len(agent_df)
+                    
+                    releasing = len(agent_df[agent_df.get('Releasing Detection', pd.Series()) == 'Yes']) if 'Releasing Detection' in df.columns else 0
+                    latehello = len(agent_df[agent_df.get('Late Hello Detection', pd.Series()) == 'Yes']) if 'Late Hello Detection' in df.columns else 0
+                    no_rebuttal = len(agent_df[agent_df.get('Rebuttal Detection', pd.Series()) == 'No']) if 'Rebuttal Detection' in df.columns else 0
+                    
+                    # Intro score average
+                    avg_intro = 0
+                    if 'Intro Score' in agent_df.columns:
+                        try:
+                            avg_intro = round(agent_df['Intro Score'].astype(str).str.replace('%', '').astype(float).mean(), 1)
+                        except:
+                            avg_intro = 0
+                    
+                    # Status
+                    status = agent_df['Status'].mode()[0] if 'Status' in agent_df.columns and not agent_df['Status'].empty else 'N/A'
+                    
+                    # Tier
+                    issues = releasing + latehello + no_rebuttal
+                    tier = '🟢' if issues == 0 else ('🟡' if issues <= 2 else '🔴')
+                    
+                    agent_summary.append({
+                        'Agent': agent,
+                        'Calls': calls,
+                        'Releasing': releasing,
+                        'Late Hello': latehello,
+                        'No Rebuttal': no_rebuttal,
+                        'Avg Intro': f"{avg_intro}%",
+                        'Status': status,
+                        'Tier': tier
+                    })
+                
+                summary_df = pd.DataFrame(agent_summary)
+                summary_df = summary_df.sort_values('Calls', ascending=False)
+                
+                # Apply conditional styling
+                def style_tier(val):
+                    if val == '🟢':
+                        return 'background-color: rgba(74,222,128,0.3)'
+                    elif val == '🟡':
+                        return 'background-color: rgba(250,204,21,0.3)'
+                    elif val == '🔴':
+                        return 'background-color: rgba(248,113,113,0.3)'
+                    return ''
+                
+                styled_summary = summary_df.style.applymap(style_tier, subset=['Tier'])
+                st.dataframe(styled_summary, use_container_width=True, hide_index=True)
+                
+                # Tier breakdown
+                tier_cols = st.columns(3)
+                tier1 = len([a for a in agent_summary if a['Tier'] == '🟢'])
+                tier2 = len([a for a in agent_summary if a['Tier'] == '🟡'])
+                tier3 = len([a for a in agent_summary if a['Tier'] == '🔴'])
+                
+                tier_cols[0].success(f"🟢 **Tier 1 (No Issues):** {tier1} agents")
+                tier_cols[1].warning(f"🟡 **Tier 2 (Minor):** {tier2} agents")
+                tier_cols[2].error(f"🔴 **Tier 3 (Needs Coaching):** {tier3} agents")
+            else:
+                st.info("No agent data available.")
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # CLEAR DATA (Compact footer)
+    # ═══════════════════════════════════════════════════════════════════
+    with st.expander("⚙️ Data Management", expanded=False):
+        if st.button("🗑️ Clear Campaign Data", type="secondary"):
+            if st.session_state.get('confirm_clear_campaign', False):
+                dashboard_manager.clear_campaign_audit_data(st.session_state.get('username'), selected_campaign)
+                if 'campaign_dashboard_data' in st.session_state:
+                    del st.session_state.campaign_dashboard_data
+                st.rerun()
+            else:
+                st.session_state['confirm_clear_campaign'] = True
+                st.warning("Click again to confirm deletion.")
 
 
 def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):

@@ -1,13 +1,15 @@
 """
-LLM-Powered Campaign Performance Report Generator
-Uses Groq (llama-3.1-8b-instant) with strict data accuracy.
-Clean template matching user's exact format.
+LLM-Powered Campaign Performance Report Generator (ACCURACY-FOCUSED)
+Uses Groq (llama-3.1-8b-instant) with strict data validation to prevent hallucinations.
+All statistics are pre-calculated from actual data before LLM receives them.
 """
 
 import os
 import re
+import json
 import logging
 from typing import Dict, List, Optional, Any, Tuple
+from collections import Counter
 import pandas as pd
 from datetime import datetime
 
@@ -15,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class CampaignReportGenerator:
-    """Generates accurate AI-powered campaign performance reports."""
+    """Generates accurate AI-powered campaign performance reports with data validation."""
     
     def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.1-8b-instant"):
         self.api_key = api_key or os.getenv("GROQ_API_KEY", "")
@@ -26,8 +28,8 @@ class CampaignReportGenerator:
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
         logger.info(f"CampaignReportGenerator initialized with model: {model}")
     
-    def _call_groq_api(self, messages: List[Dict[str, str]], max_tokens: int = 3000) -> str:
-        """Call Groq API with low temperature for accuracy."""
+    def _call_groq_api(self, messages: List[Dict[str, str]], max_tokens: int = 4000) -> str:
+        """Call Groq API with strict temperature settings."""
         import requests
         
         headers = {
@@ -38,8 +40,9 @@ class CampaignReportGenerator:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.1,
+            "temperature": 0.05,
             "max_tokens": max_tokens,
+            "top_p": 0.9,
         }
         
         try:
@@ -51,39 +54,82 @@ class CampaignReportGenerator:
             logger.error(f"Groq API call failed: {e}")
             raise
     
-    def _calculate_stats(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Calculate all statistics from actual data."""
+    def _calculate_real_statistics(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Calculate ALL statistics from actual data."""
         total_calls = len(df)
         unique_agents = df['Agent Name'].nunique() if 'Agent Name' in df.columns else 0
         
-        # KPIs
-        late_hello_bad = len(df[df['Late Hello Detection'] == 'Yes']) if 'Late Hello Detection' in df.columns else 0
-        releasing_bad = len(df[df['Releasing Detection'] == 'Yes']) if 'Releasing Detection' in df.columns else 0
-        rebuttal_no = len(df[df['Rebuttal Detection'] == 'No']) if 'Rebuttal Detection' in df.columns else 0
-        rebuttal_yes = total_calls - rebuttal_no
-        
-        return {
+        stats = {
             'total_calls': total_calls,
             'unique_agents': unique_agents,
-            'late_hello': {
-                'good': total_calls - late_hello_bad,
-                'bad': late_hello_bad,
-                'pct': round((total_calls - late_hello_bad) / total_calls * 100) if total_calls > 0 else 0
-            },
-            'releasing': {
-                'good': total_calls - releasing_bad,
-                'bad': releasing_bad,
-                'pct': round((total_calls - releasing_bad) / total_calls * 100) if total_calls > 0 else 0
-            },
-            'rebuttal': {
-                'good': rebuttal_yes,
-                'bad': rebuttal_no,
-                'pct': round(rebuttal_yes / total_calls * 100) if total_calls > 0 else 0
-            }
         }
+        
+        # KPIs
+        if 'Late Hello Detection' in df.columns:
+            bad = len(df[df['Late Hello Detection'] == 'Yes'])
+            stats['late_hello'] = {'good': total_calls - bad, 'bad': bad,
+                'pct_good': round((total_calls - bad) / total_calls * 100, 1) if total_calls > 0 else 0}
+        else:
+            stats['late_hello'] = {'good': total_calls, 'bad': 0, 'pct_good': 100.0}
+        
+        if 'Releasing Detection' in df.columns:
+            bad = len(df[df['Releasing Detection'] == 'Yes'])
+            stats['releasing'] = {'good': total_calls - bad, 'bad': bad,
+                'pct_good': round((total_calls - bad) / total_calls * 100, 1) if total_calls > 0 else 0}
+        else:
+            stats['releasing'] = {'good': total_calls, 'bad': 0, 'pct_good': 100.0}
+        
+        if 'Rebuttal Detection' in df.columns:
+            yes = len(df[df['Rebuttal Detection'] == 'Yes'])
+            no = len(df[df['Rebuttal Detection'] == 'No'])
+            stats['rebuttal'] = {'yes': yes, 'no': no,
+                'pct_yes': round(yes / total_calls * 100, 1) if total_calls > 0 else 0}
+        else:
+            stats['rebuttal'] = {'yes': total_calls, 'no': 0, 'pct_yes': 100.0}
+        
+        return stats
     
-    def _get_agent_data(self, df: pd.DataFrame) -> List[Dict]:
-        """Get per-agent performance data."""
+    def _extract_real_transcript_issues(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Scan actual transcripts for issues."""
+        issues = {
+            'comprehension_count': 0,
+            'comprehension_agents': {},
+            'comprehension_examples': [],
+            'script_error_count': 0,
+            'script_error_agents': {},
+            'script_error_examples': [],
+        }
+        
+        if 'Transcription' not in df.columns:
+            return issues
+        
+        comprehension_patterns = [r"can'?t understand", r"don'?t understand", r"pardon\??"]
+        script_errors = [('interestted', 'interested'), ('sellling', 'selling')]
+        
+        for idx, row in df.iterrows():
+            agent = row.get('Agent Name', 'Unknown')
+            transcript = str(row.get('Transcription', '')).lower()
+            
+            if not transcript or transcript == 'nan':
+                continue
+            
+            for pattern in comprehension_patterns:
+                if re.search(pattern, transcript):
+                    issues['comprehension_count'] += 1
+                    issues['comprehension_agents'][agent] = issues['comprehension_agents'].get(agent, 0) + 1
+                    break
+            
+            for error, correction in script_errors:
+                if error in transcript:
+                    issues['script_error_count'] += 1
+                    if agent not in issues['script_error_agents']:
+                        issues['script_error_agents'][agent] = []
+                    issues['script_error_agents'][agent].append(error)
+        
+        return issues
+    
+    def _calculate_agent_performance(self, df: pd.DataFrame, issues: Dict) -> List[Dict]:
+        """Calculate per-agent performance from ACTUAL data."""
         agent_data = []
         
         if 'Agent Name' not in df.columns:
@@ -91,220 +137,120 @@ class CampaignReportGenerator:
         
         for agent in df['Agent Name'].unique():
             agent_df = df[df['Agent Name'] == agent]
-            calls = len(agent_df)
+            agent_calls = len(agent_df)
             
-            late_hello_bad = len(agent_df[agent_df['Late Hello Detection'] == 'Yes']) if 'Late Hello Detection' in df.columns else 0
-            releasing_bad = len(agent_df[agent_df['Releasing Detection'] == 'Yes']) if 'Releasing Detection' in df.columns else 0
-            rebuttal_bad = len(agent_df[agent_df['Rebuttal Detection'] == 'No']) if 'Rebuttal Detection' in df.columns else 0
+            data = {
+                'name': agent,
+                'calls': agent_calls,
+                'late_hello_bad': len(agent_df[agent_df.get('Late Hello Detection', pd.Series()) == 'Yes']) if 'Late Hello Detection' in df.columns else 0,
+                'releasing_bad': len(agent_df[agent_df.get('Releasing Detection', pd.Series()) == 'Yes']) if 'Releasing Detection' in df.columns else 0,
+                'rebuttal_no': len(agent_df[agent_df.get('Rebuttal Detection', pd.Series()) == 'No']) if 'Rebuttal Detection' in df.columns else 0,
+                'avg_intro_score': 0,
+                'common_status': 'N/A',
+                'comprehension_issues': issues['comprehension_agents'].get(agent, 0),
+                'script_errors': len(issues['script_error_agents'].get(agent, []))
+            }
             
-            # Calculate avg intro score
-            avg_intro = 0
             if 'Intro Score' in df.columns:
                 try:
                     scores = agent_df['Intro Score'].astype(str).str.replace('%', '').astype(float)
-                    avg_intro = round(scores.mean(), 2)
+                    data['avg_intro_score'] = round(scores.mean(), 1)
                 except:
-                    avg_intro = 0
+                    pass
             
-            # Get status
-            status = 'N/A'
             if 'Status' in df.columns:
                 try:
-                    status = agent_df['Status'].mode()[0]
+                    data['common_status'] = agent_df['Status'].mode()[0]
                 except:
-                    status = 'N/A'
+                    pass
             
-            agent_data.append({
-                'name': agent,
-                'calls': calls,
-                'late_hello_bad': late_hello_bad,
-                'releasing_bad': releasing_bad,
-                'rebuttal_bad': rebuttal_bad,
-                'avg_intro': avg_intro,
-                'status': status
-            })
+            total_issues = data['late_hello_bad'] + data['releasing_bad'] + data['rebuttal_no'] + data['comprehension_issues']
+            data['tier'] = '🟢' if total_issues == 0 else ('🟡' if total_issues <= 2 else '🔴')
+            
+            agent_data.append(data)
         
-        # Sort by intro score descending
-        agent_data.sort(key=lambda x: x['avg_intro'], reverse=True)
+        agent_data.sort(key=lambda x: x['late_hello_bad'] + x['releasing_bad'] + x['rebuttal_no'])
         return agent_data
     
-    def _get_rebuttal_skippers(self, df: pd.DataFrame) -> List[Dict]:
-        """Get agents who skipped rebuttals."""
-        skippers = []
+    def _build_accurate_prompt(self, campaign_name: str, stats: Dict, 
+                                issues: Dict, agent_data: List[Dict]) -> List[Dict[str, str]]:
+        """Build prompt with PRE-CALCULATED statistics."""
         
-        if 'Agent Name' not in df.columns or 'Rebuttal Detection' not in df.columns:
-            return skippers
-        
-        for agent in df['Agent Name'].unique():
-            agent_df = df[df['Agent Name'] == agent]
-            skipped = len(agent_df[agent_df['Rebuttal Detection'] == 'No'])
-            if skipped > 0:
-                skippers.append({'name': agent, 'skipped': skipped})
-        
-        return skippers
-    
-    def _get_lowest_performers(self, agent_data: List[Dict]) -> List[Dict]:
-        """Get lowest performing agents based on intro score and issues."""
-        # Sort by intro score ascending (lowest first), then by issues
-        sorted_agents = sorted(agent_data, key=lambda x: (x['avg_intro'], -x['rebuttal_bad']))
-        return sorted_agents[:3]  # Return bottom 3
-    
-    def _build_prompt(self, campaign_name: str, stats: Dict, agent_data: List[Dict], 
-                      skippers: List[Dict], lowest: List[Dict]) -> List[Dict[str, str]]:
-        """Build the prompt with pre-calculated data."""
-        
-        # Build agent table
-        agent_table = "| Agent Name | Total Calls | Late Hello (Bad) | Releasing (Bad) | Rebuttal Skipped (Bad) | Avg. Intro Score | Status Trend |\n"
-        agent_table += "|------------|-------------|-------------------|------------------|-------------------------|------------------|--------------||\n"
+        agent_table = "| Agent | Calls | Late Hello | Releasing | Rebuttal Skip | Intro | Status | Tier |\n"
+        agent_table += "|-------|-------|------------|-----------|---------------|-------|--------|------|\n"
         for a in agent_data:
-            agent_table += f"| **{a['name']}** | {a['calls']} | {a['late_hello_bad']} | {a['releasing_bad']} | {a['rebuttal_bad']} | {a['avg_intro']}% | {a['status']} |\n"
+            agent_table += f"| {a['name'][:20]} | {a['calls']} | {a['late_hello_bad']} | {a['releasing_bad']} | {a['rebuttal_no']} | {a['avg_intro_score']}% | {a['common_status']} | {a['tier']} |\n"
         
-        # Build skippers list
-        skipper_text = ""
-        if skippers:
-            skipper_names = ", ".join([f"{s['name']} ({s['skipped']} call{'s' if s['skipped'] > 1 else ''})" for s in skippers])
-            skipper_text = f"  - {skipper_names}"
+        rebuttal_skippers = [a for a in agent_data if a['rebuttal_no'] > 0]
+        skipper_text = "\n".join([f"- {a['name']}: {a['rebuttal_no']}x" for a in rebuttal_skippers]) if rebuttal_skippers else "None"
         
-        # Build lowest performers section
-        lowest_text = ""
-        for i, agent in enumerate(lowest, 1):
-            lowest_text += f"""
-{i}. **{agent['name']}**  
-   - Intro Score: {agent['avg_intro']}%{' (lowest in dataset)' if i == 1 and agent['avg_intro'] < 80 else ''}
-   - Rebuttal Skipped: {'Yes' if agent['rebuttal_bad'] > 0 else 'No'}
-   - {agent['calls']} call{'s' if agent['calls'] > 1 else ''} audited.
-"""
+        tier1, tier2, tier3 = [a for a in agent_data if a['tier']=='🟢'], [a for a in agent_data if a['tier']=='🟡'], [a for a in agent_data if a['tier']=='🔴']
         
         user_prompt = f"""
-Generate a Campaign Performance Report using EXACTLY this template and data.
+# CAMPAIGN REPORT - USE THESE EXACT NUMBERS
 
-## DATA (USE THESE EXACT NUMBERS):
+**Campaign:** {campaign_name}
+**Total Calls:** {stats['total_calls']} | **Agents:** {stats['unique_agents']}
 
-Campaign: {campaign_name}
-Total Calls: {stats['total_calls']}
-Agents: {stats['unique_agents']}
+## KPIs (USE EXACTLY):
+| Metric | Good | Bad | % Good |
+|--------|------|-----|--------|
+| Late Hello | {stats['late_hello']['good']} | {stats['late_hello']['bad']} | {stats['late_hello']['pct_good']}% |
+| Releasing | {stats['releasing']['good']} | {stats['releasing']['bad']} | {stats['releasing']['pct_good']}% |
+| Rebuttal | {stats['rebuttal']['yes']} | {stats['rebuttal']['no']} | {stats['rebuttal']['pct_yes']}% |
 
-KPIs:
-- Late Hello: Good={stats['late_hello']['good']}, Bad={stats['late_hello']['bad']}, %Good={stats['late_hello']['pct']}%
-- Releasing: Good={stats['releasing']['good']}, Bad={stats['releasing']['bad']}, %Good={stats['releasing']['pct']}%
-- Rebuttal: Good={stats['rebuttal']['good']}, Bad={stats['rebuttal']['bad']}, %Good={stats['rebuttal']['pct']}%
+## Rebuttal Stats:
+- With Rebuttals: {stats['rebuttal']['yes']}/{stats['total_calls']} ({stats['rebuttal']['pct_yes']}%)
+- Skipped: {stats['rebuttal']['no']}
+- Agents who skipped: {skipper_text}
 
-Agent Data:
+## Transcript Issues:
+- Comprehension: {issues['comprehension_count']} incidents
+- Script errors: {issues['script_error_count']} incidents
+
+## Agent Table:
 {agent_table}
 
-Rebuttal Skippers: {skipper_text if skipper_text else "None"}
+## Tiers: 🟢 {len(tier1)} | 🟡 {len(tier2)} | 🔴 {len(tier3)}
 
----
+Generate a CONCISE report with:
+1. KPI summary (use table above)
+2. Top issues (2-3 bullets)
+3. Agent tiers (list names per tier)
+4. 3 action items
 
-## GENERATE REPORT IN THIS EXACT FORMAT:
-
-### **Overall Campaign Summary**
-- **Total Calls Audited:** {stats['total_calls']}
-- **Agents Audited:** {stats['unique_agents']}
-
----
-
-### **Key Performance Indicators (KPIs)**
-
-| Metric | Good (No Issue) | Bad (Issue Found) | % Good |
-|--------|-----------------|-------------------|---------|
-| **Late Hello Detection** | {stats['late_hello']['good']} | {stats['late_hello']['bad']} | {stats['late_hello']['pct']}% |
-| **Releasing Detection** | {stats['releasing']['good']} | {stats['releasing']['bad']} | {stats['releasing']['pct']}% |
-| **Rebuttal Detection** | {stats['rebuttal']['good']} | {stats['rebuttal']['bad']} | {stats['rebuttal']['pct']}% |
-
-[Add 2 lines: ✅ for what's good, ⚠️ for issues - based on the data above]
-
----
-
-### **Agent-Level Performance Breakdown**
-
-{agent_table}
-
----
-
-### **Rebuttal Analysis**
-- **Calls with Rebuttals:** {stats['rebuttal']['good']}/{stats['total_calls']} ({stats['rebuttal']['pct']}%)
-- **Calls without Rebuttals:** {stats['rebuttal']['bad']}/{stats['total_calls']} ({100 - stats['rebuttal']['pct']}%)
-{skipper_text}
-
-[Add 1-2 sentences about rebuttal performance based on the numbers]
-
----
-
-### **Lowest Performing Agents**
-Based on **Intro Score** and **Rebuttal Skipping**:
-
-{lowest_text}
-
----
-
-### **Conclusion: Are Agents Doing Their Best?**
-[Write 2-3 sentences using ✅ for positives and ⚠️ for issues, based ONLY on the data above]
-
-**Areas for Improvement:**  
-- [List 1-3 bullet points based on actual issues found]
-
----
-
-### **Recommendations**
-1. [First recommendation based on data]
-2. [Second recommendation based on data]
-3. [Third recommendation based on data]
-
----
-
-IMPORTANT: Use ONLY the numbers provided above. Do not calculate new metrics.
+Keep it SHORT - no more than 20 lines. Use ✅ ⚠️ symbols.
 """
         
-        system_prompt = """You are a call center performance analyst. 
-Generate a clean, professional report using ONLY the data provided.
-Use the exact format and structure requested.
-Do not add new metrics or calculations - use only what's given.
-Keep analysis focused on the actual numbers provided."""
+        system_prompt = "You format pre-calculated campaign data into concise reports. Use ONLY the numbers provided. Keep output under 20 lines."
         
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
+        return [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
     
     def generate_report(self, df: pd.DataFrame, campaign_name: str) -> str:
-        """Generate campaign performance report."""
+        """Generate accurate AI-powered campaign performance report."""
         try:
-            logger.info(f"Generating report for campaign: {campaign_name}")
-            
             if df.empty:
-                return "❌ **Error:** No data available to generate report."
+                return "❌ No data available."
             
-            # Calculate all stats
-            stats = self._calculate_stats(df)
-            agent_data = self._get_agent_data(df)
-            skippers = self._get_rebuttal_skippers(df)
-            lowest = self._get_lowest_performers(agent_data)
+            stats = self._calculate_real_statistics(df)
+            issues = self._extract_real_transcript_issues(df)
+            agent_data = self._calculate_agent_performance(df, issues)
+            messages = self._build_accurate_prompt(campaign_name, stats, issues, agent_data)
+            report = self._call_groq_api(messages, max_tokens=2000)
             
-            # Build prompt and call LLM
-            messages = self._build_prompt(campaign_name, stats, agent_data, skippers, lowest)
-            report = self._call_groq_api(messages)
-            
-            # Add header
             timestamp = datetime.now().strftime("%Y-%m-%d %I:%M %p")
-            header = f"# 🤖 Campaign Performance Report\n\n"
-            header += f"**Campaign:** {campaign_name}  \n"
-            header += f"**Generated:** {timestamp}  \n"
-            header += f"**Powered by:** Groq AI  \n\n"
-            header += "---\n\n"
+            header = f"**Campaign:** {campaign_name} | **Generated:** {timestamp}\n\n---\n\n"
             
             return header + report
             
         except Exception as e:
             logger.error(f"Failed to generate report: {e}", exc_info=True)
-            return f"❌ **Error generating report:** {str(e)}"
+            return f"❌ Error: {str(e)}"
 
 
-# Singleton instance
 _report_generator = None
 
 def get_report_generator() -> CampaignReportGenerator:
-    """Get singleton campaign report generator instance."""
     global _report_generator
     if _report_generator is None:
         _report_generator = CampaignReportGenerator()
