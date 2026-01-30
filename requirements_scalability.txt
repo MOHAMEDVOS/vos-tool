@@ -1,0 +1,7 @@
+# Phase 1 Scalability Fixes - Additional Dependencies
+
+# Rate limiting for FastAPI
+slowapi==0.1.9
+
+# System resource monitoring  
+psutil==5.9.8

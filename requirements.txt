@@ -57,6 +57,14 @@ psutil>=5.9.0  # System monitoring and CPU optimization
 psycopg2-binary>=2.9.0
 tqdm>=4.66.0  # PostgreSQL adapter (cross-platform binary)
 
+# ==================== Phase 1: Scalability Fixes ====================
+slowapi>=0.1.9  # Rate limiting middleware
+
+# ==================== Phase 2: Job Queue System ====================
+celery>=5.3.4   # Distributed task queue
+redis>=5.0.1    # Message broker and result backend
+flower>=2.0.1   # Celery monitoring web UI
+
 # ==================== Removed Dependencies (Not Used) ====================
 # vosk>=0.3.45              # REMOVED: Replaced by AssemblyAI
 # openai-whisper>=20231117  # REMOVED: Replaced by AssemblyAI (saves ~5-10GB)

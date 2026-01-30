@@ -173,8 +173,10 @@ class DatabaseManager:
             host = 'localhost'
 
         try:
-            # Increased from 20 to 50 to handle parallel batch processing
-            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '50'))
+            # Increased to 200 to handle 30-40 concurrent users (each user uses 4-8 connections)
+            # For 100+ users, consider using PgBouncer or increasing to 400+
+            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '200'))
+            min_connections = int(os.getenv('DB_POOL_MIN_SIZE', '20'))
             connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', '30'))
 
             port = os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or db_url_parts.get('port') or '5432'
@@ -188,7 +190,7 @@ class DatabaseManager:
 
             def _create_pool(resolved_host: str):
                 return psycopg2.pool.ThreadedConnectionPool(
-                    minconn=1,
+                    minconn=min_connections,
                     maxconn=max_connections,
                     host=resolved_host,
                     port=port,
@@ -202,7 +204,7 @@ class DatabaseManager:
             try:
                 self.connection_pool = _create_pool(host)
                 logger.info(
-                    f"✓ PostgreSQL connection pool created successfully (host: {host}, db: {database}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
+                    f"✓ PostgreSQL connection pool created successfully (host: {host}, db: {database}, minconn: {min_connections}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
                 )
             except Exception as e:
                 message = str(e)
@@ -218,7 +220,7 @@ class DatabaseManager:
                     if ipv4:
                         self.connection_pool = _create_pool(ipv4)
                         logger.info(
-                            f"✓ PostgreSQL connection pool created successfully (host: {ipv4}, db: {database}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
+                            f"✓ PostgreSQL connection pool created successfully (host: {ipv4}, db: {database}, minconn: {min_connections}, maxconn: {max_connections}, timeout: {connect_timeout}s)"
                         )
                     else:
                         raise
