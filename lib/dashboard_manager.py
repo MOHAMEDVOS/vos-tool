@@ -348,42 +348,86 @@ class SessionManager:
     def validate_session(self, username: str, session_id: str) -> bool:
         """Validate if a session is active and belongs to the user (DATABASE ONLY).
         
+        RESILIENT: Retries on connection errors and gives benefit-of-the-doubt
+        to avoid logging users out due to transient database issues.
+        
         Args:
             username: Username to validate
             session_id: Session ID to validate
             
         Returns:
-            True if session is valid and active
+            True if session is valid and active, or if we can't verify (benefit of doubt)
+            False only if we definitively know the session is invalid
         """
-        try:
-            # Check if session exists and is active
-            query = """
-                SELECT * FROM user_sessions 
-                WHERE username = %s AND session_id = %s AND is_active = TRUE
-                AND expires_at > CURRENT_TIMESTAMP
-            """
-            session = self._db_manager.execute_query(query, (username, session_id), fetchone=True)
-            
-            if session:
-                # Update last activity and extend expiration
-                update_query = """
-                    UPDATE user_sessions 
-                    SET last_activity = CURRENT_TIMESTAMP,
-                        expires_at = CURRENT_TIMESTAMP + (INTERVAL '1 hour' * %s)
-                    WHERE username = %s AND session_id = %s
+        import time
+        
+        max_retries = 2
+        retry_delay = 0.5  # seconds
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # Check if session exists and is active
+                query = """
+                    SELECT * FROM user_sessions 
+                    WHERE username = %s AND session_id = %s AND is_active = TRUE
+                    AND expires_at > CURRENT_TIMESTAMP
                 """
-                self._db_manager.execute_query(
-                    update_query, 
-                    (self.session_timeout_hours, username, session_id), 
-                    fetch=False
-                )
-                return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error validating session for {username}: {e}")
-            return False
+                session = self._db_manager.execute_query(query, (username, session_id), fetchone=True)
+                
+                if session:
+                    # Update last activity and extend expiration (non-critical, wrapped separately)
+                    try:
+                        update_query = """
+                            UPDATE user_sessions 
+                            SET last_activity = CURRENT_TIMESTAMP,
+                                expires_at = CURRENT_TIMESTAMP + (INTERVAL '1 hour' * %s)
+                            WHERE username = %s AND session_id = %s
+                        """
+                        self._db_manager.execute_query(
+                            update_query, 
+                            (self.session_timeout_hours, username, session_id), 
+                            fetch=False
+                        )
+                    except Exception as update_err:
+                        # Non-critical: session is still valid, just couldn't extend it
+                        logger.warning(f"Could not extend session for {username}: {update_err}")
+                    return True
+                
+                # Session definitively not found in database
+                return False
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                is_connection_error = any(term in error_str for term in [
+                    'connection', 'closed', 'timeout', 'network', 'refused',
+                    'reset', 'broken pipe', 'eof', 'ssl', 'socket'
+                ])
+                
+                if is_connection_error and attempt < max_retries:
+                    logger.warning(
+                        f"Session validation connection error (attempt {attempt + 1}/{max_retries + 1}): {e}"
+                    )
+                    time.sleep(retry_delay)
+                    continue
+                
+                # Either not a connection error, or we've exhausted retries
+                logger.error(f"Error validating session for {username}: {e}")
+                
+                # CRITICAL FIX: On database errors, give benefit of the doubt
+                # to avoid logging users out due to transient connection issues.
+                # The JWT token is still valid, so the session should be trusted.
+                if is_connection_error:
+                    logger.warning(
+                        f"⚠️ Allowing session for {username} despite DB error (benefit of doubt)"
+                    )
+                    return True
+                
+                # Non-connection errors (permission, query syntax, etc.) - fail safely
+                return False
+        
+        # Should not reach here, but fail open for safety
+        logger.warning(f"Session validation loop exhausted for {username}, allowing session")
+        return True
 
     def invalidate_session(self, username: str, session_id: str = None) -> bool:
         """Invalidate a user's session (DATABASE ONLY).
