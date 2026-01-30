@@ -87,13 +87,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure rate limiting to prevent resource exhaustion
-from backend.core.rate_limit import limiter, rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
+# TEMPORARILY DISABLED: Rate limiting (slowapi not installing on Railway due to cache issues)
+# from backend.core.rate_limit import limiter, rate_limit_exceeded_handler  
+# from slowapi.errors import RateLimitExceeded
 
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
-logger.info("✅ Rate limiting enabled")
+# app.state.limiter = limiter
+# app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+# logger.info("✅ Rate limiting enabled")
+logger.info("⚠️  Rate limiting DISABLED (temporary workaround)")
 
 # Include routers
 from backend.api import health as health_api
