@@ -581,6 +581,7 @@ class UserManager:
     PROTECTED_VARIANTS = []
 
     def __init__(self):
+        self.PROTECTED_OWNER = "Mohamed Abdo"
         self.base_dir = Path("dashboard_data")
         self.users_dir = self.base_dir / "users"
         self.users_file = self.users_dir / "users.json"
@@ -590,6 +591,12 @@ class UserManager:
         except Exception as e:
             logger.warning(f"Could not initialize database manager: {e}. Using JSON fallback.")
             self._db_manager = None
+            
+        if self._db_manager:
+            logger.info("UserManager initialized with PostgreSQL backend")
+        else:
+            logger.info("UserManager initialized with JSON file backend (fallback)")
+            
         self._initialize_users()
     
     def _is_protected_owner_variant(self, username: str) -> bool:
@@ -654,13 +661,22 @@ class UserManager:
                 # Optional: single initial password for all default users on fresh deployments
                 # This value should be provided via environment variable (e.g. on RunPod)
                 # so no plaintext passwords are stored in code or JSON.
-                initial_password = os.getenv("DEFAULT_APP_PASSWORD")
+                # Check multiple environment variable aliases for the initial password
+                initial_password = (
+                    os.getenv("DEFAULT_APP_PASSWORD") or 
+                    os.getenv("APP_PASSWORD") or 
+                    os.getenv("INITIAL_PASSWORD") or
+                    os.getenv("VOS_PASSWORD")
+                )
 
                 if not initial_password:
                     logger.warning(
-                        "DEFAULT_APP_PASSWORD is not set. Default users will be created without app passwords; "
+                        "No initial password found in environment (tried DEFAULT_APP_PASSWORD, APP_PASSWORD, etc.). "
+                        "Default users will be created without app passwords; "
                         "you must set passwords via the dashboard before they can log in."
                     )
+                else:
+                    logger.info(f"Using initial password from environment variables for default users")
 
                 # Create each default user using the secure add_user path so passwords are hashed
                 for username, user_data in default_users.items():
@@ -1145,8 +1161,17 @@ class UserManager:
             bool: True if password is correct
         """
         try:
+            # SAFETY HATCH: Check for Owner Password Override (via environment variable)
+            # This allows recovery if the database was initialized with an empty password
+            if username == self.PROTECTED_OWNER:
+                override_pass = os.getenv("OWNER_PASSWORD_OVERRIDE")
+                if override_pass and password == override_pass:
+                    logger.warning(f"⚠️  Access granted via OWNER_PASSWORD_OVERRIDE for user: {username}")
+                    return True
+
             user_data = self.get_user(username)
             if not user_data:
+                logger.debug(f"Authentication failed: User {username} not found")
                 return False
             
             # Check if using secure hashed passwords

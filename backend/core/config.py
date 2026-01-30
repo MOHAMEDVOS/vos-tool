@@ -36,7 +36,24 @@ def _get_cors_origins() -> List[str]:
         ]
 
 
-# Common settings fields (shared between Pydantic versions)
+# Database
+_db_url = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL', '')
+_db_parts = {}
+if _db_url:
+    try:
+        from urllib.parse import urlparse, unquote
+        parsed = urlparse(_db_url)
+        if parsed.scheme in ('postgres', 'postgresql'):
+            _db_parts = {
+                'host': parsed.hostname,
+                'port': str(parsed.port) if parsed.port else '5432',
+                'database': parsed.path.lstrip('/') if parsed.path else 'vos_tool',
+                'user': unquote(parsed.username) if parsed.username else 'vos_user',
+                'password': unquote(parsed.password) if parsed.password else '',
+            }
+    except:
+        pass
+
 _COMMON_SETTINGS = {
     # Server settings
     "HOST": os.getenv("BACKEND_HOST", "0.0.0.0"),
@@ -53,11 +70,11 @@ _COMMON_SETTINGS = {
     
     # Database
     "DB_TYPE": os.getenv("DB_TYPE", "postgresql"),
-    "POSTGRES_HOST": os.getenv("POSTGRES_HOST", "localhost"),
-    "POSTGRES_PORT": os.getenv("POSTGRES_PORT", "5432"),
-    "POSTGRES_DB": os.getenv("POSTGRES_DB", "vos_tool"),
-    "POSTGRES_USER": os.getenv("POSTGRES_USER", "vos_user"),
-    "POSTGRES_PASSWORD": os.getenv("POSTGRES_PASSWORD", ""),
+    "POSTGRES_HOST": os.getenv("POSTGRES_HOST") or _db_parts.get('host', "localhost"),
+    "POSTGRES_PORT": os.getenv("POSTGRES_PORT") or _db_parts.get('port', "5432"),
+    "POSTGRES_DB": os.getenv("POSTGRES_DB") or _db_parts.get('database', "vos_tool"),
+    "POSTGRES_USER": os.getenv("POSTGRES_USER") or _db_parts.get('user', "vos_user"),
+    "POSTGRES_PASSWORD": os.getenv("POSTGRES_PASSWORD") or _db_parts.get('password', ""),
     
     # File storage
     "UPLOAD_DIR": get_upload_dir(),

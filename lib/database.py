@@ -228,6 +228,15 @@ class DatabaseManager:
                     raise
         except Exception as e:
             logger.error(f"✗ Failed to create PostgreSQL connection pool: {e}")
+            # Add database URL diagnostics (masked)
+            if db_url:
+                try:
+                    parsed = urlparse(db_url)
+                    masked_host = parsed.hostname
+                    logger.info(f"Attempted connection to host: {masked_host}")
+                    logger.info(f"Target database: {parsed.path.lstrip('/')}")
+                except:
+                    pass
             raise
     
     def _init_sqlite(self):
@@ -270,13 +279,19 @@ class DatabaseManager:
             conn.row_factory = sqlite3.Row
             return conn
     
-    def return_connection(self, conn):
+    def return_connection(self, conn, is_broken: bool = False):
         """Return connection to pool (PostgreSQL only) or close (SQLite)."""
         if self.db_type == 'postgresql':
             if self.connection_pool:
-                self.connection_pool.putconn(conn)
+                try:
+                    self.connection_pool.putconn(conn, close=is_broken)
+                except Exception as e:
+                    logger.debug(f"Error returning connection to pool: {e}")
         else:
-            conn.close()
+            try:
+                conn.close()
+            except:
+                pass
     
     def execute_query(self, query: str, params: tuple = None, fetch: bool = True, fetchone: bool = False, max_retries: int = 3):
         """
@@ -303,24 +318,28 @@ class DatabaseManager:
         
         while retry_count < max_retries:
             try:
-                conn = self.get_connection()
-                
-                # Validate connection is still active
-                if self.db_type == 'postgresql':
+                # CRITICAL: Robust connection acquisition loop
+                conn = None
+                for _ in range(3):  # Try up to 3 connections from the pool
                     try:
-                        # Test connection with a simple query
-                        test_cursor = conn.cursor()
-                        test_cursor.execute('SELECT 1')
-                        test_cursor.close()
-                    except Exception as conn_test_error:
-                        # Connection is dead, close it and get a new one
-                        try:
-                            if conn:
-                                conn.close()
-                        except:
-                            pass
                         conn = self.get_connection()
-                    
+                        if self.db_type == 'postgresql':
+                            # Test connection
+                            test_cursor = conn.cursor()
+                            test_cursor.execute('SELECT 1')
+                            test_cursor.close()
+                            break  # Success!
+                    except Exception as conn_error:
+                        logger.warning(f"Retrieved broken connection from pool: {conn_error}")
+                        if conn:
+                            self.return_connection(conn, is_broken=True)
+                            conn = None
+                        continue
+                
+                if not conn:
+                    raise psycopg2.pool.PoolError("Could not obtain a valid database connection after multiple attempts")
+
+                if self.db_type == 'postgresql':
                     cursor = conn.cursor(cursor_factory=RealDictCursor)
                     # Set query timeout (30 seconds default, configurable via env)
                     query_timeout = int(os.getenv('DB_QUERY_TIMEOUT', '30000'))  # milliseconds
@@ -422,13 +441,19 @@ class DatabaseManager:
                         pass
                 if conn:
                     try:
-                        self.return_connection(conn)
+                        # Check if connection is still alive before returning
+                        is_broken = False
+                        if self.db_type == 'postgresql':
+                            try:
+                                # Check closed attribute
+                                if getattr(conn, 'closed', 0) != 0:
+                                    is_broken = True
+                            except:
+                                is_broken = True
+                        
+                        self.return_connection(conn, is_broken=is_broken)
                     except:
                         pass
-                
-                # Log successful query (if we got here without exception)
-                # Note: This will only run if no exception was raised
-                if 'e' not in locals():  # No exception occurred
                     duration = time.time() - start_time
                     if self.health_monitor:
                         self.health_monitor.log_query(query, duration, success=True)
