@@ -135,7 +135,19 @@ class DatabaseManager:
 
     def _init_postgresql(self):
         """Initialize PostgreSQL connection pool."""
-        db_url = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
+        # Priority: DATABASE_URL (Railway aggregate), then POSTGRES_URL, then individual variables
+        db_url = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL') or os.getenv('POSTGRES_PRIVATE_URL')
+        
+        if db_url:
+            masked_url = db_url.split('@')[-1] if '@' in db_url else '[HIDDEN]'
+            logger.info(f"💾 Database URL found in environment: ...@{masked_url}")
+        else:
+            logger.warning("⚠️  DATABASE_URL/POSTGRES_URL not found. Database manager will use individual variables or local defaults.")
+            if not os.getenv('POSTGRES_HOST'):
+                logger.warning("   POSTGRES_HOST is also missing. Defaulting to localhost.")
+        
+        # Parse URL for components
+        from lib.database import _parse_database_url
         db_url_parts = _parse_database_url(db_url) if db_url else {}
 
         # Get host from environment, default to localhost

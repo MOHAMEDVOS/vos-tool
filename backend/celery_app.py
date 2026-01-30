@@ -12,7 +12,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Get Redis URL from environment (default to localhost)
-redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+# Priority: REDIS_URL (Public), then REDIS_PRIVATE_URL (Internal/Recommended)
+redis_url = os.getenv('REDIS_URL') or os.getenv('REDIS_PRIVATE_URL') or 'redis://localhost:6379/0'
+
+if not os.getenv('REDIS_URL') and not os.getenv('REDIS_PRIVATE_URL'):
+    print("⚠️  WARNING: REDIS_URL/REDIS_PRIVATE_URL not found in environment.")
+    print("   Worker will attempt to connect to localhost:6379 (likely to fail on Railway).")
+else:
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(redis_url)
+        print(f"🛰️  Celery using broker at: {parsed.hostname}")
+    except:
+        print("🛰️  Celery broker configured from environment variables")
 
 # Create Celery app
 celery_app = Celery(
