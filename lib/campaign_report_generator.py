@@ -1,15 +1,13 @@
 """
-LLM-Powered Campaign Performance Report Generator (ACCURACY-FOCUSED)
-Uses Groq (llama-3.1-8b-instant) with strict data validation to prevent hallucinations.
-All statistics are pre-calculated from actual data before LLM receives them.
+LLM-Powered Campaign Performance Report Generator
+Uses Groq (llama-3.1-8b-instant) with strict data accuracy.
+Clean template matching user's exact format.
 """
 
 import os
 import re
-import json
 import logging
 from typing import Dict, List, Optional, Any, Tuple
-from collections import Counter
 import pandas as pd
 from datetime import datetime
 
@@ -17,16 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 class CampaignReportGenerator:
-    """Generates accurate AI-powered campaign performance reports with data validation."""
+    """Generates accurate AI-powered campaign performance reports."""
     
     def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.1-8b-instant"):
-        """
-        Initialize campaign report generator.
-        
-        Args:
-            api_key: Groq API key (reads from GROQ_API_KEY env if not provided)
-            model: Model to use (default: llama-3.1-8b-instant)
-        """
         self.api_key = api_key or os.getenv("GROQ_API_KEY", "")
         if not self.api_key:
             raise ValueError("GROQ_API_KEY is required")
@@ -35,8 +26,8 @@ class CampaignReportGenerator:
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
         logger.info(f"CampaignReportGenerator initialized with model: {model}")
     
-    def _call_groq_api(self, messages: List[Dict[str, str]], max_tokens: int = 4000) -> str:
-        """Call Groq API with strict temperature settings to prevent hallucinations."""
+    def _call_groq_api(self, messages: List[Dict[str, str]], max_tokens: int = 3000) -> str:
+        """Call Groq API with low temperature for accuracy."""
         import requests
         
         headers = {
@@ -47,9 +38,8 @@ class CampaignReportGenerator:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.05,  # Very low - nearly deterministic
+            "temperature": 0.1,
             "max_tokens": max_tokens,
-            "top_p": 0.9,
         }
         
         try:
@@ -61,153 +51,39 @@ class CampaignReportGenerator:
             logger.error(f"Groq API call failed: {e}")
             raise
     
-    def _calculate_real_statistics(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Calculate ALL statistics from actual data BEFORE sending to LLM.
-        This prevents hallucination by giving the LLM pre-verified numbers.
-        """
+    def _calculate_stats(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Calculate all statistics from actual data."""
         total_calls = len(df)
         unique_agents = df['Agent Name'].nunique() if 'Agent Name' in df.columns else 0
         
-        stats = {
+        # KPIs
+        late_hello_bad = len(df[df['Late Hello Detection'] == 'Yes']) if 'Late Hello Detection' in df.columns else 0
+        releasing_bad = len(df[df['Releasing Detection'] == 'Yes']) if 'Releasing Detection' in df.columns else 0
+        rebuttal_no = len(df[df['Rebuttal Detection'] == 'No']) if 'Rebuttal Detection' in df.columns else 0
+        rebuttal_yes = total_calls - rebuttal_no
+        
+        return {
             'total_calls': total_calls,
             'unique_agents': unique_agents,
-            'columns_available': list(df.columns),
-            'agent_names': df['Agent Name'].unique().tolist() if 'Agent Name' in df.columns else []
-        }
-        
-        # KPIs - calculate from actual data
-        if 'Late Hello Detection' in df.columns:
-            late_hello_bad = len(df[df['Late Hello Detection'] == 'Yes'])
-            stats['late_hello'] = {
+            'late_hello': {
                 'good': total_calls - late_hello_bad,
                 'bad': late_hello_bad,
-                'pct_good': round((total_calls - late_hello_bad) / total_calls * 100, 1) if total_calls > 0 else 0
-            }
-        else:
-            stats['late_hello'] = {'good': total_calls, 'bad': 0, 'pct_good': 100.0}
-        
-        if 'Releasing Detection' in df.columns:
-            releasing_bad = len(df[df['Releasing Detection'] == 'Yes'])
-            stats['releasing'] = {
+                'pct': round((total_calls - late_hello_bad) / total_calls * 100) if total_calls > 0 else 0
+            },
+            'releasing': {
                 'good': total_calls - releasing_bad,
                 'bad': releasing_bad,
-                'pct_good': round((total_calls - releasing_bad) / total_calls * 100, 1) if total_calls > 0 else 0
+                'pct': round((total_calls - releasing_bad) / total_calls * 100) if total_calls > 0 else 0
+            },
+            'rebuttal': {
+                'good': rebuttal_yes,
+                'bad': rebuttal_no,
+                'pct': round(rebuttal_yes / total_calls * 100) if total_calls > 0 else 0
             }
-        else:
-            stats['releasing'] = {'good': total_calls, 'bad': 0, 'pct_good': 100.0}
-        
-        if 'Rebuttal Detection' in df.columns:
-            rebuttal_yes = len(df[df['Rebuttal Detection'] == 'Yes'])
-            rebuttal_no = len(df[df['Rebuttal Detection'] == 'No'])
-            stats['rebuttal'] = {
-                'yes': rebuttal_yes,
-                'no': rebuttal_no,
-                'pct_yes': round(rebuttal_yes / total_calls * 100, 1) if total_calls > 0 else 0
-            }
-        else:
-            stats['rebuttal'] = {'yes': total_calls, 'no': 0, 'pct_yes': 100.0}
-        
-        return stats
-    
-    def _extract_real_transcript_issues(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Scan actual transcripts for issues - count and extract REAL examples only.
-        """
-        issues = {
-            'comprehension_count': 0,
-            'comprehension_agents': {},
-            'comprehension_examples': [],
-            'script_error_count': 0,
-            'script_error_agents': {},
-            'script_error_examples': [],
-            'real_transcript_excerpts': []
         }
-        
-        if 'Transcription' not in df.columns:
-            return issues
-        
-        # Comprehension issue patterns
-        comprehension_patterns = [
-            r"can'?t understand",
-            r"don'?t understand",
-            r"pardon\??",
-            r"what'?s?\s+this\s+about",
-            r"say\s+that\s+again",
-            r"repeat\s+that"
-        ]
-        
-        # Script error patterns
-        script_errors = [
-            ('interestted', 'interested'),
-            ('sellling', 'selling'),
-            ('profit interestt', 'property interest'),
-            ('propertty', 'property'),
-            ('interrest', 'interest')
-        ]
-        
-        for idx, row in df.iterrows():
-            agent = row.get('Agent Name', 'Unknown')
-            transcript = str(row.get('Transcription', '')).lower()
-            
-            if not transcript or transcript == 'nan':
-                continue
-            
-            # Check comprehension issues
-            for pattern in comprehension_patterns:
-                matches = re.findall(pattern, transcript)
-                if matches:
-                    issues['comprehension_count'] += len(matches)
-                    if agent not in issues['comprehension_agents']:
-                        issues['comprehension_agents'][agent] = 0
-                    issues['comprehension_agents'][agent] += len(matches)
-                    
-                    # Extract actual excerpt
-                    match = re.search(pattern, transcript)
-                    if match and len(issues['comprehension_examples']) < 5:
-                        start = max(0, match.start() - 30)
-                        end = min(len(transcript), match.end() + 30)
-                        excerpt = transcript[start:end]
-                        issues['comprehension_examples'].append({
-                            'agent': agent,
-                            'excerpt': f"...{excerpt}..."
-                        })
-            
-            # Check script errors
-            for error, correction in script_errors:
-                if error in transcript:
-                    issues['script_error_count'] += 1
-                    if agent not in issues['script_error_agents']:
-                        issues['script_error_agents'][agent] = []
-                    if error not in issues['script_error_agents'][agent]:
-                        issues['script_error_agents'][agent].append(error)
-                    
-                    if len(issues['script_error_examples']) < 5:
-                        # Find context around the error
-                        start = transcript.find(error)
-                        excerpt = transcript[max(0, start-20):min(len(transcript), start+40)]
-                        issues['script_error_examples'].append({
-                            'agent': agent,
-                            'error': error,
-                            'correction': correction,
-                            'excerpt': f"...{excerpt}..."
-                        })
-            
-            # Extract sample transcript excerpts (first 50 chars per agent)
-            if agent not in [e['agent'] for e in issues['real_transcript_excerpts']]:
-                sample = transcript[:100] if len(transcript) > 100 else transcript
-                issues['real_transcript_excerpts'].append({
-                    'agent': agent,
-                    'sample': sample
-                })
-        
-        return issues
     
-    def _calculate_agent_performance(self, df: pd.DataFrame, issues: Dict) -> List[Dict]:
-        """
-        Calculate per-agent performance from ACTUAL data only.
-        No made-up metrics like "Clarity Score" - only what exists in columns.
-        """
+    def _get_agent_data(self, df: pd.DataFrame) -> List[Dict]:
+        """Get per-agent performance data."""
         agent_data = []
         
         if 'Agent Name' not in df.columns:
@@ -215,345 +91,216 @@ class CampaignReportGenerator:
         
         for agent in df['Agent Name'].unique():
             agent_df = df[df['Agent Name'] == agent]
-            agent_calls = len(agent_df)
+            calls = len(agent_df)
             
-            data = {
-                'name': agent,
-                'calls': agent_calls,
-                'late_hello_bad': 0,
-                'releasing_bad': 0,
-                'rebuttal_no': 0,
-                'rebuttal_yes': 0,
-                'avg_intro_score': 0,
-                'common_status': 'N/A',
-                'comprehension_issues': issues['comprehension_agents'].get(agent, 0),
-                'script_errors': len(issues['script_error_agents'].get(agent, []))
-            }
+            late_hello_bad = len(agent_df[agent_df['Late Hello Detection'] == 'Yes']) if 'Late Hello Detection' in df.columns else 0
+            releasing_bad = len(agent_df[agent_df['Releasing Detection'] == 'Yes']) if 'Releasing Detection' in df.columns else 0
+            rebuttal_bad = len(agent_df[agent_df['Rebuttal Detection'] == 'No']) if 'Rebuttal Detection' in df.columns else 0
             
-            if 'Late Hello Detection' in df.columns:
-                data['late_hello_bad'] = len(agent_df[agent_df['Late Hello Detection'] == 'Yes'])
-            
-            if 'Releasing Detection' in df.columns:
-                data['releasing_bad'] = len(agent_df[agent_df['Releasing Detection'] == 'Yes'])
-            
-            if 'Rebuttal Detection' in df.columns:
-                data['rebuttal_no'] = len(agent_df[agent_df['Rebuttal Detection'] == 'No'])
-                data['rebuttal_yes'] = len(agent_df[agent_df['Rebuttal Detection'] == 'Yes'])
-            
+            # Calculate avg intro score
+            avg_intro = 0
             if 'Intro Score' in df.columns:
                 try:
                     scores = agent_df['Intro Score'].astype(str).str.replace('%', '').astype(float)
-                    data['avg_intro_score'] = round(scores.mean(), 1)
+                    avg_intro = round(scores.mean(), 2)
                 except:
-                    data['avg_intro_score'] = 0
+                    avg_intro = 0
             
+            # Get status
+            status = 'N/A'
             if 'Status' in df.columns:
                 try:
-                    data['common_status'] = agent_df['Status'].mode()[0]
+                    status = agent_df['Status'].mode()[0]
                 except:
-                    data['common_status'] = 'N/A'
+                    status = 'N/A'
             
-            # Determine tier based on REAL issues only
-            total_issues = (
-                data['late_hello_bad'] + 
-                data['releasing_bad'] + 
-                data['rebuttal_no'] +
-                data['comprehension_issues'] +
-                data['script_errors']
-            )
-            
-            if total_issues == 0:
-                data['tier'] = '🟢 Tier 1'
-            elif total_issues <= 2:
-                data['tier'] = '🟡 Tier 2'
-            else:
-                data['tier'] = '🔴 Tier 3'
-            
-            agent_data.append(data)
+            agent_data.append({
+                'name': agent,
+                'calls': calls,
+                'late_hello_bad': late_hello_bad,
+                'releasing_bad': releasing_bad,
+                'rebuttal_bad': rebuttal_bad,
+                'avg_intro': avg_intro,
+                'status': status
+            })
         
-        # Sort by total issues (best performers first)
-        agent_data.sort(key=lambda x: (
-            x['late_hello_bad'] + x['releasing_bad'] + x['rebuttal_no'] + x['comprehension_issues']
-        ))
-        
+        # Sort by intro score descending
+        agent_data.sort(key=lambda x: x['avg_intro'], reverse=True)
         return agent_data
     
-    def _build_accurate_prompt(self, campaign_name: str, stats: Dict, 
-                                issues: Dict, agent_data: List[Dict]) -> List[Dict[str, str]]:
-        """
-        Build prompt with PRE-CALCULATED statistics to prevent LLM hallucination.
-        """
+    def _get_rebuttal_skippers(self, df: pd.DataFrame) -> List[Dict]:
+        """Get agents who skipped rebuttals."""
+        skippers = []
         
-        # Format agent table data
-        agent_table = "| Agent Name | Calls | Late Hello (Bad) | Releasing (Bad) | Rebuttal Skipped | Intro Score | Status | Tier |\n"
-        agent_table += "|------------|-------|------------------|-----------------|------------------|-------------|--------|------|\n"
+        if 'Agent Name' not in df.columns or 'Rebuttal Detection' not in df.columns:
+            return skippers
         
-        for agent in agent_data:
-            agent_table += f"| {agent['name']} | {agent['calls']} | {agent['late_hello_bad']} | {agent['releasing_bad']} | {agent['rebuttal_no']} | {agent['avg_intro_score']}% | {agent['common_status']} | {agent['tier']} |\n"
+        for agent in df['Agent Name'].unique():
+            agent_df = df[df['Agent Name'] == agent]
+            skipped = len(agent_df[agent_df['Rebuttal Detection'] == 'No'])
+            if skipped > 0:
+                skippers.append({'name': agent, 'skipped': skipped})
         
-        # Format comprehension examples
-        comp_examples = ""
-        if issues['comprehension_examples']:
-            comp_examples = "**Actual Comprehension Issues Found:**\n"
-            for ex in issues['comprehension_examples'][:3]:
-                comp_examples += f"- **{ex['agent']}**: \"{ex['excerpt']}\"\n"
+        return skippers
+    
+    def _get_lowest_performers(self, agent_data: List[Dict]) -> List[Dict]:
+        """Get lowest performing agents based on intro score and issues."""
+        # Sort by intro score ascending (lowest first), then by issues
+        sorted_agents = sorted(agent_data, key=lambda x: (x['avg_intro'], -x['rebuttal_bad']))
+        return sorted_agents[:3]  # Return bottom 3
+    
+    def _build_prompt(self, campaign_name: str, stats: Dict, agent_data: List[Dict], 
+                      skippers: List[Dict], lowest: List[Dict]) -> List[Dict[str, str]]:
+        """Build the prompt with pre-calculated data."""
         
-        # Format script error examples
-        script_examples = ""
-        if issues['script_error_examples']:
-            script_examples = "**Actual Script Errors Found:**\n"
-            for ex in issues['script_error_examples'][:3]:
-                script_examples += f"- **{ex['agent']}**: \"{ex['error']}\" → should be \"{ex['correction']}\"\n"
+        # Build agent table
+        agent_table = "| Agent Name | Total Calls | Late Hello (Bad) | Releasing (Bad) | Rebuttal Skipped (Bad) | Avg. Intro Score | Status Trend |\n"
+        agent_table += "|------------|-------------|-------------------|------------------|-------------------------|------------------|--------------||\n"
+        for a in agent_data:
+            agent_table += f"| **{a['name']}** | {a['calls']} | {a['late_hello_bad']} | {a['releasing_bad']} | {a['rebuttal_bad']} | {a['avg_intro']}% | {a['status']} |\n"
         
-        # Agents who skipped rebuttals
-        rebuttal_skippers = [a for a in agent_data if a['rebuttal_no'] > 0]
-        rebuttal_skipper_text = ""
-        if rebuttal_skippers:
-            rebuttal_skipper_text = "**Agents who skipped rebuttals:**\n"
-            for a in rebuttal_skippers:
-                rebuttal_skipper_text += f"- {a['name']}: skipped {a['rebuttal_no']} time(s)\n"
+        # Build skippers list
+        skipper_text = ""
+        if skippers:
+            skipper_names = ", ".join([f"{s['name']} ({s['skipped']} call{'s' if s['skipped'] > 1 else ''})" for s in skippers])
+            skipper_text = f"  - {skipper_names}"
         
-        # Tier summaries
-        tier1 = [a for a in agent_data if '🟢' in a['tier']]
-        tier2 = [a for a in agent_data if '🟡' in a['tier']]
-        tier3 = [a for a in agent_data if '🔴' in a['tier']]
+        # Build lowest performers section
+        lowest_text = ""
+        for i, agent in enumerate(lowest, 1):
+            lowest_text += f"""
+{i}. **{agent['name']}**  
+   - Intro Score: {agent['avg_intro']}%{' (lowest in dataset)' if i == 1 and agent['avg_intro'] < 80 else ''}
+   - Rebuttal Skipped: {'Yes' if agent['rebuttal_bad'] > 0 else 'No'}
+   - {agent['calls']} call{'s' if agent['calls'] > 1 else ''} audited.
+"""
         
         user_prompt = f"""
-# CAMPAIGN PERFORMANCE REPORT - DATA-ACCURATE ANALYSIS
+Generate a Campaign Performance Report using EXACTLY this template and data.
 
-## ⚠️ CRITICAL INSTRUCTIONS - READ CAREFULLY
-1. USE ONLY THE PRE-CALCULATED STATISTICS BELOW
-2. DO NOT MAKE UP NUMBERS - all stats are already calculated
-3. DO NOT INVENT METRICS like "Clarity Score" or "Metadata Score"
-4. These are OUTBOUND calls - agents call customers, not receive calls
-5. Quote ONLY the transcript excerpts provided below
-6. NO generic examples like "thank you for calling"
+## DATA (USE THESE EXACT NUMBERS):
 
----
+Campaign: {campaign_name}
+Total Calls: {stats['total_calls']}
+Agents: {stats['unique_agents']}
 
-## PRE-CALCULATED STATISTICS (USE THESE EXACT NUMBERS)
+KPIs:
+- Late Hello: Good={stats['late_hello']['good']}, Bad={stats['late_hello']['bad']}, %Good={stats['late_hello']['pct']}%
+- Releasing: Good={stats['releasing']['good']}, Bad={stats['releasing']['bad']}, %Good={stats['releasing']['pct']}%
+- Rebuttal: Good={stats['rebuttal']['good']}, Bad={stats['rebuttal']['bad']}, %Good={stats['rebuttal']['pct']}%
 
-**Campaign:** {campaign_name}
-**Total Calls:** {stats['total_calls']}
-**Agents Audited:** {stats['unique_agents']}
-
-### KPI Table (ALREADY CALCULATED):
-| Metric | Good (No Issue) | Bad (Issue Found) | % Good |
-|--------|-----------------|-------------------|---------|
-| **Late Hello Detection** | {stats['late_hello']['good']} | {stats['late_hello']['bad']} | {stats['late_hello']['pct_good']}% |
-| **Releasing Detection** | {stats['releasing']['good']} | {stats['releasing']['bad']} | {stats['releasing']['pct_good']}% |
-| **Rebuttal Detection** | {stats['rebuttal']['yes']} | {stats['rebuttal']['no']} | {stats['rebuttal']['pct_yes']}% |
-
-### Rebuttal Statistics:
-- **Calls WITH Rebuttals:** {stats['rebuttal']['yes']}/{stats['total_calls']} ({stats['rebuttal']['pct_yes']}%)
-- **Calls WITHOUT Rebuttals:** {stats['rebuttal']['no']}/{stats['total_calls']}
-{rebuttal_skipper_text}
-
----
-
-## TRANSCRIPT ANALYSIS (REAL ISSUES FOUND)
-
-**Comprehension Issues:** {issues['comprehension_count']} total incidents across {len(issues['comprehension_agents'])} agents
-{comp_examples}
-
-**Script Errors:** {issues['script_error_count']} total incidents across {len(issues['script_error_agents'])} agents
-{script_examples}
-
----
-
-## AGENT PERFORMANCE DATA (PRE-CALCULATED)
-
+Agent Data:
 {agent_table}
 
-### Agent Tiers:
-- **🟢 Tier 1 (No Issues):** {len(tier1)} agents
-- **🟡 Tier 2 (Minor Issues):** {len(tier2)} agents
-- **🔴 Tier 3 (Needs Coaching):** {len(tier3)} agents
+Rebuttal Skippers: {skipper_text if skipper_text else "None"}
 
 ---
 
-## YOUR TASK
-
-Using ONLY the pre-calculated data above, generate a professional report with this structure:
+## GENERATE REPORT IN THIS EXACT FORMAT:
 
 ### **Overall Campaign Summary**
-- Total Calls Audited: {stats['total_calls']}
-- Agents Audited: {stats['unique_agents']}
+- **Total Calls Audited:** {stats['total_calls']}
+- **Agents Audited:** {stats['unique_agents']}
 
 ---
 
 ### **Key Performance Indicators (KPIs)**
-[Copy the KPI table exactly as provided above]
-[Add 2-3 sentences analyzing results using ✅ and ⚠️]
 
----
+| Metric | Good (No Issue) | Bad (Issue Found) | % Good |
+|--------|-----------------|-------------------|---------|
+| **Late Hello Detection** | {stats['late_hello']['good']} | {stats['late_hello']['bad']} | {stats['late_hello']['pct']}% |
+| **Releasing Detection** | {stats['releasing']['good']} | {stats['releasing']['bad']} | {stats['releasing']['pct']}% |
+| **Rebuttal Detection** | {stats['rebuttal']['good']} | {stats['rebuttal']['bad']} | {stats['rebuttal']['pct']}% |
 
-### **Transcription Insights**
-[Summarize the comprehension and script issues using the EXACT counts provided]
-[Quote ONLY the examples provided above - DO NOT make up new ones]
-
----
-
-### **👥 Agent Performance Tiers**
-
-#### 🟢 TIER 1: Clean Performers ({len(tier1)} agents)
-[List agents with no issues, use data from table above]
-
-#### 🟡 TIER 2: Minor Issues ({len(tier2)} agents)
-[For each agent: specific issue from their row, recommendation]
-
-#### 🔴 TIER 3: Needs Coaching ({len(tier3)} agents)
-[For each agent: issues, coaching plan]
+[Add 2 lines: ✅ for what's good, ⚠️ for issues - based on the data above]
 
 ---
 
 ### **Agent-Level Performance Breakdown**
-[Copy the agent table exactly as provided above]
+
+{agent_table}
 
 ---
 
 ### **Rebuttal Analysis**
-- Calls with Rebuttals: {stats['rebuttal']['yes']}/{stats['total_calls']} ({stats['rebuttal']['pct_yes']}%)
-- Calls without Rebuttals: {stats['rebuttal']['no']}/{stats['total_calls']}
-[List agents who skipped rebuttals using EXACT data above]
+- **Calls with Rebuttals:** {stats['rebuttal']['good']}/{stats['total_calls']} ({stats['rebuttal']['pct']}%)
+- **Calls without Rebuttals:** {stats['rebuttal']['bad']}/{stats['total_calls']} ({100 - stats['rebuttal']['pct']}%)
+{skipper_text}
+
+[Add 1-2 sentences about rebuttal performance based on the numbers]
 
 ---
 
 ### **Lowest Performing Agents**
-[Use data from Tier 3 agents above - quote specific issues]
+Based on **Intro Score** and **Rebuttal Skipping**:
+
+{lowest_text}
 
 ---
 
-### **Conclusion**
-[Brief assessment using ✅ and ⚠️ based on the actual numbers]
+### **Conclusion: Are Agents Doing Their Best?**
+[Write 2-3 sentences using ✅ for positives and ⚠️ for issues, based ONLY on the data above]
+
+**Areas for Improvement:**  
+- [List 1-3 bullet points based on actual issues found]
 
 ---
 
-### **🛠 ACTION PLAN**
-[Specific recommendations based on REAL issues found]
-- Week 1: Fix script errors ({issues['script_error_count']} incidents)
-- Training focus: Agents with comprehension issues
-- Success metric: Reduce issues by specific percentage
+### **Recommendations**
+1. [First recommendation based on data]
+2. [Second recommendation based on data]
+3. [Third recommendation based on data]
 
 ---
 
-REMEMBER: ALL STATISTICS MUST MATCH THE NUMBERS PROVIDED ABOVE EXACTLY.
+IMPORTANT: Use ONLY the numbers provided above. Do not calculate new metrics.
 """
         
-        system_prompt = """You are a call center performance analyst creating a data-accurate report.
-
-CRITICAL RULES:
-1. USE ONLY the pre-calculated statistics provided - do not calculate your own
-2. DO NOT invent metrics (no "Clarity Score", "Metadata Score", etc.)
-3. These are OUTBOUND sales calls - agents CALL customers, they don't receive calls
-4. Quote ONLY the transcript excerpts provided - no generic examples
-5. All numbers must match the pre-calculated data exactly
-6. Format output in clean markdown with the tables provided
-
-You are formatting and presenting pre-analyzed data, not creating new analysis."""
+        system_prompt = """You are a call center performance analyst. 
+Generate a clean, professional report using ONLY the data provided.
+Use the exact format and structure requested.
+Do not add new metrics or calculations - use only what's given.
+Keep analysis focused on the actual numbers provided."""
         
         return [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
     
-    def _validate_report(self, report: str, stats: Dict) -> Tuple[bool, List[str]]:
-        """
-        Validate LLM output against actual data to catch hallucinations.
-        """
-        errors = []
-        
-        # Check total calls mentioned
-        total_calls_str = str(stats['total_calls'])
-        if total_calls_str not in report:
-            errors.append(f"❌ Missing correct total calls ({total_calls_str})")
-        
-        # Check rebuttal percentage is reasonable
-        rebuttal_pct = stats['rebuttal']['pct_yes']
-        rebuttal_pct_str = str(rebuttal_pct)
-        if rebuttal_pct_str not in report and str(round(rebuttal_pct)) not in report:
-            # Check if it's close
-            if "12%" in report or "13%" in report or "15%" in report:
-                errors.append(f"❌ Wrong rebuttal rate (should be {rebuttal_pct}%, not 12-15%)")
-        
-        # Check for hallucinated metrics
-        hallucination_phrases = [
-            "clarity score",
-            "metadata score", 
-            "transcript score",
-            "thank you for calling",
-            "how can i help you",
-            "how may i assist"
-        ]
-        
-        report_lower = report.lower()
-        for phrase in hallucination_phrases:
-            if phrase in report_lower:
-                errors.append(f"❌ Hallucination detected: '{phrase}' not in data")
-        
-        is_valid = len(errors) == 0
-        return is_valid, errors
-    
     def generate_report(self, df: pd.DataFrame, campaign_name: str) -> str:
-        """
-        Generate accurate AI-powered campaign performance report.
-        Pre-calculates all statistics to prevent LLM hallucination.
-        """
+        """Generate campaign performance report."""
         try:
-            logger.info(f"Generating ACCURATE AI report for campaign: {campaign_name}")
+            logger.info(f"Generating report for campaign: {campaign_name}")
             
             if df.empty:
                 return "❌ **Error:** No data available to generate report."
             
-            # Step 1: Calculate REAL statistics from data
-            logger.info("Step 1: Calculating real statistics from data...")
-            stats = self._calculate_real_statistics(df)
+            # Calculate all stats
+            stats = self._calculate_stats(df)
+            agent_data = self._get_agent_data(df)
+            skippers = self._get_rebuttal_skippers(df)
+            lowest = self._get_lowest_performers(agent_data)
             
-            # Step 2: Extract REAL transcript issues
-            logger.info("Step 2: Extracting real transcript issues...")
-            issues = self._extract_real_transcript_issues(df)
+            # Build prompt and call LLM
+            messages = self._build_prompt(campaign_name, stats, agent_data, skippers, lowest)
+            report = self._call_groq_api(messages)
             
-            # Step 3: Calculate per-agent performance
-            logger.info("Step 3: Calculating agent performance...")
-            agent_data = self._calculate_agent_performance(df, issues)
-            
-            # Step 4: Build accurate prompt with pre-calculated data
-            logger.info("Step 4: Building prompt with pre-calculated data...")
-            messages = self._build_accurate_prompt(campaign_name, stats, issues, agent_data)
-            
-            # Step 5: Call Groq API
-            logger.info("Step 5: Calling Groq API...")
-            report = self._call_groq_api(messages, max_tokens=4000)
-            
-            # Step 6: Validate output
-            logger.info("Step 6: Validating report accuracy...")
-            is_valid, errors = self._validate_report(report, stats)
-            
-            # Add metadata header
+            # Add header
             timestamp = datetime.now().strftime("%Y-%m-%d %I:%M %p")
             header = f"# 🤖 Campaign Performance Report\n\n"
             header += f"**Campaign:** {campaign_name}  \n"
             header += f"**Generated:** {timestamp}  \n"
-            header += f"**Powered by:** Groq AI (llama-3.1-8b-instant)  \n"
+            header += f"**Powered by:** Groq AI  \n\n"
+            header += "---\n\n"
             
-            if not is_valid:
-                header += f"\n**⚠️ Validation Warnings:**  \n"
-                for error in errors:
-                    header += f"- {error}  \n"
-            
-            header += "\n---\n\n"
-            
-            full_report = header + report
-            
-            logger.info(f"Report generated {'with warnings' if not is_valid else 'successfully'}")
-            return full_report
+            return header + report
             
         except Exception as e:
-            logger.error(f"Failed to generate campaign report: {e}", exc_info=True)
-            return f"❌ **Error generating report:** {str(e)}\n\nPlease check your Groq API key and internet connection."
+            logger.error(f"Failed to generate report: {e}", exc_info=True)
+            return f"❌ **Error generating report:** {str(e)}"
 
 
-# Singleton instance for easy import
+# Singleton instance
 _report_generator = None
 
 def get_report_generator() -> CampaignReportGenerator:
