@@ -303,19 +303,16 @@ class AssemblyAITranscriptionEngine:
         if not effective_api_key:
             raise ValueError("AssemblyAI API key required. Set ASSEMBLYAI_API_KEY environment variable or provide user API key.")
         
-        if effective_api_key == aai.settings.api_key:
-            logger.debug("Using AssemblyAI API key from aai.settings fallback")
-        else:
-            aai.settings.api_key = effective_api_key
-        
-        self.transcriber = aai.Transcriber()
+        # CRITICAL FIX: Store API key as instance variable instead of using global aai.settings
+        # This prevents race conditions when multiple users process files simultaneously
+        self.api_key = effective_api_key
         
         # Initialize transcription cache
         cache_dir = os.getenv('TRANSCRIPTION_CACHE_DIR', '.cache/transcriptions')
         cache_ttl = int(os.getenv('TRANSCRIPTION_CACHE_TTL_DAYS', '30'))
         self.cache = TranscriptionCache(cache_dir=cache_dir, ttl_days=cache_ttl)
         
-        logger.debug("AssemblyAI transcription engine initialized")
+        logger.debug("AssemblyAI transcription engine initialized with isolated API key")
     
     def transcribe_file(
         self, 
@@ -348,6 +345,17 @@ class AssemblyAITranscriptionEngine:
         result_container = {"result": None, "exception": None}
 
         try:
+            # CRITICAL FIX: Create a new Transcriber with this instance's API key
+            # This ensures complete isolation between concurrent users
+            # We temporarily set the global key, create the transcriber, then restore
+            original_global_key = aai.settings.api_key
+            try:
+                aai.settings.api_key = self.api_key
+                transcriber = aai.Transcriber()
+            finally:
+                # Restore original global key immediately
+                aai.settings.api_key = original_global_key
+            
             # Configure settings
             config_params = {
                 "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None else True,  # Enable by default for dual-channel
@@ -370,7 +378,8 @@ class AssemblyAITranscriptionEngine:
             submission_error = None
             for attempt in range(3):
                 try:
-                    transcript_submission = self.transcriber.submit(audio_file_path, config=config)
+                    # Use the instance-specific transcriber
+                    transcript_submission = transcriber.submit(audio_file_path, config=config)
                     break
                 except Exception as e:
                     submission_error = e
@@ -385,13 +394,21 @@ class AssemblyAITranscriptionEngine:
 
             transcript_id = transcript_submission.id
             
-            # Poll for completion
+            # Poll for completion using instance-specific API key
             poll_interval = 2.0
             elapsed = 0.0
             
             while elapsed < timeout:
                 try:
-                    transcript = aai.Transcript.get_by_id(transcript_id)
+                    # CRITICAL FIX: Set instance API key before polling
+                    # This ensures we use the correct API key for this specific user
+                    original_global_key = aai.settings.api_key
+                    try:
+                        aai.settings.api_key = self.api_key
+                        transcript = aai.Transcript.get_by_id(transcript_id)
+                    finally:
+                        # Restore original global key immediately
+                        aai.settings.api_key = original_global_key
                 except Exception as e:
                     # Check for 404 Not Found (fatal error, transcript ID invalid/deleted)
                     error_str = str(e)
@@ -648,6 +665,16 @@ class AssemblyAITranscriptionEngine:
         start_time = time.time()
         
         try:
+            # CRITICAL FIX: Create a new Transcriber with this instance's API key
+            # This ensures complete isolation between concurrent users
+            original_global_key = aai.settings.api_key
+            try:
+                aai.settings.api_key = self.api_key
+                transcriber = aai.Transcriber()
+            finally:
+                # Restore original global key immediately
+                aai.settings.api_key = original_global_key
+            
             # Default configuration
             default_config = {
                 "speaker_labels": os.getenv("ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION", "true").lower() == "true",
@@ -662,8 +689,8 @@ class AssemblyAITranscriptionEngine:
             
             logger.debug(f"Transcribing audio from URL: {audio_url}")
             
-            # Transcribe from URL
-            transcript = self.transcriber.transcribe(audio_url, config=config)
+            # Transcribe from URL using instance-specific transcriber
+            transcript = transcriber.transcribe(audio_url, config=config)
             
             # Check for errors
             if transcript.error:
