@@ -940,42 +940,15 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 try:
                     pagination = page.locator("#ccs_cl_pagination")
                     
-                    if not is_campaign_audit:
-                        # Default behavior for BOTH specific agents and "All users":
-                        # Click immediate next sibling page (sequential: 1→2→3→4...)
-                        current = pagination.locator("li.page.selected")
-                        next_page = current.locator("xpath=following-sibling::li[@class='page']").first
-                        next_page.click()
-                        page_number += 1
-                        print(f"NEXT Next page ({page_number})")
-                        time.sleep(2)
-                    else:
-                        # Campaign Audit: hop in 5-page steps (1 → 5 → 10 → 15 → ...)
-                        current = pagination.locator("li.page.selected")
-                        current_label = current.text_content().strip()
-                        
-                        try:
-                            if current_label.isdigit():
-                                page_number = int(current_label)
-                        except:
-                            pass
-                        
-                        # Compute next target page in 5-page increments
-                        if page_number < 5:
-                            target_page_number = 5
-                        else:
-                            target_page_number = ((page_number // 5) + 1) * 5
-                        
-                        # Try to find and click target page
-                        try:
-                            target_page = pagination.locator(f"li.page a:has-text('{target_page_number}')").first
-                            target_page.click()
-                            page_number = target_page_number
-                            print(f"NEXT Jumped to page {target_page_number}")
-                            time.sleep(2)
-                        except:
-                            print(f"WARNING No page {target_page_number} found, stopping pagination")
-                            break
+                    # FIXED: Use sequential pagination for BOTH Agent and Campaign audits
+                    # to ensure all results are collected (was skipping 80% of results in Campaign mode)
+                    # Sequential navigation: 1→2→3→4... (instead of 1→5→10→15...)
+                    current = pagination.locator("li.page.selected")
+                    next_page = current.locator("xpath=following-sibling::li[@class='page']").first
+                    next_page.click()
+                    page_number += 1
+                    print(f"NEXT Next page ({page_number})")
+                    time.sleep(2)
                 
                 except Exception as e:
                     print(f"PAGINATION End of pages reached or pagination failed: {e}")
