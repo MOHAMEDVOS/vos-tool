@@ -1,5 +1,6 @@
 # VOS Tool - Production Requirements (CPU-Only)
 # Last Updated: 2024
+# Force rebuild: 2026-01-29 21:18:00
 # Validated against actual codebase imports
 # CPU-only deployment (no GPU support)
 
