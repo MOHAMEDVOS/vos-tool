@@ -82,6 +82,7 @@ COPY backend/core/ /app/backend/core/
 COPY backend/services/ /app/backend/services/
 COPY backend/models/ /app/backend/models/
 COPY backend/job_tasks/ /app/backend/job_tasks/
+COPY backend/celery_app.py /app/backend/celery_app.py
 COPY backend/__init__.py /app/backend/__init__.py
 COPY backend/main.py /app/backend/main.py
 COPY backend/requirements.txt /app/backend/requirements.txt
