@@ -1765,13 +1765,13 @@ def show_audit_section(
 
                 # Only show progress bar while audit is actively running
                 if status in ("running", "starting"):
-                    # Enable auto-refresh every 2 seconds when worker is running
+                    # Enable auto-refresh every 15 seconds when worker is running
                     # This ensures the UI updates in real-time as the background worker progresses
                     # The autorefresh will automatically rerun the script, picking up updated worker_state values
                     # This is the key fix: without this, Streamlit doesn't know to rerun when session state
                     # changes from a background thread, so the progress bar stays frozen
                     if AUTOREFRESH_AVAILABLE:
-                        st_autorefresh(interval=2000, key="campaign_audit_autorefresh", limit=None)
+                        st_autorefresh(interval=15000, key="campaign_audit_autorefresh", limit=None)
                     else:
                         # Fallback: Show message if autorefresh not available
                         st.warning("⚠️ Auto-refresh not available. Progress updates may be delayed. Install: `pip install streamlit-autorefresh`")
