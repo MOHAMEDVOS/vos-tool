@@ -281,176 +281,254 @@ class CampaignReportGenerator:
     def _build_accurate_prompt(self, campaign_name: str, stats: Dict, 
                                 issues: Dict, agent_data: List[Dict]) -> List[Dict[str, str]]:
         """
-        Build prompt with PRE-CALCULATED statistics to prevent LLM hallucination.
+        Build prompt with PRE-CALCULATED statistics matching user's desired format.
         """
         
-        # Format agent table data
-        agent_table = "| Agent Name | Calls | Late Hello (Bad) | Releasing (Bad) | Rebuttal Skipped | Intro Score | Status | Tier |\n"
-        agent_table += "|------------|-------|------------------|-----------------|------------------|-------------|--------|------|\n"
+        # Calculate average intro score
+        avg_intro = sum(a['avg_intro_score'] for a in agent_data) / len(agent_data) if agent_data else 0
         
-        for agent in agent_data:
-            agent_table += f"| {agent['name']} | {agent['calls']} | {agent['late_hello_bad']} | {agent['releasing_bad']} | {agent['rebuttal_no']} | {agent['avg_intro_score']}% | {agent['common_status']} | {agent['tier']} |\n"
-        
-        # Format comprehension examples
-        comp_examples = ""
-        if issues['comprehension_examples']:
-            comp_examples = "**Actual Comprehension Issues Found:**\n"
-            for ex in issues['comprehension_examples'][:3]:
-                comp_examples += f"- **{ex['agent']}**: \"{ex['excerpt']}\"\n"
-        
-        # Format script error examples
-        script_examples = ""
-        if issues['script_error_examples']:
-            script_examples = "**Actual Script Errors Found:**\n"
-            for ex in issues['script_error_examples'][:3]:
-                script_examples += f"- **{ex['agent']}**: \"{ex['error']}\" → should be \"{ex['correction']}\"\n"
-        
-        # Agents who skipped rebuttals
-        rebuttal_skippers = [a for a in agent_data if a['rebuttal_no'] > 0]
-        rebuttal_skipper_text = ""
-        if rebuttal_skippers:
-            rebuttal_skipper_text = "**Agents who skipped rebuttals:**\n"
-            for a in rebuttal_skippers:
-                rebuttal_skipper_text += f"- {a['name']}: skipped {a['rebuttal_no']} time(s)\n"
+        # Find top performer
+        top_agent = max(agent_data, key=lambda x: x['avg_intro_score']) if agent_data else None
         
         # Tier summaries
         tier1 = [a for a in agent_data if '🟢' in a['tier']]
         tier2 = [a for a in agent_data if '🟡' in a['tier']]
         tier3 = [a for a in agent_data if '🔴' in a['tier']]
         
+        # Build tier tables
+        tier1_table = ""
+        if tier1:
+            tier1_table = "| Agent | Calls | Score | Strength |\n|-------|-------|-------|----------|\n"
+            for a in tier1[:5]:
+                tier1_table += f"| {a['name']} | {a['calls']} | {a['avg_intro_score']}% | Consistent quality |\n"
+        
+        tier2_table = ""
+        if tier2:
+            tier2_table = "| Agent | Calls | Issue | Action Needed |\n|-------|-------|-------|---------------|\n"
+            for a in tier2[:5]:
+                issue = ""
+                if a['comprehension_issues'] > 0:
+                    issue = f"{a['comprehension_issues']} comprehension issues"
+                elif a['script_errors'] > 0:
+                    issue = f"Script errors in {a['script_errors']} calls"
+                elif a['rebuttal_no'] > 0:
+                    issue = "Skipped rebuttal"
+                else:
+                    issue = f"Low intro score ({a['avg_intro_score']}%)"
+                tier2_table += f"| {a['name']} | {a['calls']} | {issue} | Coaching needed |\n"
+        
+        tier3_table = ""
+        if tier3:
+            tier3_table = "| Agent | Calls | Issue | Action |\n|-------|-------|-------|--------|\n"
+            for a in tier3[:5]:
+                issues_list = []
+                if a['comprehension_issues'] > 0:
+                    issues_list.append(f"{a['comprehension_issues']} comprehension")
+                if a['script_errors'] > 0:
+                    issues_list.append(f"{a['script_errors']} script errors")
+                if a['rebuttal_no'] > 0:
+                    issues_list.append(f"{a['rebuttal_no']} skipped rebuttals")
+                issue_text = ", ".join(issues_list) if issues_list else "Multiple issues"
+                tier3_table += f"| {a['name']} | {a['calls']} | {issue_text} | 1:1 coaching |\n"
+        
+        # Format script error details
+        script_error_details = ""
+        if issues['script_error_examples']:
+            ex = issues['script_error_examples'][0]
+            script_error_details = f"""
+**Example:** "{ex['error']}" in transcripts
+**Fix:** "{ex['correction']}"
+**Affects:** {', '.join([e['agent'] for e in issues['script_error_examples'][:3]])}
+"""
+        
+        # Format comprehension details
+        comp_details = ""
+        if issues['comprehension_examples']:
+            ex = issues['comprehension_examples'][0]
+            comp_details = f"""
+**Example:** Customer said "I can't understand you"
+**Root Cause:** Fast speech, unclear pronunciation
+**Affects:** {', '.join([e['agent'] for e in issues['comprehension_examples'][:3]])}
+"""
+        
         user_prompt = f"""
-# CAMPAIGN PERFORMANCE REPORT - DATA-ACCURATE ANALYSIS
+# CAMPAIGN PERFORMANCE REPORT - EXECUTIVE DASHBOARD FORMAT
 
-## ⚠️ CRITICAL INSTRUCTIONS - READ CAREFULLY
-1. USE ONLY THE PRE-CALCULATED STATISTICS BELOW
-2. DO NOT MAKE UP NUMBERS - all stats are already calculated
-3. DO NOT INVENT METRICS like "Clarity Score" or "Metadata Score"
-4. These are OUTBOUND calls - agents call customers, not receive calls
-5. Quote ONLY the transcript excerpts provided below
-6. NO generic examples like "thank you for calling"
-
----
-
-## PRE-CALCULATED STATISTICS (USE THESE EXACT NUMBERS)
+## DATA PROVIDED (USE THESE EXACT NUMBERS):
 
 **Campaign:** {campaign_name}
 **Total Calls:** {stats['total_calls']}
-**Agents Audited:** {stats['unique_agents']}
+**Agents:** {stats['unique_agents']}
+**Average Intro Score:** {avg_intro:.0f}%
+**Top Performer:** {top_agent['name'] if top_agent else 'N/A'} ({top_agent['avg_intro_score'] if top_agent else 0}%)
 
-### KPI Table (ALREADY CALCULATED):
-| Metric | Good (No Issue) | Bad (Issue Found) | % Good |
-|--------|-----------------|-------------------|---------|
-| **Late Hello Detection** | {stats['late_hello']['good']} | {stats['late_hello']['bad']} | {stats['late_hello']['pct_good']}% |
-| **Releasing Detection** | {stats['releasing']['good']} | {stats['releasing']['bad']} | {stats['releasing']['pct_good']}% |
-| **Rebuttal Detection** | {stats['rebuttal']['yes']} | {stats['rebuttal']['no']} | {stats['rebuttal']['pct_yes']}% |
+**KPIs:**
+- Late Hello: {stats['late_hello']['pct_good']}% good
+- Releasing: {stats['releasing']['pct_good']}% good
+- Rebuttal Usage: {stats['rebuttal']['pct_yes']}%
 
-### Rebuttal Statistics:
-- **Calls WITH Rebuttals:** {stats['rebuttal']['yes']}/{stats['total_calls']} ({stats['rebuttal']['pct_yes']}%)
-- **Calls WITHOUT Rebuttals:** {stats['rebuttal']['no']}/{stats['total_calls']}
-{rebuttal_skipper_text}
+**Issues Found:**
+- Comprehension Issues: {issues['comprehension_count']} incidents
+- Script Errors: {issues['script_error_count']} incidents
+- Rebuttals Skipped: {stats['rebuttal']['no']} calls
 
----
-
-## TRANSCRIPT ANALYSIS (REAL ISSUES FOUND)
-
-**Comprehension Issues:** {issues['comprehension_count']} total incidents across {len(issues['comprehension_agents'])} agents
-{comp_examples}
-
-**Script Errors:** {issues['script_error_count']} total incidents across {len(issues['script_error_agents'])} agents
-{script_examples}
+**Agent Tiers:**
+- 🟢 Top Performers: {len(tier1)} agents
+- 🟡 Needs Coaching: {len(tier2)} agents
+- 🔴 Urgent Attention: {len(tier3)} agents
 
 ---
 
-## AGENT PERFORMANCE DATA (PRE-CALCULATED)
+## YOUR TASK: Generate report in THIS EXACT FORMAT:
 
-{agent_table}
+```
+🚀 CAMPAIGN PERFORMANCE DASHBOARD
+Campaign: {campaign_name}
+Generated: [Current Date]
+Calls Analyzed: {stats['total_calls']} calls | Agents: {stats['unique_agents']}
 
-### Agent Tiers:
-- **🟢 Tier 1 (No Issues):** {len(tier1)} agents
-- **🟡 Tier 2 (Minor Issues):** {len(tier2)} agents
-- **🔴 Tier 3 (Needs Coaching):** {len(tier3)} agents
+📊 EXECUTIVE SUMMARY
+Overall Status: [🟢 Excellent / 🟡 Good with Room for Improvement / 🔴 Needs Attention]
+
+| ✅ Strengths | ⚠️ Areas Needing Attention |
+|--------------|----------------------------|
+| [List 2-3 strengths based on data] | [List 2-3 areas needing work] |
+
+🎯 KEY METRICS AT A GLANCE
+```
+🔊 CALL QUALITY
+├── Prompt Answering: {stats['late_hello']['pct_good']}% [✅/⚠️]
+├── Professional Endings: {stats['releasing']['pct_good']}% [✅/⚠️]
+└── Rebuttal Usage: {stats['rebuttal']['pct_yes']}% [✅/⚠️]
+
+🎤 COMMUNICATION
+├── Script Accuracy: [Calculate from script errors]
+└── Customer Understanding: [Calculate from comprehension issues]
+
+👥 TEAM PERFORMANCE
+├── Top Agent: {top_agent['name'] if top_agent else 'N/A'} ({top_agent['avg_intro_score'] if top_agent else 0}%)
+├── Average Score: {avg_intro:.0f}%
+└── Needs Help: {len(tier3)} agents
+```
+
+👥 AGENT PERFORMANCE TIERS
+
+🏆 TOP PERFORMERS ({len(tier1)} agents)
+{tier1_table}
+
+🔧 NEEDS COACHING ({len(tier2)} agents)
+{tier2_table}
+
+⚠️ URGENT ATTENTION ({len(tier3)} agents)
+{tier3_table}
+
+🚨 TOP 3 ISSUES IDENTIFIED
+
+1️⃣ [BIGGEST ISSUE] ([count] incidents) [🔴/🟡]
+**What:** [Description]
+**Example:** [Quote from data]
+**Fix:** [Specific correction]
+**Affects:** [Agent names]
+
+2️⃣ [SECOND ISSUE] ([count] incidents) [🔴/🟡]
+**What:** [Description]
+**Example:** [Quote from data]
+**Root Cause:** [Analysis]
+**Fix:** [Specific action]
+
+3️⃣ [THIRD ISSUE] ([count] incidents) [🔴/🟡]
+**What:** [Description]
+**Affects:** [Agent names]
+**Fix:** [Specific action]
+
+📈 DETAILED PERFORMANCE BREAKDOWN
+
+📞 Call Quality Metrics
+| Metric | Target | Actual | Status |
+|--------|--------|--------|--------|
+| Prompt Answering | 100% | {stats['late_hello']['pct_good']}% | [✅/⚠️/🔴] |
+| Professional Endings | 100% | {stats['releasing']['pct_good']}% | [✅/⚠️/🔴] |
+| Rebuttal Usage | 95% | {stats['rebuttal']['pct_yes']}% | [✅/⚠️/🔴] |
+| Script Accuracy | 95% | [Calculate]% | [✅/⚠️/🔴] |
+| Customer Understanding | 95% | [Calculate]% | [✅/⚠️/🔴] |
+
+👥 Agent-by-Agent Performance
+| Agent | Calls | Intro Score | Rebuttals | Issues | Tier |
+|-------|-------|-------------|-----------|--------|------|
+[Fill with actual agent data]
+
+🛠️ ACTION PLAN - WEEK 1
+
+✅ TODAY (Priority Actions)
+**[Action 1]**
+- Update: [Specific change]
+- Responsible: [Team/Person]
+- Deadline: End of day
+
+**[Action 2]**
+- [Details]
+- Time: This afternoon
+
+✅ THIS WEEK (Training Schedule)
+| Day | Time | Topic | Who |
+|-----|------|-------|-----|
+| Mon | 3:00 PM | [Topic] | [Agents] |
+| Tue | 10:00 AM | [Topic] | All agents |
+| Wed | 11:00 AM | [Topic] | [Specific agents] |
+
+✅ PROCESS IMPROVEMENTS
+- [Improvement 1] - [Description]
+- [Improvement 2] - [Description]
+- [Improvement 3] - [Description]
+
+📈 SUCCESS METRICS & GOALS
+| Goal | Current | Target (Next Week) | How We'll Measure |
+|------|---------|-------------------|-------------------|
+| [Metric 1] | [Current %] | [Target %] | [Method] |
+| [Metric 2] | [Current %] | [Target %] | [Method] |
+
+**Success Criteria:**
+- [Criterion 1]
+- [Criterion 2]
+- [Criterion 3]
+
+💡 KEY INSIGHTS & RECOMMENDATIONS
+
+🎯 What's Working:
+• [Strength 1]
+• [Strength 2]
+• [Strength 3]
+
+🔧 Immediate Fixes:
+**[Fix 1]** - [Description]
+**[Fix 2]** - [Description]
+**[Fix 3]** - [Description]
+```
 
 ---
 
-## YOUR TASK
-
-Using ONLY the pre-calculated data above, generate a professional report with this structure:
-
-### **Overall Campaign Summary**
-- Total Calls Audited: {stats['total_calls']}
-- Agents Audited: {stats['unique_agents']}
-
----
-
-### **Key Performance Indicators (KPIs)**
-[Copy the KPI table exactly as provided above]
-[Add 2-3 sentences analyzing results using ✅ and ⚠️]
-
----
-
-### **Transcription Insights**
-[Summarize the comprehension and script issues using the EXACT counts provided]
-[Quote ONLY the examples provided above - DO NOT make up new ones]
-
----
-
-### **👥 Agent Performance Tiers**
-
-#### 🟢 TIER 1: Clean Performers ({len(tier1)} agents)
-[List agents with no issues, use data from table above]
-
-#### 🟡 TIER 2: Minor Issues ({len(tier2)} agents)
-[For each agent: specific issue from their row, recommendation]
-
-#### 🔴 TIER 3: Needs Coaching ({len(tier3)} agents)
-[For each agent: issues, coaching plan]
-
----
-
-### **Agent-Level Performance Breakdown**
-[Copy the agent table exactly as provided above]
-
----
-
-### **Rebuttal Analysis**
-- Calls with Rebuttals: {stats['rebuttal']['yes']}/{stats['total_calls']} ({stats['rebuttal']['pct_yes']}%)
-- Calls without Rebuttals: {stats['rebuttal']['no']}/{stats['total_calls']}
-[List agents who skipped rebuttals using EXACT data above]
-
----
-
-### **Lowest Performing Agents**
-[Use data from Tier 3 agents above - quote specific issues]
-
----
-
-### **Conclusion**
-[Brief assessment using ✅ and ⚠️ based on the actual numbers]
-
----
-
-### **🛠 ACTION PLAN**
-[Specific recommendations based on REAL issues found]
-- Week 1: Fix script errors ({issues['script_error_count']} incidents)
-- Training focus: Agents with comprehension issues
-- Success metric: Reduce issues by specific percentage
-
----
-
-REMEMBER: ALL STATISTICS MUST MATCH THE NUMBERS PROVIDED ABOVE EXACTLY.
+## CRITICAL FORMATTING RULES:
+1. Use EXACT numbers from data provided above
+2. Use emoji indicators: ✅ (good), ⚠️ (warning), 🔴 (urgent)
+3. Create visual tree structure with ├── and └──
+4. Use tables for structured data
+5. Quote ONLY real examples from transcript data
+6. NO made-up metrics or examples
+7. Keep format EXACTLY as shown above
 """
         
-        system_prompt = """You are a call center performance analyst creating a data-accurate report.
+        system_prompt = """You are a call center performance analyst creating an executive dashboard report.
 
 CRITICAL RULES:
-1. USE ONLY the pre-calculated statistics provided - do not calculate your own
-2. DO NOT invent metrics (no "Clarity Score", "Metadata Score", etc.)
-3. These are OUTBOUND sales calls - agents CALL customers, they don't receive calls
-4. Quote ONLY the transcript excerpts provided - no generic examples
-5. All numbers must match the pre-calculated data exactly
-6. Format output in clean markdown with the tables provided
+1. Follow the EXACT format provided in the template
+2. Use ONLY the pre-calculated statistics - no new calculations
+3. Use emoji indicators for visual clarity (✅ ⚠️ 🔴 🟢 🟡)
+4. Create ASCII tree structures for metrics (├── └──)
+5. Quote ONLY real examples from the data provided
+6. NO hallucinations - all numbers must match the data exactly
+7. These are OUTBOUND calls - agents call customers
 
-You are formatting and presenting pre-analyzed data, not creating new analysis."""
+Your goal is to create a visually appealing, executive-ready dashboard report."""
         
         return [
             {"role": "system", "content": system_prompt},
