@@ -49,6 +49,15 @@ class CampaignReportGenerator:
         except Exception as e:
             logger.error(f"Groq API call failed: {e}")
             raise
+    
+    def _find_column(self, df: pd.DataFrame, keywords: List[str]) -> Optional[str]:
+        """Case-insensitive fuzzy match for column names."""
+        for col in df.columns:
+            col_lower = col.lower()
+            for kw in keywords:
+                if kw.lower() in col_lower:
+                    return col
+        return None
 
     def _calculate_real_statistics(self, df: pd.DataFrame) -> Dict[str, Any]:
         total_calls = len(df)
@@ -60,9 +69,11 @@ class CampaignReportGenerator:
         }
         
         # KEY METRICS: Count total Good (Yes) / Bad (No/Missing)
+        
         # 1. Agent Intro
-        if 'Agent Intro' in df.columns:
-            intro_good = len(df[df['Agent Intro'] == 'Yes'])
+        col_intro = self._find_column(df, ['Agent Intro', 'Intro Detected'])
+        if col_intro:
+            intro_good = len(df[df[col_intro] == 'Yes'])
             stats['agent_intro'] = {
                 'good': intro_good,
                 'pct_good': round(intro_good / total_calls * 100, 1) if total_calls > 0 else 0
@@ -71,8 +82,8 @@ class CampaignReportGenerator:
             stats['agent_intro'] = {'good': 0, 'pct_good': 0, 'missing_column': True}
 
         # 2. Reason for calling
-        col_reason = 'Reason for calling' if 'Reason for calling' in df.columns else 'Reason For Calling'
-        if col_reason in df.columns:
+        col_reason = self._find_column(df, ['Reason for calling', 'Reason For Calling', 'Calling Reason'])
+        if col_reason:
             reason_good = len(df[df[col_reason] == 'Yes'])
             stats['reason_for_calling'] = {
                 'good': reason_good,
@@ -81,9 +92,10 @@ class CampaignReportGenerator:
         else:
             stats['reason_for_calling'] = {'good': 0, 'pct_good': 0, 'missing_column': True}
             
-        # 3. Owner Name (New)
-        if 'Owner Name' in df.columns:
-            owner_good = len(df[df['Owner Name'] == 'Yes'])
+        # 3. Owner Name
+        col_owner = self._find_column(df, ['Owner Name', 'Owner Verified'])
+        if col_owner:
+            owner_good = len(df[df[col_owner] == 'Yes'])
             stats['owner_name'] = {
                 'good': owner_good,
                 'pct_good': round(owner_good / total_calls * 100, 1) if total_calls > 0 else 0
@@ -111,7 +123,7 @@ class CampaignReportGenerator:
         else:
             stats['releasing'] = {'good': total_calls, 'pct_good': 100.0}
         
-        # 6. Rebuttals (Yes is Good, No is Bad)
+        # 6. Rebuttals (Yes is Good)
         if 'Rebuttal Detection' in df.columns:
             rebuttal_yes = len(df[df['Rebuttal Detection'] == 'Yes'])
             rebuttal_no = len(df[df['Rebuttal Detection'] == 'No'])
@@ -129,7 +141,9 @@ class CampaignReportGenerator:
         agent_data = []
         if 'Agent Name' not in df.columns: return []
         
-        col_reason = 'Reason for calling' if 'Reason for calling' in df.columns else 'Reason For Calling'
+        col_intro = self._find_column(df, ['Agent Intro', 'Intro Detected'])
+        col_reason = self._find_column(df, ['Reason for calling', 'Reason For Calling', 'Calling Reason'])
+        col_owner = self._find_column(df, ['Owner Name', 'Owner Verified'])
 
         for agent in df['Agent Name'].unique():
             agent_df = df[df['Agent Name'] == agent]
@@ -140,10 +154,10 @@ class CampaignReportGenerator:
             release_bad = len(agent_df[agent_df['Releasing Detection'] == 'Yes']) if 'Releasing Detection' in df.columns else 0
             rebuttal_skip = len(agent_df[agent_df['Rebuttal Detection'] == 'No']) if 'Rebuttal Detection' in df.columns else 0
             
-            # New Metrics Issues (Expect 'Yes', count non-Yes as issue)
-            intro_bad = len(agent_df[agent_df['Agent Intro'] != 'Yes']) if 'Agent Intro' in df.columns else 0
-            reason_bad = len(agent_df[agent_df[col_reason] != 'Yes']) if col_reason in df.columns else 0
-            owner_bad = len(agent_df[agent_df['Owner Name'] != 'Yes']) if 'Owner Name' in df.columns else 0
+            # New Metrics Issues
+            intro_bad = len(agent_df[agent_df[col_intro] != 'Yes']) if col_intro else 0
+            reason_bad = len(agent_df[agent_df[col_reason] != 'Yes']) if col_reason else 0
+            owner_bad = len(agent_df[agent_df[col_owner] != 'Yes']) if col_owner else 0
 
             # Intro Score
             avg_intro = 0
@@ -193,28 +207,34 @@ class CampaignReportGenerator:
         strengths = []
         weaknesses = []
         
-        # Existing Metrics
-        if stats['late_hello']['pct_good'] >= 95: strengths.append(f"Fast Response Time ({stats['late_hello']['pct_good']}%)")
+        # Logic: If metric exists and >= 80%, consider strength. If < 80%, weakness.
+        
+        # Late Hello
+        if stats['late_hello']['pct_good'] >= 80: strengths.append(f"Prompt Responses ({stats['late_hello']['pct_good']}%)")
         else: weaknesses.append(f"Late Hello Issues ({100-stats['late_hello']['pct_good']:.1f}%)")
         
-        if stats['releasing']['pct_good'] >= 95: strengths.append(f"Professional Calls ({stats['releasing']['pct_good']}%)")
+        # Releasing
+        if stats['releasing']['pct_good'] >= 80: strengths.append(f"Professional Endings ({stats['releasing']['pct_good']}%)")
         else: weaknesses.append(f"Improper Releasing ({100-stats['releasing']['pct_good']:.1f}%)")
         
-        if stats['rebuttal']['pct_yes'] >= 90: strengths.append(f"Great Persistence ({stats['rebuttal']['pct_yes']}%)")
-        else: weaknesses.append(f"Missed Rebuttals ({stats['rebuttal']['no']} missed)")
+        # Rebuttal
+        if stats['rebuttal']['pct_yes'] >= 80: strengths.append(f"Persistence ({stats['rebuttal']['pct_yes']}%)")
+        else: weaknesses.append(f"Rebuttals Missed ({stats['rebuttal']['no']} incidents)")
 
-        # New Metrics
+        # Intro
         if not stats.get('agent_intro', {}).get('missing_column'):
-            if stats['agent_intro']['pct_good'] >= 95: strengths.append(f"Strong Intros ({stats['agent_intro']['pct_good']}%)")
+            if stats['agent_intro']['pct_good'] >= 80: strengths.append(f"Good Intros ({stats['agent_intro']['pct_good']}%)")
             else: weaknesses.append(f"Missing Intros ({100-stats['agent_intro']['pct_good']:.1f}%)")
             
+        # Reason
         if not stats.get('reason_for_calling', {}).get('missing_column'):
-            if stats['reason_for_calling']['pct_good'] >= 95: strengths.append(f"Clear Calling Reason ({stats['reason_for_calling']['pct_good']}%)")
+            if stats['reason_for_calling']['pct_good'] >= 80: strengths.append(f"Clear Reason ({stats['reason_for_calling']['pct_good']}%)")
             else: weaknesses.append(f"Unstated Reason ({100-stats['reason_for_calling']['pct_good']:.1f}%)")
             
+        # Owner
         if not stats.get('owner_name', {}).get('missing_column'):
-            if stats['owner_name']['pct_good'] >= 95: strengths.append(f"Correct Owner Verify ({stats['owner_name']['pct_good']}%)")
-            else: weaknesses.append(f"Failed Owner Verification ({100-stats['owner_name']['pct_good']:.1f}%)")
+            if stats['owner_name']['pct_good'] >= 80: strengths.append(f"Owner Verified ({stats['owner_name']['pct_good']}%)")
+            else: weaknesses.append(f"Unverified Owners ({100-stats['owner_name']['pct_good']:.1f}%)")
         
         if not strengths: strengths.append("Calls Completed")
         if not weaknesses: weaknesses.append("No Issues Found")
@@ -246,6 +266,7 @@ class CampaignReportGenerator:
 """))
 
         # Check Reason for Calling
+        col_reason = self._find_column(pd.DataFrame(agents), ['Reason for calling']) # Actually irrelevant here, used count above
         bad_reasons = stats['total_calls'] - stats['reason_for_calling']['good'] if not stats.get('reason_for_calling', {}).get('missing_column') else 0
         if bad_reasons > 0:
             count = bad_reasons
@@ -338,33 +359,42 @@ class CampaignReportGenerator:
         # 3. Construct Prompt (With New Metrics)
         avg_score = sum(a['avg_intro_score'] for a in agents)/len(agents) if agents else 0
         
-        # Check if new metrics exist to display
-        show_intro = not stats.get('agent_intro', {}).get('missing_column')
-        show_reason = not stats.get('reason_for_calling', {}).get('missing_column')
-        show_owner = not stats.get('owner_name', {}).get('missing_column')
+        # Dynamic Metric Rows (3x2 Layout)
+        # Row 1: Responsiveness | Persistence
+        row1 = f"| Late Hello | {stats['late_hello']['pct_good']}% | {self._status(stats['late_hello']['pct_good'])} | Rebuttal Usage | {stats['rebuttal']['pct_yes']}% | {self._status(stats['rebuttal']['pct_yes'])} |"
         
-        # Dynamic Metric Rows
-        metric_rows = ""
-        metric_rows += f"| Late Hello | {stats['late_hello']['pct_good']}% | {self._status(stats['late_hello']['pct_good'])} | Rebuttal Usage | {stats['rebuttal']['pct_yes']}% | {self._status(stats['rebuttal']['pct_yes'])} |\n"
-        metric_rows += f"| Releasing | {stats['releasing']['pct_good']}% | {self._status(stats['releasing']['pct_good'])} | Calls Audited | {stats['total_calls']} | ✅ |\n"
+        # Row 2: Identity | Clarity
+        intro_val = "N/A"
+        intro_stat = "N/A"
+        reason_val = "N/A"
+        reason_stat = "N/A"
         
-        if show_intro or show_reason:
-            intro_val = f"{stats['agent_intro']['pct_good']}%" if show_intro else "N/A"
-            intro_stat = self._status(stats['agent_intro']['pct_good']) if show_intro else "N/A"
-            reason_val = f"{stats['reason_for_calling']['pct_good']}%" if show_reason else "N/A"
-            reason_stat = self._status(stats['reason_for_calling']['pct_good']) if show_reason else "N/A"
-            metric_rows += f"| Agent Intro | {intro_val} | {intro_stat} | Calling Reason | {reason_val} | {reason_stat} |\n"
-            
-        if show_owner:
-            owner_val = f"{stats['owner_name']['pct_good']}%"
-            owner_stat = self._status(stats['owner_name']['pct_good'])
-            metric_rows += f"| Owner Verify | {owner_val} | {owner_stat} | | | |\n"
+        if not stats.get('agent_intro', {}).get('missing_column'):
+             intro_val = f"{stats['agent_intro']['pct_good']}%"
+             intro_stat = self._status(stats['agent_intro']['pct_good'])
+        
+        if not stats.get('reason_for_calling', {}).get('missing_column'):
+             reason_val = f"{stats['reason_for_calling']['pct_good']}%"
+             reason_stat = self._status(stats['reason_for_calling']['pct_good'])
+             
+        row2 = f"| Agent Intro | {intro_val} | {intro_stat} | Calling Reason | {reason_val} | {reason_stat} |"
+        
+        # Row 3: Professionalism | Verification
+        owner_val = "N/A"
+        owner_stat = "N/A"
+        if not stats.get('owner_name', {}).get('missing_column'):
+             owner_val = f"{stats['owner_name']['pct_good']}%"
+             owner_stat = self._status(stats['owner_name']['pct_good'])
+             
+        row3 = f"| Releasing | {stats['releasing']['pct_good']}% | {self._status(stats['releasing']['pct_good'])} | Owner Verify | {owner_val} | {owner_stat} |"
+        
+        metric_rows = f"{row1}\n{row2}\n{row3}\n"
 
         user_prompt = f"""
 # GENERATE REPORT USING EXACTLY THIS CONTENT (NO CHANGES):
 
 # {campaign_name} Campaign Dashboard
-**Generated:** [Current Date] | **Calls:** {stats['total_calls']} | **Agents:** {stats['unique_agents']} | **Avg Score:** {avg_score:.0f}%
+**Generated:** [Current Date] | **Calls:** {stats['total_calls']} | **Agents:** {stats['unique_agents']} | **Result:** {avg_score:.0f}%
 
 ## Quick Summary
 **Status:** {analysis['status']}
@@ -421,7 +451,12 @@ class CampaignReportGenerator:
         return "Low Score"
 
     def _status(self, val: float) -> str:
-        return "✅" if val >= 95 else "⚠️" if val >= 80 else "🔴"
+        # >80% = ✅
+        # 70-80% = ⚠️
+        # <70% = 🚨
+        if val >= 80: return "✅"
+        elif val >= 70: return "⚠️"
+        else: return "🚨"
 
     def _format_list_as_table_rows(self, strengths: List[str], weaknesses: List[str]) -> str:
         rows = ""
