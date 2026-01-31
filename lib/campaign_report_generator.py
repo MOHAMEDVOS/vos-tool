@@ -352,183 +352,125 @@ class CampaignReportGenerator:
 """
         
         user_prompt = f"""
-# CAMPAIGN PERFORMANCE REPORT - EXECUTIVE DASHBOARD FORMAT
+# CAMPAIGN PERFORMANCE REPORT - COMPACT EXECUTIVE DASHBOARD
 
 ## DATA PROVIDED (USE THESE EXACT NUMBERS):
 
 **Campaign:** {campaign_name}
 **Total Calls:** {stats['total_calls']}
 **Agents:** {stats['unique_agents']}
-**Average Intro Score:** {avg_intro:.0f}%
+**Average Score:** {avg_intro:.0f}%
 **Top Performer:** {top_agent['name'] if top_agent else 'N/A'} ({top_agent['avg_intro_score'] if top_agent else 0}%)
 
 **KPIs:**
-- Late Hello: {stats['late_hello']['pct_good']}% good
-- Releasing: {stats['releasing']['pct_good']}% good
-- Rebuttal Usage: {stats['rebuttal']['pct_yes']}%
+- Late Hello: {stats['late_hello']['pct_good']}% | Releasing: {stats['releasing']['pct_good']}% | Rebuttal: {stats['rebuttal']['pct_yes']}%
 
-**Issues Found:**
-- Comprehension Issues: {issues['comprehension_count']} incidents
-- Script Errors: {issues['script_error_count']} incidents
-- Rebuttals Skipped: {stats['rebuttal']['no']} calls
+**Issues:** Comprehension: {issues['comprehension_count']} | Script Errors: {issues['script_error_count']} | Skipped Rebuttals: {stats['rebuttal']['no']}
 
-**Agent Tiers:**
-- 🟢 Top Performers: {len(tier1)} agents
-- 🟡 Needs Coaching: {len(tier2)} agents
-- 🔴 Urgent Attention: {len(tier3)} agents
+**Tiers:** 🟢 {len(tier1)} | 🟡 {len(tier2)} | 🔴 {len(tier3)}
 
 ---
 
-## YOUR TASK: Generate report in THIS EXACT FORMAT:
+## YOUR TASK: Generate COMPACT report in this format:
 
 ```
-🚀 CAMPAIGN PERFORMANCE DASHBOARD
-Campaign: {campaign_name}
-Generated: [Current Date]
-Calls Analyzed: {stats['total_calls']} calls | Agents: {stats['unique_agents']}
+# 🚀 {campaign_name} Campaign Dashboard
+**Generated:** [Date] | **Calls:** {stats['total_calls']} | **Agents:** {stats['unique_agents']} | **Avg Score:** {avg_intro:.0f}%
 
-📊 EXECUTIVE SUMMARY
-Overall Status: [🟢 Excellent / 🟡 Good with Room for Improvement / 🔴 Needs Attention]
+## 📊 Quick Summary
+**Status:** [🟢 Excellent / 🟡 Good / 🔴 Needs Work]
 
-| ✅ Strengths | ⚠️ Areas Needing Attention |
-|--------------|----------------------------|
-| [List 2-3 strengths based on data] | [List 2-3 areas needing work] |
+| ✅ Strengths | ⚠️ Focus Areas |
+|--------------|----------------|
+| • [2-3 bullet points] | • [2-3 bullet points] |
 
-🎯 KEY METRICS AT A GLANCE
-```
-🔊 CALL QUALITY
-├── Prompt Answering: {stats['late_hello']['pct_good']}% [✅/⚠️]
-├── Professional Endings: {stats['releasing']['pct_good']}% [✅/⚠️]
-└── Rebuttal Usage: {stats['rebuttal']['pct_yes']}% [✅/⚠️]
+---
 
-🎤 COMMUNICATION
-├── Script Accuracy: [Calculate from script errors]
-└── Customer Understanding: [Calculate from comprehension issues]
+## 🎯 Key Metrics
+| Metric | Score | Status | Metric | Score | Status |
+|--------|-------|--------|--------|-------|--------|
+| Late Hello | {stats['late_hello']['pct_good']}% | [✅/⚠️] | Rebuttal Usage | {stats['rebuttal']['pct_yes']}% | [✅/⚠️] |
+| Releasing | {stats['releasing']['pct_good']}% | [✅/⚠️] | Script Accuracy | [calc]% | [✅/⚠️] |
 
-👥 TEAM PERFORMANCE
-├── Top Agent: {top_agent['name'] if top_agent else 'N/A'} ({top_agent['avg_intro_score'] if top_agent else 0}%)
-├── Average Score: {avg_intro:.0f}%
-└── Needs Help: {len(tier3)} agents
-```
+---
 
-👥 AGENT PERFORMANCE TIERS
+## 👥 Agent Performance ({stats['unique_agents']} agents)
 
-🏆 TOP PERFORMERS ({len(tier1)} agents)
-{tier1_table}
+### 🟢 Top Performers ({len(tier1)})
+{tier1_table if tier1_table else "None"}
 
-🔧 NEEDS COACHING ({len(tier2)} agents)
-{tier2_table}
+### � Needs Coaching ({len(tier2)})
+{tier2_table if tier2_table else "None"}
 
-⚠️ URGENT ATTENTION ({len(tier3)} agents)
-{tier3_table}
+### 🔴 Urgent Attention ({len(tier3)})
+{tier3_table if tier3_table else "None"}
 
-🚨 TOP 3 ISSUES IDENTIFIED
+---
 
-1️⃣ [BIGGEST ISSUE] ([count] incidents) [🔴/🟡]
-**What:** [Description]
-**Example:** [Quote from data]
-**Fix:** [Specific correction]
-**Affects:** [Agent names]
+## 🚨 Top Issues
 
-2️⃣ [SECOND ISSUE] ([count] incidents) [🔴/🟡]
-**What:** [Description]
-**Example:** [Quote from data]
-**Root Cause:** [Analysis]
-**Fix:** [Specific action]
+**1. [BIGGEST ISSUE]** ({issues['script_error_count']} incidents) 🔴
+- **Problem:** [Brief description]
+- **Example:** [Quote]
+- **Fix:** [Action]
+- **Who:** [Agents]
 
-3️⃣ [THIRD ISSUE] ([count] incidents) [🔴/🟡]
-**What:** [Description]
-**Affects:** [Agent names]
-**Fix:** [Specific action]
+**2. [SECOND ISSUE]** ({issues['comprehension_count']} incidents) 🟡
+- **Problem:** [Brief description]
+- **Fix:** [Action]
 
-📈 DETAILED PERFORMANCE BREAKDOWN
+**3. [THIRD ISSUE]** ({stats['rebuttal']['no']} incidents) 🟡
+- **Problem:** [Brief description]
+- **Fix:** [Action]
 
-📞 Call Quality Metrics
-| Metric | Target | Actual | Status |
-|--------|--------|--------|--------|
-| Prompt Answering | 100% | {stats['late_hello']['pct_good']}% | [✅/⚠️/🔴] |
-| Professional Endings | 100% | {stats['releasing']['pct_good']}% | [✅/⚠️/🔴] |
-| Rebuttal Usage | 95% | {stats['rebuttal']['pct_yes']}% | [✅/⚠️/🔴] |
-| Script Accuracy | 95% | [Calculate]% | [✅/⚠️/🔴] |
-| Customer Understanding | 95% | [Calculate]% | [✅/⚠️/🔴] |
+---
 
-👥 Agent-by-Agent Performance
-| Agent | Calls | Intro Score | Rebuttals | Issues | Tier |
-|-------|-------|-------------|-----------|--------|------|
-[Fill with actual agent data]
+## 🛠️ Action Plan
 
-🛠️ ACTION PLAN - WEEK 1
+**This Week:**
+1. **[Priority 1]** - [Who] - [When]
+2. **[Priority 2]** - [Who] - [When]
+3. **[Priority 3]** - [Who] - [When]
 
-✅ TODAY (Priority Actions)
-**[Action 1]**
-- Update: [Specific change]
-- Responsible: [Team/Person]
-- Deadline: End of day
+**Success Targets:**
+- Reduce [issue] from [current]% to [target]%
+- Improve [metric] to [target]%
+- Zero [specific problem] incidents
 
-**[Action 2]**
-- [Details]
-- Time: This afternoon
+---
 
-✅ THIS WEEK (Training Schedule)
-| Day | Time | Topic | Who |
-|-----|------|-------|-----|
-| Mon | 3:00 PM | [Topic] | [Agents] |
-| Tue | 10:00 AM | [Topic] | All agents |
-| Wed | 11:00 AM | [Topic] | [Specific agents] |
+## 💡 Bottom Line
 
-✅ PROCESS IMPROVEMENTS
-- [Improvement 1] - [Description]
-- [Improvement 2] - [Description]
-- [Improvement 3] - [Description]
+**What's Working:** [1-2 sentences]
 
-📈 SUCCESS METRICS & GOALS
-| Goal | Current | Target (Next Week) | How We'll Measure |
-|------|---------|-------------------|-------------------|
-| [Metric 1] | [Current %] | [Target %] | [Method] |
-| [Metric 2] | [Current %] | [Target %] | [Method] |
-
-**Success Criteria:**
-- [Criterion 1]
-- [Criterion 2]
-- [Criterion 3]
-
-💡 KEY INSIGHTS & RECOMMENDATIONS
-
-🎯 What's Working:
-• [Strength 1]
-• [Strength 2]
-• [Strength 3]
-
-🔧 Immediate Fixes:
-**[Fix 1]** - [Description]
-**[Fix 2]** - [Description]
-**[Fix 3]** - [Description]
+**Immediate Action:** [1-2 sentences with specific next steps]
 ```
 
 ---
 
 ## CRITICAL FORMATTING RULES:
-1. Use EXACT numbers from data provided above
-2. Use emoji indicators: ✅ (good), ⚠️ (warning), 🔴 (urgent)
-3. Create visual tree structure with ├── and └──
-4. Use tables for structured data
-5. Quote ONLY real examples from transcript data
-6. NO made-up metrics or examples
-7. Keep format EXACTLY as shown above
+1. Keep it COMPACT - minimize vertical space
+2. Use side-by-side tables where possible
+3. Use bullet points (•) not long paragraphs
+4. Use EXACT numbers from data
+5. Use emoji for quick visual scanning: ✅ ⚠️ 🔴 🟢 🟡
+6. Keep sentences SHORT and CLEAR
+7. NO made-up data or examples
+8. Maximum 3 items per list
+9. Use plain English - no jargon
 """
         
-        system_prompt = """You are a call center performance analyst creating an executive dashboard report.
+        system_prompt = """You are creating a COMPACT executive dashboard - easy to scan, minimal scrolling.
 
 CRITICAL RULES:
-1. Follow the EXACT format provided in the template
-2. Use ONLY the pre-calculated statistics - no new calculations
-3. Use emoji indicators for visual clarity (✅ ⚠️ 🔴 🟢 🟡)
-4. Create ASCII tree structures for metrics (├── └──)
-5. Quote ONLY real examples from the data provided
-6. NO hallucinations - all numbers must match the data exactly
-7. These are OUTBOUND calls - agents call customers
+1. COMPACT FORMAT - use tables side-by-side, short bullet points
+2. PLAIN ENGLISH - simple words, short sentences
+3. VISUAL CLARITY - use ✅ ⚠️ 🔴 for quick scanning
+4. EXACT NUMBERS - use only pre-calculated data
+5. NO FLUFF - every word must add value
+6. SCANNABLE - busy executives should grasp it in 30 seconds
 
-Your goal is to create a visually appealing, executive-ready dashboard report."""
+Think: "Dashboard on one screen" not "Long report"."""
         
         return [
             {"role": "system", "content": system_prompt},

@@ -148,8 +148,89 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
         # Display AI report if generated
         if 'campaign_ai_report' in st.session_state:
             st.markdown("---")
+            
+            # Custom CSS for better readability
+            st.markdown("""
+            <style>
+            /* Make report text easier to read */
+            .stMarkdown {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+            }
+            
+            /* Compact headers */
+            .stMarkdown h1 {
+                font-size: 1.8rem !important;
+                margin-top: 0.5rem !important;
+                margin-bottom: 0.5rem !important;
+                color: #1f77b4;
+            }
+            
+            .stMarkdown h2 {
+                font-size: 1.4rem !important;
+                margin-top: 0.8rem !important;
+                margin-bottom: 0.4rem !important;
+                color: #2ca02c;
+            }
+            
+            .stMarkdown h3 {
+                font-size: 1.2rem !important;
+                margin-top: 0.6rem !important;
+                margin-bottom: 0.3rem !important;
+                color: #ff7f0e;
+            }
+            
+            /* Compact tables */
+            .stMarkdown table {
+                font-size: 0.9rem !important;
+                margin: 0.5rem 0 !important;
+            }
+            
+            .stMarkdown th {
+                background-color: #f0f2f6 !important;
+                padding: 0.4rem !important;
+                font-weight: 600 !important;
+            }
+            
+            .stMarkdown td {
+                padding: 0.3rem !important;
+            }
+            
+            /* Compact lists */
+            .stMarkdown ul, .stMarkdown ol {
+                margin: 0.3rem 0 !important;
+                padding-left: 1.5rem !important;
+            }
+            
+            .stMarkdown li {
+                margin: 0.2rem 0 !important;
+            }
+            
+            /* Code blocks (for tree structures) */
+            .stMarkdown pre {
+                background-color: #f8f9fa !important;
+                padding: 0.5rem !important;
+                border-radius: 4px !important;
+                font-size: 0.85rem !important;
+                line-height: 1.4 !important;
+                margin: 0.5rem 0 !important;
+            }
+            
+            /* Reduce paragraph spacing */
+            .stMarkdown p {
+                margin: 0.3rem 0 !important;
+            }
+            
+            /* Horizontal rules */
+            .stMarkdown hr {
+                margin: 0.8rem 0 !important;
+            }
+            </style>
+            """, unsafe_allow_html=True)
+            
             st.markdown(st.session_state['campaign_ai_report'])
             st.markdown("---")
+
 
         # Remove unwanted columns from display (keep in data for CSV export)
         columns_to_hide = ['File Name', 'File Path', 'Call Duration', 'Confidence Score', 'audit_timestamp']
