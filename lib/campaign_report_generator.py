@@ -1,5 +1,5 @@
 """
-LLM-Powered Campaign Performance Report Generator (STRICT DATA-DRIVEN - SIMPLIFIED)
+LLM-Powered Campaign Performance Report Generator (STRICT DATA-DRIVEN - SIMPLIFIED + NEW METRICS)
 Uses Groq (llama-3.1-8b-instant) strictly for formatting.
 ALL analysis, examples, and recommendations are pre-calculated in Python to prevent hallucination.
 """
@@ -59,8 +59,39 @@ class CampaignReportGenerator:
             'unique_agents': unique_agents,
         }
         
-        # KPIs - Simplified to 3 Core Metrics
-        # 1. Responsiveness (Late Hello)
+        # KEY METRICS: Count total Good (Yes) / Bad (No/Missing)
+        # 1. Agent Intro
+        if 'Agent Intro' in df.columns:
+            intro_good = len(df[df['Agent Intro'] == 'Yes'])
+            stats['agent_intro'] = {
+                'good': intro_good,
+                'pct_good': round(intro_good / total_calls * 100, 1) if total_calls > 0 else 0
+            }
+        else:
+            stats['agent_intro'] = {'good': 0, 'pct_good': 0, 'missing_column': True}
+
+        # 2. Reason for calling
+        col_reason = 'Reason for calling' if 'Reason for calling' in df.columns else 'Reason For Calling'
+        if col_reason in df.columns:
+            reason_good = len(df[df[col_reason] == 'Yes'])
+            stats['reason_for_calling'] = {
+                'good': reason_good,
+                'pct_good': round(reason_good / total_calls * 100, 1) if total_calls > 0 else 0
+            }
+        else:
+            stats['reason_for_calling'] = {'good': 0, 'pct_good': 0, 'missing_column': True}
+            
+        # 3. Owner Name (New)
+        if 'Owner Name' in df.columns:
+            owner_good = len(df[df['Owner Name'] == 'Yes'])
+            stats['owner_name'] = {
+                'good': owner_good,
+                'pct_good': round(owner_good / total_calls * 100, 1) if total_calls > 0 else 0
+            }
+        else:
+            stats['owner_name'] = {'good': 0, 'pct_good': 0, 'missing_column': True}
+
+        # 4. Late Hello (Yes is Bad)
         if 'Late Hello Detection' in df.columns:
             late_hello_bad = len(df[df['Late Hello Detection'] == 'Yes'])
             stats['late_hello'] = {
@@ -70,7 +101,7 @@ class CampaignReportGenerator:
         else:
             stats['late_hello'] = {'good': total_calls, 'pct_good': 100.0}
         
-        # 2. Professionalism (Releasing)
+        # 5. Releasing (Yes is Bad)
         if 'Releasing Detection' in df.columns:
             releasing_bad = len(df[df['Releasing Detection'] == 'Yes'])
             stats['releasing'] = {
@@ -80,9 +111,8 @@ class CampaignReportGenerator:
         else:
             stats['releasing'] = {'good': total_calls, 'pct_good': 100.0}
         
-        # 3. Persistence (Rebuttals)
+        # 6. Rebuttals (Yes is Good, No is Bad)
         if 'Rebuttal Detection' in df.columns:
-            # Note: "No" means rebuttal was skipped (Bad), "Yes" means used (Good)
             rebuttal_yes = len(df[df['Rebuttal Detection'] == 'Yes'])
             rebuttal_no = len(df[df['Rebuttal Detection'] == 'No'])
             stats['rebuttal'] = {
@@ -99,15 +129,22 @@ class CampaignReportGenerator:
         agent_data = []
         if 'Agent Name' not in df.columns: return []
         
+        col_reason = 'Reason for calling' if 'Reason for calling' in df.columns else 'Reason For Calling'
+
         for agent in df['Agent Name'].unique():
             agent_df = df[df['Agent Name'] == agent]
             calls = len(agent_df)
             
-            # Metadata Issues Only - No Transcript Parsing
+            # Count Issues
             late_bad = len(agent_df[agent_df['Late Hello Detection'] == 'Yes']) if 'Late Hello Detection' in df.columns else 0
             release_bad = len(agent_df[agent_df['Releasing Detection'] == 'Yes']) if 'Releasing Detection' in df.columns else 0
             rebuttal_skip = len(agent_df[agent_df['Rebuttal Detection'] == 'No']) if 'Rebuttal Detection' in df.columns else 0
             
+            # New Metrics Issues (Expect 'Yes', count non-Yes as issue)
+            intro_bad = len(agent_df[agent_df['Agent Intro'] != 'Yes']) if 'Agent Intro' in df.columns else 0
+            reason_bad = len(agent_df[agent_df[col_reason] != 'Yes']) if col_reason in df.columns else 0
+            owner_bad = len(agent_df[agent_df['Owner Name'] != 'Yes']) if 'Owner Name' in df.columns else 0
+
             # Intro Score
             avg_intro = 0
             if 'Intro Score' in df.columns:
@@ -116,12 +153,12 @@ class CampaignReportGenerator:
                     avg_intro = round(scores.mean(), 1)
                 except: pass
 
-            total_issues = late_bad + release_bad + rebuttal_skip
+            total_issues = late_bad + release_bad + rebuttal_skip + intro_bad + reason_bad + owner_bad
             
             # Simplified Tier Logic
             if total_issues == 0 and avg_intro >= 90: tier = '🟢'
             elif total_issues <= 1 and avg_intro >= 80: tier = '🟢'
-            elif total_issues <= 2: tier = '🟡'
+            elif total_issues <= 3: tier = '🟡'
             else: tier = '🔴'
             
             agent_data.append({
@@ -131,6 +168,9 @@ class CampaignReportGenerator:
                 'late_hello_bad': late_bad,
                 'releasing_bad': release_bad,
                 'rebuttal_no': rebuttal_skip,
+                'intro_bad': intro_bad,
+                'reason_bad': reason_bad,
+                'owner_bad': owner_bad,
                 'tier': tier
             })
             
@@ -142,18 +182,18 @@ class CampaignReportGenerator:
         # 1. Overall Status
         tier1_count = len([a for a in agents if a['tier'] == '🟢'])
         tier3_count = len([a for a in agents if a['tier'] == '🔴'])
-        
         if tier3_count == 0 and tier1_count >= len(agents)/2:
             status = "🟢 Excellent - High Performance"
         elif tier3_count > len(agents)/3:
-            status = "🔴 Needs Attention - Rebuttal Issues Detected"
+            status = "🔴 Needs Attention - Multiple Critical Issues"
         else:
             status = "🟡 Good - Standard Performance"
             
-        # 2. Strengths & Weaknesses (Simplified)
+        # 2. Strengths & Weaknesses
         strengths = []
         weaknesses = []
         
+        # Existing Metrics
         if stats['late_hello']['pct_good'] >= 95: strengths.append(f"Fast Response Time ({stats['late_hello']['pct_good']}%)")
         else: weaknesses.append(f"Late Hello Issues ({100-stats['late_hello']['pct_good']:.1f}%)")
         
@@ -162,23 +202,69 @@ class CampaignReportGenerator:
         
         if stats['rebuttal']['pct_yes'] >= 90: strengths.append(f"Great Persistence ({stats['rebuttal']['pct_yes']}%)")
         else: weaknesses.append(f"Missed Rebuttals ({stats['rebuttal']['no']} missed)")
+
+        # New Metrics
+        if not stats.get('agent_intro', {}).get('missing_column'):
+            if stats['agent_intro']['pct_good'] >= 95: strengths.append(f"Strong Intros ({stats['agent_intro']['pct_good']}%)")
+            else: weaknesses.append(f"Missing Intros ({100-stats['agent_intro']['pct_good']:.1f}%)")
+            
+        if not stats.get('reason_for_calling', {}).get('missing_column'):
+            if stats['reason_for_calling']['pct_good'] >= 95: strengths.append(f"Clear Calling Reason ({stats['reason_for_calling']['pct_good']}%)")
+            else: weaknesses.append(f"Unstated Reason ({100-stats['reason_for_calling']['pct_good']:.1f}%)")
+            
+        if not stats.get('owner_name', {}).get('missing_column'):
+            if stats['owner_name']['pct_good'] >= 95: strengths.append(f"Correct Owner Verify ({stats['owner_name']['pct_good']}%)")
+            else: weaknesses.append(f"Failed Owner Verification ({100-stats['owner_name']['pct_good']:.1f}%)")
         
         if not strengths: strengths.append("Calls Completed")
         if not weaknesses: weaknesses.append("No Issues Found")
         
-        # 3. Top Issues (Simplified - No transcripts)
+        # 3. Top Issues
         top_issues_text = ""
         problem_list = []
         
-        # Check Rebuttals (Priority 1)
+        # Check Rebuttals
         if stats['rebuttal']['no'] > 0:
             count = stats['rebuttal']['no']
             skippers = [a['name'] for a in agents if a['rebuttal_no'] > 0]
-            problem_list.append((count, f"""
-**1. MISSED REBUTTALS** ({count} incidents) �
+            if count > 0:
+                problem_list.append((count, f"""
+**1. MISSED REBUTTALS** ({count} incidents) 🟡
 - **Problem:** Agents ending call too early after customer says 'No'.
-- **Goal:** One attempt to save the call per refusal.
 - **Agents:** {', '.join(skippers[:3])}
+"""))
+
+        # Check Intro
+        bad_intros = stats['total_calls'] - stats['agent_intro']['good'] if not stats.get('agent_intro', {}).get('missing_column') else 0
+        if bad_intros > 0:
+            count = bad_intros
+            lazy_agents = [a['name'] for a in agents if a.get('intro_bad', 0) > 0]
+            problem_list.append((count, f"""
+**2. MISSING INTRO** ({count} incidents) 🟡
+- **Problem:** Agents failing to introduce themselves properly.
+- **Agents:** {', '.join(lazy_agents[:3])}
+"""))
+
+        # Check Reason for Calling
+        bad_reasons = stats['total_calls'] - stats['reason_for_calling']['good'] if not stats.get('reason_for_calling', {}).get('missing_column') else 0
+        if bad_reasons > 0:
+            count = bad_reasons
+            vague_agents = [a['name'] for a in agents if a.get('reason_bad', 0) > 0]
+            problem_list.append((count, f"""
+**3. UNCLEAR REASON** ({count} incidents) 🟡
+- **Problem:** Agents failing to state the reason for calling.
+- **Agents:** {', '.join(vague_agents[:3])}
+"""))
+
+        # Check Owner Name
+        bad_owners = stats['total_calls'] - stats['owner_name']['good'] if not stats.get('owner_name', {}).get('missing_column') else 0
+        if bad_owners > 0:
+            count = bad_owners
+            lost_agents = [a['name'] for a in agents if a.get('owner_bad', 0) > 0]
+            problem_list.append((count, f"""
+**4. OWNER VERIFICATION FAILED** ({count} incidents) 🟡
+- **Problem:** Agents failing to verify they are speaking to the correct owner.
+- **Agents:** {', '.join(lost_agents[:3])}
 """))
 
         # Check Late Hello
@@ -187,9 +273,8 @@ class CampaignReportGenerator:
             count = late_hello_bad
             late_agents = [a['name'] for a in agents if a['late_hello_bad'] > 0]
             problem_list.append((count, f"""
-**2. LATE HELLO** ({count} incidents) 🟡
+**5. LATE HELLO** ({count} incidents) 🟡
 - **Problem:** Delay in greeting the customer.
-- **Goal:** Greet immediately upon connection.
 - **Agents:** {', '.join(late_agents[:3])}
 """))
             
@@ -201,10 +286,14 @@ class CampaignReportGenerator:
 
         # 4. Action Plan
         action_plan_text = ""
+        if 'Intros' in str(weaknesses):
+            action_plan_text += "**Priority:** Drill proper introduction script (Name + Company)\n"
+        if 'Reason' in str(weaknesses):
+            action_plan_text += "**Priority:** Practice stating reason for call clearly\n"
+        if 'Owner' in str(weaknesses):
+            action_plan_text += "**Priority:** Ensure agents ask for property owner explicitly\n"
         if 'Rebuttals' in str(weaknesses):
             action_plan_text += "**Priority:** Coach team on Objection Handling (Don't give up on first 'No')\n"
-        if 'Late Hello' in str(weaknesses):
-            action_plan_text += "**Priority:** Technical check or training on immediate greeting\n"
         
         if not action_plan_text:
             action_plan_text = "**Status:** Maintain current high performance standards."
@@ -246,9 +335,31 @@ class CampaignReportGenerator:
         if tier3:
              tier3_table = "| Agent | Calls | Critical Issue |\n|---|---|---|\n" + "\n".join([f"| {a['name']} | {a['calls']} | {self._get_agent_issue(a)} |" for a in tier3[:5]])
 
-        # 3. Construct Prompt (Simplified Layout)
+        # 3. Construct Prompt (With New Metrics)
         avg_score = sum(a['avg_intro_score'] for a in agents)/len(agents) if agents else 0
         
+        # Check if new metrics exist to display
+        show_intro = not stats.get('agent_intro', {}).get('missing_column')
+        show_reason = not stats.get('reason_for_calling', {}).get('missing_column')
+        show_owner = not stats.get('owner_name', {}).get('missing_column')
+        
+        # Dynamic Metric Rows
+        metric_rows = ""
+        metric_rows += f"| Late Hello | {stats['late_hello']['pct_good']}% | {self._status(stats['late_hello']['pct_good'])} | Rebuttal Usage | {stats['rebuttal']['pct_yes']}% | {self._status(stats['rebuttal']['pct_yes'])} |\n"
+        metric_rows += f"| Releasing | {stats['releasing']['pct_good']}% | {self._status(stats['releasing']['pct_good'])} | Calls Audited | {stats['total_calls']} | ✅ |\n"
+        
+        if show_intro or show_reason:
+            intro_val = f"{stats['agent_intro']['pct_good']}%" if show_intro else "N/A"
+            intro_stat = self._status(stats['agent_intro']['pct_good']) if show_intro else "N/A"
+            reason_val = f"{stats['reason_for_calling']['pct_good']}%" if show_reason else "N/A"
+            reason_stat = self._status(stats['reason_for_calling']['pct_good']) if show_reason else "N/A"
+            metric_rows += f"| Agent Intro | {intro_val} | {intro_stat} | Calling Reason | {reason_val} | {reason_stat} |\n"
+            
+        if show_owner:
+            owner_val = f"{stats['owner_name']['pct_good']}%"
+            owner_stat = self._status(stats['owner_name']['pct_good'])
+            metric_rows += f"| Owner Verify | {owner_val} | {owner_stat} | | | |\n"
+
         user_prompt = f"""
 # GENERATE REPORT USING EXACTLY THIS CONTENT (NO CHANGES):
 
@@ -267,20 +378,19 @@ class CampaignReportGenerator:
 ## Key Metrics
 | Metric | Score | Status | Metric | Score | Status |
 |--------|-------|--------|--------|-------|--------|
-| Late Hello | {stats['late_hello']['pct_good']}% | {self._status(stats['late_hello']['pct_good'])} | Rebuttal Usage | {stats['rebuttal']['pct_yes']}% | {self._status(stats['rebuttal']['pct_yes'])} |
-| Releasing | {stats['releasing']['pct_good']}% | {self._status(stats['releasing']['pct_good'])} | Calls Audited | {stats['total_calls']} | ✅ |
+{metric_rows}
 
 ---
 
 ## Agent Performance
 
-### Top Performers ({len(tier1)})
+### Top Performers (Min 10 Calls)
 {tier1_table if tier1_table else "None"}
 
-### Needs Coaching ({len(tier2)})
+### Needs Coaching (Min 10 Calls)
 {tier2_table if tier2_table else "None"}
 
-### Urgent Attention ({len(tier3)})
+### Urgent Attention (Unfiltered)
 {tier3_table if tier3_table else "None"}
 
 ---
@@ -302,6 +412,9 @@ class CampaignReportGenerator:
         ])
 
     def _get_agent_issue(self, agent: Dict) -> str:
+        if agent.get('intro_bad', 0) > 0: return "Missing Intro"
+        if agent.get('reason_bad', 0) > 0: return "Missing Reason"
+        if agent.get('owner_bad', 0) > 0: return "Owner Not Verified"
         if agent['rebuttal_no'] > 0: return "Skipped Rebuttal"
         if agent['late_hello_bad'] > 0: return "Late Hello"
         if agent['releasing_bad'] > 0: return "Improper Release"
