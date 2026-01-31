@@ -243,7 +243,7 @@ class CampaignReportGenerator:
 - **Problem:** Agents misspelling or mispronouncing keywords
 - **Example:** "{example['error']}" (should be "{example['correction']}")
 - **Fix:** Review script pronunciation guide
-- **Who:** {', '.join([k for k,v in issues['script_error_agents'].items() if v>0][:3])}
+- **Agents:** {', '.join([k for k,v in issues['script_error_agents'].items() if v>0][:3])}
 """))
             
         # Check Comprehension
@@ -255,7 +255,7 @@ class CampaignReportGenerator:
 - **Problem:** Customers expressing confusion
 - **Example:** "{example['quote']}"
 - **Fix:** Speak slower, check audio clarity
-- **Who:** {', '.join([k for k,v in issues['comprehension_agents'].items() if v>0][:3])}
+- **Agents:** {', '.join([k for k,v in issues['comprehension_agents'].items() if v>0][:3])}
 """))
 
         # Check Rebuttals
@@ -266,7 +266,7 @@ class CampaignReportGenerator:
 **3. MISSED REBUTTALS** ({count} incidents) 🟡
 - **Problem:** Ending call without making a second attempt
 - **Fix:** Requirement: 1 rebuttal per refusal
-- **Who:** {', '.join(skippers[:3])}
+- **Agents:** {', '.join(skippers[:3])}
 """))
             
         # Sort by count and join
@@ -328,19 +328,19 @@ class CampaignReportGenerator:
         user_prompt = f"""
 # GENERATE REPORT USING EXACTLY THIS CONTENT (NO CHANGES):
 
-# 🚀 {campaign_name} Campaign Dashboard
+# {campaign_name} Campaign Dashboard
 **Generated:** [Current Date] | **Calls:** {stats['total_calls']} | **Agents:** {stats['unique_agents']} | **Avg Score:** {avg_score:.0f}%
 
-## 📊 Quick Summary
+## Quick Summary
 **Status:** {analysis['status']}
 
-| ✅ Strengths | ⚠️ Focus Areas |
-|--------------|----------------|
+| Strengths | Focus Areas |
+|-----------|-------------|
 {self._format_list_as_table_rows(analysis['strengths'], analysis['weaknesses'])}
 
 ---
 
-## 🎯 Key Metrics
+## Key Metrics
 | Metric | Score | Status | Metric | Score | Status |
 |--------|-------|--------|--------|-------|--------|
 | Late Hello | {stats['late_hello']['pct_good']}% | {self._status(stats['late_hello']['pct_good'])} | Rebuttal Usage | {stats['rebuttal']['pct_yes']}% | {self._status(stats['rebuttal']['pct_yes'])} |
@@ -348,25 +348,25 @@ class CampaignReportGenerator:
 
 ---
 
-## 👥 Agent Performance
+## Agent Performance
 
-### 🟢 Top Performers ({len(tier1)})
+### Top Performers ({len(tier1)})
 {tier1_table if tier1_table else "None"}
 
-### 🟡 Needs Coaching ({len(tier2)})
+### Needs Coaching ({len(tier2)})
 {tier2_table if tier2_table else "None"}
 
-### 🔴 Urgent Attention ({len(tier3)})
+### Urgent Attention ({len(tier3)})
 {tier3_table if tier3_table else "None"}
 
 ---
 
-## 🚨 Top Issues
+## Top Issues
 {analysis['top_issues']}
 
 ---
 
-## 🛠️ Action Plan
+## Action Plan
 **This Week:**
 {analysis['action_plan']}
 
@@ -377,7 +377,7 @@ class CampaignReportGenerator:
 
 ---
 
-## 💡 Bottom Line
+## Bottom Line
 **Status:** {analysis['status']}. 
 **Focus:** Fix {analysis['weaknesses'][0] if analysis['weaknesses'] else 'minor issues'} immediately.
 """

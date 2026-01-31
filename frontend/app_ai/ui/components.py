@@ -152,51 +152,63 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             # Custom CSS for better readability
             st.markdown("""
             <style>
-            /* Make report text easier to read */
+            /* Make report text easier to read - Dark Mode Friendly */
             .stMarkdown {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 line-height: 1.6;
             }
             
-            /* Compact headers */
+            /* Compact headers - cleaner look */
             .stMarkdown h1 {
                 font-size: 1.8rem !important;
                 margin-top: 0.5rem !important;
                 margin-bottom: 0.5rem !important;
-                color: #1f77b4;
+                color: #4da6ff !important; /* Lighter blue for dark mode */
             }
             
             .stMarkdown h2 {
                 font-size: 1.4rem !important;
                 margin-top: 0.8rem !important;
                 margin-bottom: 0.4rem !important;
-                color: #2ca02c;
+                color: #5cd65c !important; /* Lighter green */
+                border-bottom: 1px solid #333;
+                padding-bottom: 5px;
             }
             
             .stMarkdown h3 {
                 font-size: 1.2rem !important;
                 margin-top: 0.6rem !important;
                 margin-bottom: 0.3rem !important;
-                color: #ff7f0e;
+                color: #ffad33 !important; /* Lighter orange */
             }
             
-            /* Compact tables */
+            /* Data Tables - Dark Theme Matching */
             .stMarkdown table {
                 font-size: 0.9rem !important;
                 margin: 0.5rem 0 !important;
+                width: 100%;
+                border-collapse: collapse;
             }
             
             .stMarkdown th {
-                background-color: #f0f2f6 !important;
-                padding: 0.4rem !important;
+                background-color: transparent !important; /* Remove white background */
+                color: #e0e0e0 !important; /* Light text */
+                padding: 8px !important;
                 font-weight: 600 !important;
+                text-align: left;
+                border-bottom: 2px solid #555 !important;
+            }
+            
+            .stMarkdown tr {
+                border-bottom: 1px solid #333 !important;
             }
             
             .stMarkdown td {
-                padding: 0.3rem !important;
+                padding: 8px !important;
+                color: #ccc !important;
             }
             
-            /* Compact lists */
+            /* Lists */
             .stMarkdown ul, .stMarkdown ol {
                 margin: 0.3rem 0 !important;
                 padding-left: 1.5rem !important;
@@ -204,26 +216,20 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
             
             .stMarkdown li {
                 margin: 0.2rem 0 !important;
+                color: #ddd !important;
             }
             
-            /* Code blocks (for tree structures) */
-            .stMarkdown pre {
-                background-color: #f8f9fa !important;
+            /* Code blocks / Quotes */
+            .stMarkdown blockquote {
+                border-left: 4px solid #555 !important;
+                background-color: rgba(255,255,255,0.05) !important;
                 padding: 0.5rem !important;
-                border-radius: 4px !important;
-                font-size: 0.85rem !important;
-                line-height: 1.4 !important;
-                margin: 0.5rem 0 !important;
+                color: #aaa !important;
             }
             
-            /* Reduce paragraph spacing */
-            .stMarkdown p {
-                margin: 0.3rem 0 !important;
-            }
-            
-            /* Horizontal rules */
             .stMarkdown hr {
-                margin: 0.8rem 0 !important;
+                border-color: #444 !important;
+                margin: 1rem 0 !important;
             }
             </style>
             """, unsafe_allow_html=True)
