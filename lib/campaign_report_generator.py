@@ -226,17 +226,21 @@ class CampaignReportGenerator:
         analysis = self._generate_analysis_sections(stats, agents)
         
         # 2. Build Tables
-        tier1 = [a for a in agents if a['tier'] == '🟢']
-        tier2 = [a for a in agents if a['tier'] == '🟡']
+        tier1 = [a for a in agents if a['tier'] == '🟢' and a['calls'] >= 10]
+        tier2 = [a for a in agents if a['tier'] == '🟡' and a['calls'] >= 10]
         tier3 = [a for a in agents if a['tier'] == '🔴']
         
         tier1_table = ""
         if tier1:
             tier1_table = "| Agent | Calls | Score |\n|---|---|---|\n" + "\n".join([f"| {a['name']} | {a['calls']} | {a['avg_intro_score']}% |" for a in tier1[:5]])
+        else:
+            tier1_table = "No agents meet the minimum volume threshold (10 calls) for top performer status."
         
         tier2_table = ""
         if tier2:
              tier2_table = "| Agent | Calls | Issue |\n|---|---|---|\n" + "\n".join([f"| {a['name']} | {a['calls']} | {self._get_agent_issue(a)} |" for a in tier2[:5]])
+        else:
+             tier2_table = "No agents meet the criteria for coaching (min 10 calls)."
 
         tier3_table = ""
         if tier3:
