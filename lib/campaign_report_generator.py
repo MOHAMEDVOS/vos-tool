@@ -1,5 +1,5 @@
 """
-LLM-Powered Campaign Performance Report Generator (STRICT DATA-DRIVEN)
+LLM-Powered Campaign Performance Report Generator (STRICT DATA-DRIVEN - SIMPLIFIED)
 Uses Groq (llama-3.1-8b-instant) strictly for formatting.
 ALL analysis, examples, and recommendations are pre-calculated in Python to prevent hallucination.
 """
@@ -59,7 +59,8 @@ class CampaignReportGenerator:
             'unique_agents': unique_agents,
         }
         
-        # KPIs
+        # KPIs - Simplified to 3 Core Metrics
+        # 1. Responsiveness (Late Hello)
         if 'Late Hello Detection' in df.columns:
             late_hello_bad = len(df[df['Late Hello Detection'] == 'Yes'])
             stats['late_hello'] = {
@@ -69,6 +70,7 @@ class CampaignReportGenerator:
         else:
             stats['late_hello'] = {'good': total_calls, 'pct_good': 100.0}
         
+        # 2. Professionalism (Releasing)
         if 'Releasing Detection' in df.columns:
             releasing_bad = len(df[df['Releasing Detection'] == 'Yes'])
             stats['releasing'] = {
@@ -78,10 +80,9 @@ class CampaignReportGenerator:
         else:
             stats['releasing'] = {'good': total_calls, 'pct_good': 100.0}
         
+        # 3. Persistence (Rebuttals)
         if 'Rebuttal Detection' in df.columns:
             # Note: "No" means rebuttal was skipped (Bad), "Yes" means used (Good)
-            # Some entries might be N/A if calls didn't reach rebuttal stage? 
-            # Assuming 'No' is the issue we track.
             rebuttal_yes = len(df[df['Rebuttal Detection'] == 'Yes'])
             rebuttal_no = len(df[df['Rebuttal Detection'] == 'No'])
             stats['rebuttal'] = {
@@ -94,64 +95,7 @@ class CampaignReportGenerator:
             
         return stats
 
-    def _extract_real_transcript_issues(self, df: pd.DataFrame) -> Dict[str, Any]:
-        issues = {
-            'comprehension_count': 0,
-            'comprehension_agents': Counter(),
-            'comprehension_examples': [],
-            'script_error_count': 0,
-            'script_error_agents': Counter(),
-            'script_error_examples': []
-        }
-        
-        if 'Transcription' not in df.columns:
-            return issues
-            
-        comprehension_patterns = [r"can'?t understand", r"pardon\??", r"say.*again", r"repeat that"]
-        script_errors = [
-            ('interestted', 'interested'),
-            ('sellling', 'selling'),
-            ('propertty', 'property'),
-            ('callingg', 'calling'),
-            ('gardening', 'calling about'), # Common hallucination/ASR error
-        ]
-
-        for idx, row in df.iterrows():
-            agent = row.get('Agent Name', 'Unknown')
-            transcript = str(row.get('Transcription', '')).lower()
-            if not transcript or transcript == 'nan': continue
-            
-            # Comprehension
-            for pat in comprehension_patterns:
-                match = re.search(pat, transcript)
-                if match:
-                    issues['comprehension_count'] += 1
-                    issues['comprehension_agents'][agent] += 1
-                    if len(issues['comprehension_examples']) < 2:
-                        start = max(0, match.start() - 20)
-                        end = min(len(transcript), match.end() + 20)
-                        issues['comprehension_examples'].append({
-                            'agent': agent,
-                            'quote': f"...{transcript[start:end]}..."
-                        })
-                    break # Count per call
-                    
-            # Script Errors
-            for err, corr in script_errors:
-                if err in transcript:
-                    issues['script_error_count'] += 1
-                    issues['script_error_agents'][agent] += 1
-                    if len(issues['script_error_examples']) < 2:
-                        issues['script_error_examples'].append({
-                            'agent': agent,
-                            'error': err, 
-                            'correction': corr
-                        })
-                    break
-
-        return issues
-
-    def _calculate_agent_performance(self, df: pd.DataFrame, stats: Dict, issues: Dict) -> List[Dict]:
+    def _calculate_agent_performance(self, df: pd.DataFrame, stats: Dict) -> List[Dict]:
         agent_data = []
         if 'Agent Name' not in df.columns: return []
         
@@ -159,14 +103,10 @@ class CampaignReportGenerator:
             agent_df = df[df['Agent Name'] == agent]
             calls = len(agent_df)
             
-            # Metadata Issues
+            # Metadata Issues Only - No Transcript Parsing
             late_bad = len(agent_df[agent_df['Late Hello Detection'] == 'Yes']) if 'Late Hello Detection' in df.columns else 0
             release_bad = len(agent_df[agent_df['Releasing Detection'] == 'Yes']) if 'Releasing Detection' in df.columns else 0
             rebuttal_skip = len(agent_df[agent_df['Rebuttal Detection'] == 'No']) if 'Rebuttal Detection' in df.columns else 0
-            
-            # Transcript Issues
-            comp_issues = issues['comprehension_agents'][agent]
-            script_errs = issues['script_error_agents'][agent]
             
             # Intro Score
             avg_intro = 0
@@ -176,11 +116,12 @@ class CampaignReportGenerator:
                     avg_intro = round(scores.mean(), 1)
                 except: pass
 
-            total_issues = late_bad + release_bad + rebuttal_skip + comp_issues + script_errs
+            total_issues = late_bad + release_bad + rebuttal_skip
             
+            # Simplified Tier Logic
             if total_issues == 0 and avg_intro >= 90: tier = '🟢'
             elif total_issues <= 1 and avg_intro >= 80: tier = '🟢'
-            elif total_issues <= 3: tier = '🟡'
+            elif total_issues <= 2: tier = '🟡'
             else: tier = '🔴'
             
             agent_data.append({
@@ -190,102 +131,83 @@ class CampaignReportGenerator:
                 'late_hello_bad': late_bad,
                 'releasing_bad': release_bad,
                 'rebuttal_no': rebuttal_skip,
-                'comprehension_issues': comp_issues,
-                'script_errors': script_errs,
                 'tier': tier
             })
             
         return sorted(agent_data, key=lambda x: x['avg_intro_score'], reverse=True)
 
-    def _generate_analysis_sections(self, stats: Dict, issues: Dict, agents: List[Dict]) -> Dict[str, str]:
-        """Python-side generation of all analytic text to prevent LLM hallucinations."""
+    def _generate_analysis_sections(self, stats: Dict, agents: List[Dict]) -> Dict[str, str]:
+        """Python-side generation of simplified analytic text."""
         
         # 1. Overall Status
         tier1_count = len([a for a in agents if a['tier'] == '🟢'])
         tier3_count = len([a for a in agents if a['tier'] == '🔴'])
         
-        if tier3_count == 0 and tier1_count > len(agents)/2:
-            status = "🟢 Excellent - Team is performing well"
+        if tier3_count == 0 and tier1_count >= len(agents)/2:
+            status = "🟢 Excellent - High Performance"
         elif tier3_count > len(agents)/3:
-            status = "🔴 Needs Attention - Multiple agents struggling"
+            status = "🔴 Needs Attention - Rebuttal Issues Detected"
         else:
-            status = "🟡 Good with Room for Improvement"
+            status = "🟡 Good - Standard Performance"
             
-        # 2. Strengths & Weaknesses
+        # 2. Strengths & Weaknesses (Simplified)
         strengths = []
         weaknesses = []
         
-        if stats['late_hello']['pct_good'] >= 95: strengths.append(f"Prompt Answering ({stats['late_hello']['pct_good']}%)")
-        else: weaknesses.append(f"Late Hellos ({100-stats['late_hello']['pct_good']:.1f}%)")
+        if stats['late_hello']['pct_good'] >= 95: strengths.append(f"Fast Response Time ({stats['late_hello']['pct_good']}%)")
+        else: weaknesses.append(f"Late Hello Issues ({100-stats['late_hello']['pct_good']:.1f}%)")
         
-        if stats['releasing']['pct_good'] >= 95: strengths.append(f"Professional Endings ({stats['releasing']['pct_good']}%)")
+        if stats['releasing']['pct_good'] >= 95: strengths.append(f"Professional Calls ({stats['releasing']['pct_good']}%)")
         else: weaknesses.append(f"Improper Releasing ({100-stats['releasing']['pct_good']:.1f}%)")
         
-        if stats['rebuttal']['pct_yes'] >= 90: strengths.append(f"Effective Rebuttals ({stats['rebuttal']['pct_yes']}%)")
-        else: weaknesses.append(f"Skipped Rebuttals ({stats['rebuttal']['no']} incidents)")
+        if stats['rebuttal']['pct_yes'] >= 90: strengths.append(f"Great Persistence ({stats['rebuttal']['pct_yes']}%)")
+        else: weaknesses.append(f"Missed Rebuttals ({stats['rebuttal']['no']} missed)")
         
-        if issues['script_error_count'] == 0: strengths.append("Perfect Script Accuracy")
-        else: weaknesses.append(f"Script Accuracy ({issues['script_error_count']} errors)")
+        if not strengths: strengths.append("Calls Completed")
+        if not weaknesses: weaknesses.append("No Issues Found")
         
-        if not strengths: strengths.append("Data collection successful")
-        if not weaknesses: weaknesses.append("No major issues detected")
-        
-        # 3. Top Issues
+        # 3. Top Issues (Simplified - No transcripts)
         top_issues_text = ""
         problem_list = []
         
-        # Check Script Errors
-        if issues['script_error_count'] > 0:
-            example = issues['script_error_examples'][0]
-            count = issues['script_error_count']
-            problem_list.append((count, f"""
-**1. SCRIPT ERRORS** ({count} incidents) 🔴
-- **Problem:** Agents misspelling or mispronouncing keywords
-- **Example:** "{example['error']}" (should be "{example['correction']}")
-- **Fix:** Review script pronunciation guide
-- **Agents:** {', '.join([k for k,v in issues['script_error_agents'].items() if v>0][:3])}
-"""))
-            
-        # Check Comprehension
-        if issues['comprehension_count'] > 0:
-            example = issues['comprehension_examples'][0]
-            count = issues['comprehension_count']
-            problem_list.append((count, f"""
-**2. COMPREHENSION ISSUES** ({count} incidents) 🟡
-- **Problem:** Customers expressing confusion
-- **Example:** "{example['quote']}"
-- **Fix:** Speak slower, check audio clarity
-- **Agents:** {', '.join([k for k,v in issues['comprehension_agents'].items() if v>0][:3])}
-"""))
-
-        # Check Rebuttals
+        # Check Rebuttals (Priority 1)
         if stats['rebuttal']['no'] > 0:
             count = stats['rebuttal']['no']
             skippers = [a['name'] for a in agents if a['rebuttal_no'] > 0]
             problem_list.append((count, f"""
-**3. MISSED REBUTTALS** ({count} incidents) 🟡
-- **Problem:** Ending call without making a second attempt
-- **Fix:** Requirement: 1 rebuttal per refusal
+**1. MISSED REBUTTALS** ({count} incidents) �
+- **Problem:** Agents ending call too early after customer says 'No'.
+- **Goal:** One attempt to save the call per refusal.
 - **Agents:** {', '.join(skippers[:3])}
+"""))
+
+        # Check Late Hello
+        late_hello_bad = stats['total_calls'] - stats['late_hello']['good']
+        if late_hello_bad > 0:
+            count = late_hello_bad
+            late_agents = [a['name'] for a in agents if a['late_hello_bad'] > 0]
+            problem_list.append((count, f"""
+**2. LATE HELLO** ({count} incidents) 🟡
+- **Problem:** Delay in greeting the customer.
+- **Goal:** Greet immediately upon connection.
+- **Agents:** {', '.join(late_agents[:3])}
 """))
             
         # Sort by count and join
         problem_list.sort(key=lambda x: x[0], reverse=True)
         top_issues_text = "\n".join([p[1] for p in problem_list[:3]])
         if not top_issues_text:
-            top_issues_text = "No major issues identified. Team performance is high."
+            top_issues_text = "Analysis complete. No major issues detected based on call metadata."
 
         # 4. Action Plan
         action_plan_text = ""
-        if 'Script Accuracy' in str(weaknesses):
-            action_plan_text += "**Priority 1:** Script pronunciation drill (Focus: 'Interested', 'Selling')\n"
         if 'Rebuttals' in str(weaknesses):
-            action_plan_text += "**Priority 2:** Rebuttal role-play (Requirement: 1 attempt/call)\n"
-        if 'Comprehension' in str(top_issues_text):
-            action_plan_text += "**Priority 3:** Audio clarity check & pacing training\n"
+            action_plan_text += "**Priority:** Coach team on Objection Handling (Don't give up on first 'No')\n"
+        if 'Late Hello' in str(weaknesses):
+            action_plan_text += "**Priority:** Technical check or training on immediate greeting\n"
         
         if not action_plan_text:
-            action_plan_text = "**Priority 1:** Maintain current performance standards\n**Priority 2:** Advanced sales training"
+            action_plan_text = "**Status:** Maintain current high performance standards."
 
         return {
             'status': status,
@@ -298,11 +220,10 @@ class CampaignReportGenerator:
     def generate_report(self, df: pd.DataFrame, campaign_name: str) -> str:
         if df.empty: return "❌ No data available."
         
-        # 1. Calculate everything in Python
+        # 1. Calculate simplified stats in Python
         stats = self._calculate_real_statistics(df)
-        issues = self._extract_real_transcript_issues(df)
-        agents = self._calculate_agent_performance(df, stats, issues)
-        analysis = self._generate_analysis_sections(stats, issues, agents)
+        agents = self._calculate_agent_performance(df, stats)
+        analysis = self._generate_analysis_sections(stats, agents)
         
         # 2. Build Tables
         tier1 = [a for a in agents if a['tier'] == '🟢']
@@ -321,9 +242,8 @@ class CampaignReportGenerator:
         if tier3:
              tier3_table = "| Agent | Calls | Critical Issue |\n|---|---|---|\n" + "\n".join([f"| {a['name']} | {a['calls']} | {self._get_agent_issue(a)} |" for a in tier3[:5]])
 
-        # 3. Construct Prompt (Just filling slots)
+        # 3. Construct Prompt (Simplified Layout)
         avg_score = sum(a['avg_intro_score'] for a in agents)/len(agents) if agents else 0
-        top_agent = agents[0] if agents else {'name': 'N/A', 'avg_intro_score': 0}
         
         user_prompt = f"""
 # GENERATE REPORT USING EXACTLY THIS CONTENT (NO CHANGES):
@@ -344,7 +264,7 @@ class CampaignReportGenerator:
 | Metric | Score | Status | Metric | Score | Status |
 |--------|-------|--------|--------|-------|--------|
 | Late Hello | {stats['late_hello']['pct_good']}% | {self._status(stats['late_hello']['pct_good'])} | Rebuttal Usage | {stats['rebuttal']['pct_yes']}% | {self._status(stats['rebuttal']['pct_yes'])} |
-| Releasing | {stats['releasing']['pct_good']}% | {self._status(stats['releasing']['pct_good'])} | Script Accuracy | {100 - (issues['script_error_count']*2)}% | {self._status(100 - issues['script_error_count']*2)} |
+| Releasing | {stats['releasing']['pct_good']}% | {self._status(stats['releasing']['pct_good'])} | Calls Audited | {stats['total_calls']} | ✅ |
 
 ---
 
@@ -367,19 +287,7 @@ class CampaignReportGenerator:
 ---
 
 ## Action Plan
-**This Week:**
 {analysis['action_plan']}
-
-**Success Targets:**
-- 100% Script Accuracy
-- 95% Rebuttal Rate
-- 0 Comprehension Incidents
-
----
-
-## Bottom Line
-**Status:** {analysis['status']}. 
-**Focus:** Fix {analysis['weaknesses'][0] if analysis['weaknesses'] else 'minor issues'} immediately.
 """
 
         system_prompt = "You are a report formatter. Your ONLY job is to take the provided text and output it EXACTLY as written, ensuring the Markdown formatting is clean. DO NOT change ANY numbers, text, or examples."
@@ -390,9 +298,9 @@ class CampaignReportGenerator:
         ])
 
     def _get_agent_issue(self, agent: Dict) -> str:
-        if agent['script_errors'] > 0: return f"{agent['script_errors']} Script Errors"
-        if agent['comprehension_issues'] > 0: return "Comprehension"
         if agent['rebuttal_no'] > 0: return "Skipped Rebuttal"
+        if agent['late_hello_bad'] > 0: return "Late Hello"
+        if agent['releasing_bad'] > 0: return "Improper Release"
         return "Low Score"
 
     def _status(self, val: float) -> str:
