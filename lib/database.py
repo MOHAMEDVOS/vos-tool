@@ -192,10 +192,10 @@ class DatabaseManager:
             host = 'localhost'
 
         try:
-            # Increased to 200 to handle 30-40 concurrent users (each user uses 4-8 connections)
-            # For 100+ users, consider using PgBouncer or increasing to 400+
-            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '200'))
-            min_connections = int(os.getenv('DB_POOL_MIN_SIZE', '20'))
+            # Optimized to 70 to balance performance and memory usage
+            # Each connection uses ~10MB RAM, so 70 = ~700MB vs 200 = ~2GB
+            max_connections = int(os.getenv('DB_POOL_MAX_SIZE', '70'))
+            min_connections = int(os.getenv('DB_POOL_MIN_SIZE', '10'))
             connect_timeout = int(os.getenv('DB_CONNECT_TIMEOUT', '30'))
 
             port = os.getenv('POSTGRES_PORT') or os.getenv('PGPORT') or db_url_parts.get('port') or '5432'

@@ -4,6 +4,14 @@ import logging
 import pandas as pd
 import streamlit as st
 
+# Import caching utilities for performance optimization
+from frontend.utils.dashboard_cache import (
+    get_cached_agent_audit_data,
+    get_cached_lite_audit_data,
+    get_cached_campaign_audit_data,
+    get_cached_available_campaigns
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -12,8 +20,8 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
     
     st.markdown("### Campaign Audit Dashboard")
     
-    # Campaign selection
-    available_campaigns = dashboard_manager.get_available_campaigns(st.session_state.get('username'))
+    # Campaign selection (cached)
+    available_campaigns = get_cached_available_campaigns(dashboard_manager, st.session_state.get('username'))
     
     if not available_campaigns:
         st.warning("No campaign audit data available. Run a Campaign Audit first to see results here.")
@@ -43,8 +51,9 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
     # Load Data button
     if st.button("Load Campaign Data", type="primary", key="load_campaign_data"):
         with st.spinner("Loading campaign data..."):
-            # Load campaign data for the selected date range
-            df = dashboard_manager.load_campaign_audit_data(
+            # Load campaign data for the selected date range (cached)
+            df = get_cached_campaign_audit_data(
+                dashboard_manager,
                 selected_campaign, 
                 start_date, 
                 end_date, 
@@ -367,8 +376,8 @@ def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):
                 del st.session_state.lite_dashboard_cache_timestamp
             st.rerun()
     
-    # Get combined lite audit data from current user's audits
-    df = dashboard_manager.get_combined_lite_audit_data(st.session_state.get('username'))
+    # Get combined lite audit data from current user's audits (cached, paginated)
+    df = get_cached_lite_audit_data(dashboard_manager, st.session_state.get('username'))
     
     # Ensure we have a valid DataFrame
     if df is None or not isinstance(df, pd.DataFrame):
@@ -607,9 +616,9 @@ def show_actions_section(dashboard_manager):
         st.error("Please log in to view actions.")
         return
     
-    # Combine data from both agent audit and lite audit
-    agent_df = dashboard_manager.get_combined_agent_audit_data(current_username)
-    lite_df = dashboard_manager.get_combined_lite_audit_data(current_username)
+    # Combine data from both agent audit and lite audit (cached, paginated)
+    agent_df = get_cached_agent_audit_data(dashboard_manager, current_username)
+    lite_df = get_cached_lite_audit_data(dashboard_manager, current_username)
     
     # Ensure we have valid DataFrames
     if not isinstance(agent_df, pd.DataFrame):

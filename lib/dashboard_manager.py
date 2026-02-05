@@ -2328,7 +2328,7 @@ class DashboardManager:
     def get_combined_agent_audit_data(
         self, 
         username: str = None,
-        limit: int = None,
+        limit: int = 1000,  # Default to 1000 most recent records to prevent memory issues
         offset: int = 0
     ) -> pd.DataFrame:
         """
@@ -2355,11 +2355,17 @@ class DashboardManager:
         # Load from database
         if self._db_manager:
             try:
-                # Build query with usernames and pagination
+                # Build query with usernames and date filtering
                 placeholders = ','.join(['%s'] * len(shared_users))
+                
+                # Filter by today's date by default (created_at >= today at 00:00:00)
+                from datetime import datetime, date as date_type
+                today_start = datetime.combine(date_type.today(), datetime.min.time())
+                
                 query = f"""
                     SELECT * FROM agent_audit_results 
                     WHERE username IN ({placeholders})
+                    AND created_at >= %s
                     ORDER BY created_at DESC
                 """
                 
@@ -2367,7 +2373,11 @@ class DashboardManager:
                 if limit is not None:
                     query += f" LIMIT {int(limit)} OFFSET {int(offset)}"
                 
-                results = self._db_manager.execute_query(query, tuple(shared_users), fetch=True)
+                results = self._db_manager.execute_query(
+                    query, 
+                    (*tuple(shared_users), today_start), 
+                    fetch=True
+                )
                 
                 if not results:
                     return pd.DataFrame()
@@ -2609,13 +2619,20 @@ class DashboardManager:
                 logger.error(f"Error saving lite audit results to database: {e}")
                 raise  # Re-raise exception instead of falling back to JSON
     
-    def get_combined_lite_audit_data(self, username: str = None) -> pd.DataFrame:
+    def get_combined_lite_audit_data(
+        self, 
+        username: str = None,
+        limit: int = 1000,  # Default to 1000 most recent records to prevent memory issues
+        offset: int = 0
+    ) -> pd.DataFrame:
         """
         Combine all lite audit results from user-specific storage.
         Supports shared dashboards - users in sharing groups see combined data.
         
         Args:
             username: Username to load data for
+            limit: Maximum number of rows to return (default: 1000)
+            offset: Number of rows to skip (default: 0)
         
         Returns:
             Combined DataFrame of all lite audit results for the user/group
@@ -2632,14 +2649,25 @@ class DashboardManager:
         # Load from database first (if available)
         if self._db_manager:
             try:
-                # Build query with usernames
+                # Build query with usernames and date filtering
                 placeholders = ','.join(['%s'] * len(shared_users))
+                
+                # Filter by today's date by default (created_at >= today at 00:00:00)
+                from datetime import datetime, date as date_type
+                today_start = datetime.combine(date_type.today(), datetime.min.time())
+                
                 query = f"""
                     SELECT * FROM lite_audit_results 
                     WHERE username IN ({placeholders})
+                    AND created_at >= %s
                     ORDER BY created_at DESC
+                    LIMIT {int(limit)} OFFSET {int(offset)}
                 """
-                results = self._db_manager.execute_query(query, tuple(shared_users), fetch=True)
+                results = self._db_manager.execute_query(
+                    query, 
+                    (*tuple(shared_users), today_start), 
+                    fetch=True
+                )
                 
                 if results:
                     records = []
@@ -3171,8 +3199,13 @@ class DashboardManager:
                     releasing_count,
                     late_hello_count,
                     rebuttal_count,
-                    json.dumps(metadata)
+                    rebuttal_count,
+                    json.dumps(metadata, separators=(',', ':'))
                 )
+                
+                # Force cleanup after large payload creation
+                import gc
+                gc.collect()
                 self._db_manager.execute_query(query, params, fetch=False)
                 logger.info(f"Saved campaign audit results to database: {campaign_name} ({record_count} records)")
                 
@@ -3278,6 +3311,7 @@ class DashboardManager:
                     SELECT * FROM campaign_audit_results 
                     WHERE campaign_name = %s AND username IN ({placeholders})
                     ORDER BY timestamp DESC
+                    LIMIT 5000
                 """
                 results = self._db_manager.execute_query(query, (campaign_name, *tuple(shared_users)), fetch=True)
                 
