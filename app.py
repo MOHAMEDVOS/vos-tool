@@ -3094,14 +3094,5 @@ def main():
     else:
         show_dashboard_section()
 
-
 if __name__ == "__main__":
-    # Initialize daily cleanup scheduler (deletes audit data older than 1 day)
-    try:
-        from lib.data_cleanup import schedule_daily_cleanup
-        schedule_daily_cleanup()
-        logger.info("✅ Daily data cleanup scheduler initialized")
-    except Exception as e:
-        logger.warning(f"Could not initialize cleanup scheduler: {e}")
-    
     main()
