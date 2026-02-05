@@ -2362,8 +2362,14 @@ class DashboardManager:
                 from datetime import datetime, date as date_type
                 today_start = datetime.combine(date_type.today(), datetime.min.time())
                 
+                # MEMORY OPTIMIZATION: Select only needed columns, skip transcript (1-5KB per record)
                 query = f"""
-                    SELECT * FROM agent_audit_results 
+                    SELECT 
+                        agent_name, file_name, file_path,
+                        releasing_detection, late_hello_detection, rebuttal_detection,
+                        timestamp, call_duration, confidence_score, feedback,
+                        username, created_at, metadata
+                    FROM agent_audit_results 
                     WHERE username IN ({placeholders})
                     AND created_at >= %s
                     ORDER BY created_at DESC
@@ -2656,8 +2662,12 @@ class DashboardManager:
                 from datetime import datetime, date as date_type
                 today_start = datetime.combine(date_type.today(), datetime.min.time())
                 
+                # MEMORY OPTIMIZATION: Select only needed columns
                 query = f"""
-                    SELECT * FROM lite_audit_results 
+                    SELECT 
+                        agent_name, file_name, file_path,
+                        username, created_at, detection_results
+                    FROM lite_audit_results 
                     WHERE username IN ({placeholders})
                     AND created_at >= %s
                     ORDER BY created_at DESC
