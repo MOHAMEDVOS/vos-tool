@@ -9,7 +9,8 @@ from frontend.utils.dashboard_cache import (
     get_cached_agent_audit_data,
     get_cached_lite_audit_data,
     get_cached_campaign_audit_data,
-    get_cached_available_campaigns
+    get_cached_available_campaigns,
+    clear_all_caches
 )
 
 logger = logging.getLogger(__name__)
@@ -350,6 +351,7 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
                 st.session_state.get('username'),
                 selected_campaign
             )
+            clear_all_caches()
             st.success(f"Campaign audit data for '{selected_campaign}' cleared successfully!")
             # Clear the loaded data from session state
             if 'campaign_dashboard_data' in st.session_state:
@@ -598,6 +600,7 @@ def show_lite_audit_dashboard(dashboard_manager, generate_csv_data):
     if st.button("Clear All Lite Audit Data", type="secondary"):
         if st.session_state.get('confirm_clear_lite', False):
             dashboard_manager.clear_lite_audit_data(st.session_state.get('username'))
+            clear_all_caches()
             st.success("Lite audit data cleared successfully!")
             st.rerun()
         else:
@@ -958,6 +961,7 @@ def show_actions_section(dashboard_manager):
             # Clear both agent and lite audit data
             dashboard_manager.clear_agent_audit_data(st.session_state.get('username'))
             dashboard_manager.clear_lite_audit_data(st.session_state.get('username'))
+            clear_all_caches()
             st.success("All agent and lite audit data cleared successfully!")
             st.info("The Actions section will now show no data until new audits are run.")
             st.rerun()
