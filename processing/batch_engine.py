@@ -1129,10 +1129,6 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             if len(audio) > max_duration_ms:
                 # Slice first portion for late hello (faster processing)
                 audio_for_late_hello = audio[:max_duration_ms]
-                # Memory optimization: delete full audio reference after slicing to free memory
-                import gc
-                del audio
-                gc.collect()
             else:
                 # File is short, use full audio
                 audio_for_late_hello = audio
@@ -1155,6 +1151,15 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
         except Exception as e:
             logger.error(f"Late hello detection failed for {file_path.name}: {e}")
             late_hello = "Error"
+        
+        # Memory optimization: delete audio references after all detections to free memory
+        try:
+            import gc
+            if 'audio' in locals(): del audio
+            if 'audio_for_late_hello' in locals(): del audio_for_late_hello
+            gc.collect()
+        except:
+            pass
 
         # Derive a simple quality-based status for lite results
         # - If both detections are clean (No/No) -> Excellent
