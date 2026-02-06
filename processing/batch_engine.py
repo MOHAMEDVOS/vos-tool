@@ -205,8 +205,7 @@ class BatchProcessor:
                         completed_count += 1
                         completed_global += 1
 
-<<<<<<< HEAD
-                        # MEMORY OPTIMIZATION: Save results incrementally every 10 files
+                        # MEMORY OPTIMIZATION: Save results incrementally every 100 files
                         # This prevents accumulating thousands of results in RAM
                         if len(results) >= 100:  # Batch larger chunks to reduce database I/O
                             try:
@@ -226,19 +225,10 @@ class BatchProcessor:
                                 logger.error(f"Failed to save incremental batch: {e}")
                                 # Continue processing even if save fails
 
-=======
->>>>>>> cf4eec47ee7af57195e80f6e6c68681527aaf993
-                        # Log progress every 5 files (more frequent updates)
-                        if completed_count % 5 == 0 or completed_count == len(batch_files):
-                            elapsed = time.time() - start_time
-                            avg_time = elapsed / completed_count if completed_count > 0 else 0
-                            logger.info(f"Batch {batch_num}: completed {completed_count}/{len(batch_files)} files in {elapsed:.1f}s (avg: {avg_time:.1f}s/file)")
-                            # Also log to console for visibility
-                            print(f"Progress: {completed_count}/{len(batch_files)} files processed ({completed_count/len(batch_files)*100:.0f}%)")
-
                         # Update overall progress for UI after each file
                         if progress_callback:
                             progress_callback(completed_global, total_files)
+
 
                     except TimeoutError:
                         file_path = futures[future]
