@@ -30,7 +30,7 @@ def _run_with_context(ctx, func, *args, **kwargs):
             pass
     return func(*args, **kwargs)
 
-FORCED_MAX_WORKERS = 5
+FORCED_MAX_WORKERS = 5  # Free AssemblyAI plan limit (max 5 concurrent API calls)
 
 # Shared executor pool for async batch processing to avoid resource exhaustion
 _batch_executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="BatchProc")
@@ -62,9 +62,10 @@ class BatchProcessor:
         if max_workers is None:
             account_type = os.getenv("ASSEMBLYAI_ACCOUNT_TYPE", "free").lower()
             if account_type == "paid":
-                # Paid accounts: Use more workers (up to 20 for optimal performance)
-                default_workers = min(cpu_count, 20)
-                logger.info(f"Paid AssemblyAI account detected, using {default_workers} workers")
+                # REDUCED from 20 to 8 to prevent connection pool exhaustion and OOM
+                # 8 workers * 3 sub-tasks = 24 concurrent operations, which fits within standard DB pools
+                default_workers = min(cpu_count, 8)
+                logger.info(f"Paid AssemblyAI account detected (reduced for stability), using {default_workers} workers")
             else:
                 # Free accounts: Use 5 workers (max allowed for free accounts)
                 default_workers = min(cpu_count, 5)
@@ -206,7 +207,7 @@ class BatchProcessor:
 
                         # MEMORY OPTIMIZATION: Save results incrementally every 10 files
                         # This prevents accumulating thousands of results in RAM
-                        if len(results) >= 10:
+                        if len(results) >= 100:  # Batch larger chunks to reduce database I/O
                             try:
                                 # Save to database immediately
                                 from lib.dashboard_manager import dashboard_manager
@@ -277,18 +278,19 @@ class BatchProcessor:
             batch_time = time.time() - start_time
             logger.info(f"Batch {batch_num} completed in {batch_time:.1f}s")
             
-            # CRITICAL: Force memory cleanup after each batch to prevent accumulation
-            import gc
-            gc.collect()
-            
-            # Clear torch cache if available (for CPU memory management)
-            try:
-                import torch
-                if hasattr(torch, 'cuda') and torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-            except Exception as e:
-                # Silently ignore torch cache clearing errors as it's optional
-                pass
+            # Memory cleanup every 5 batches to reduce overhead
+            if batch_num % 5 == 0:
+                import gc
+                gc.collect()
+                
+                # Clear torch cache if available (for CPU memory management)
+                try:
+                    import torch
+                    if hasattr(torch, 'cuda') and torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception as e:
+                    # Silently ignore torch cache clearing errors as it's optional
+                    pass
             
             # Update progress and move to next batch
             if progress_callback:
@@ -861,9 +863,9 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
     # Lite processing is I/O bound (loading audio files), so more workers help
     # But too many workers can cause memory issues with large audio files
     if torch.cuda.is_available():
-        max_workers = min(cpu_count, 6)  # Slightly fewer workers to avoid memory pressure
+        max_workers = min(cpu_count, 12)  # Lite processing doesn't use API, can use more workers
     else:
-        max_workers = min(cpu_count, 8)  # Reduced from 16 to 8 to avoid memory/CPU contention
+        max_workers = min(cpu_count, 16)  # Lite is I/O bound, not limited by AssemblyAI
 
     i = 0
     batch_num = 0
@@ -1146,6 +1148,10 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             if len(audio) > max_duration_ms:
                 # Slice first portion for late hello (faster processing)
                 audio_for_late_hello = audio[:max_duration_ms]
+                # Memory optimization: delete full audio reference after slicing to free memory
+                import gc
+                del audio
+                gc.collect()
             else:
                 # File is short, use full audio
                 audio_for_late_hello = audio
