@@ -205,6 +205,7 @@ class BatchProcessor:
                         completed_count += 1
                         completed_global += 1
 
+<<<<<<< HEAD
                         # MEMORY OPTIMIZATION: Save results incrementally every 10 files
                         # This prevents accumulating thousands of results in RAM
                         if len(results) >= 100:  # Batch larger chunks to reduce database I/O
@@ -225,6 +226,8 @@ class BatchProcessor:
                                 logger.error(f"Failed to save incremental batch: {e}")
                                 # Continue processing even if save fails
 
+=======
+>>>>>>> cf4eec47ee7af57195e80f6e6c68681527aaf993
                         # Log progress every 5 files (more frequent updates)
                         if completed_count % 5 == 0 or completed_count == len(batch_files):
                             elapsed = time.time() - start_time
@@ -300,24 +303,12 @@ class BatchProcessor:
         
         logger.info(f"Completed processing {total_files} files for user {username or 'default'}. Total results: {len(results)}")
         
-        # MEMORY OPTIMIZATION: Save any remaining results (less than 10 files)
-        if results:
-            try:
-                from lib.dashboard_manager import dashboard_manager
-                df_batch = pd.DataFrame(results)
-                dashboard_manager.save_agent_audit_results(df_batch, username)
-                logger.info(f"💾 Saved final {len(results)} results to database")
-                results.clear()
-            except Exception as e:
-                logger.error(f"Failed to save final batch: {e}")
-        
         # Log if processing stopped early (potential issue)
         if completed_global < total_files:
             logger.warning(f"⚠️ EARLY STOP DETECTED: User {username or 'default'} processed {completed_global}/{total_files} files. Missing {total_files - completed_global} files!")
             logger.warning(f"This may indicate worker pool exhaustion, resource contention, or API rate limits.")
         
-        # Return empty list since all results are now in database
-        return []
+        return results
     
     async def process_folder_async(self, folder_path: str, progress_callback: Optional[Callable] = None, additional_metadata: Optional[dict] = None, username: Optional[str] = None, user_api_key: Optional[str] = None) -> List[dict]:
         """
