@@ -358,7 +358,7 @@ class AssemblyAITranscriptionEngine:
             
             # Configure settings
             config_params = {
-                "speech_model": aai.SpeechModel.best,  # Required by AssemblyAI API
+                "speech_models": ["universal-2"],  # Required by AssemblyAI API (plural list)
                 "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None else True,  # Enable by default for dual-channel
                 "multichannel": True,  # Enable multichannel for stereo audio (left=agent, right=owner)
                 "language_detection": True,
@@ -679,7 +679,7 @@ class AssemblyAITranscriptionEngine:
             
             # Default configuration
             default_config = {
-                "speech_model": aai.SpeechModel.best,  # Required by AssemblyAI API
+                "speech_models": ["universal-2"],  # Required by AssemblyAI API (plural list)
                 "speaker_labels": os.getenv("ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION", "true").lower() == "true",
                 "language_detection": True,
                 "punctuate": True,
