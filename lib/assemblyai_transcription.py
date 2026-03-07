@@ -358,6 +358,7 @@ class AssemblyAITranscriptionEngine:
             
             # Configure settings
             config_params = {
+                "speech_model": aai.SpeechModel.best,  # Required by AssemblyAI API
                 "speaker_labels": enable_speaker_diarization if enable_speaker_diarization is not None else True,  # Enable by default for dual-channel
                 "multichannel": True,  # Enable multichannel for stereo audio (left=agent, right=owner)
                 "language_detection": True,
@@ -465,6 +466,7 @@ class AssemblyAITranscriptionEngine:
             result_container["exception"] = e
         
         if result_container["exception"]:
+            error_processing_time_ms = int((time.time() - start_time) * 1000)
             logger.error(f"AssemblyAI transcription error: {result_container['exception']}", exc_info=True)
             return {
                 "transcript": "",
@@ -473,7 +475,7 @@ class AssemblyAITranscriptionEngine:
                 "speakers": [],
                 "confidence": None,
                 "language_code": None,
-                "processing_time_ms": processing_time_ms,
+                "processing_time_ms": error_processing_time_ms,
                 "transcription_method": "assemblyai_api",
                 "transcription_status": "failed",
                 "transcription_error": str(result_container["exception"])
@@ -677,6 +679,7 @@ class AssemblyAITranscriptionEngine:
             
             # Default configuration
             default_config = {
+                "speech_model": aai.SpeechModel.best,  # Required by AssemblyAI API
                 "speaker_labels": os.getenv("ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION", "true").lower() == "true",
                 "language_detection": True,
                 "punctuate": True,
