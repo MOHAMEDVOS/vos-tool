@@ -176,6 +176,7 @@ WHAT COUNTS AS A REBUTTAL:
 ✅ Asking for referrals ("know anyone selling?")
 ✅ Combining multiple strategies ("not even in the future? any other property?")
 ✅ Indirect or imperfect attempts ("before I let you go, do you have any property?")
+✅ Broken English or garbled attempts where the agent clearly TRIED to say something beyond "okay bye" — even if the words are hard to understand (e.g., "you have like, any" = attempted pivot to other properties)
 
 WHAT DOES NOT COUNT:
 ❌ Simply saying "okay" or "alright" and ending the call
@@ -184,8 +185,9 @@ WHAT DOES NOT COUNT:
 ❌ Generic pleasantries without substance ("okay have a good day bye")
 ❌ Just confirming the wrong number without pivoting
 
-CRITICAL RULE:
-If the agent asks about OTHER properties, future selling, or referrals AFTER rejection, that IS a rebuttal — even if the owner says no to that too. The agent TRIED.
+CRITICAL RULES:
+1. If the agent asks about OTHER properties, future selling, or referrals AFTER rejection, that IS a rebuttal — even if the owner says no to that too. The agent TRIED.
+2. BROKEN ENGLISH RULE: These agents are Egyptian and speak English as a second language. Their sentences may be grammatically broken, garbled, or hard to understand. If you can detect ANY intent to rebut (even fragments like "you have any" or "do you have like property"), count it as a rebuttal. The goal is to distinguish agents who TRY from agents who simply give up and say goodbye.
 
 RESPONSE FORMAT (valid JSON only):
 {
