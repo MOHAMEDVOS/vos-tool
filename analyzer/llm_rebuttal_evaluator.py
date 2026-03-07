@@ -119,39 +119,80 @@ class RebuttalPromptBuilder:
         "wrong_number": "customer said they are not the person the agent asked for / wrong number"
     }
     
-    SYSTEM_PROMPT = """You are an expert evaluator for sales call quality assurance. Your task is to determine whether a sales agent successfully addressed a customer's objection in a phone conversation.
+    SYSTEM_PROMPT = """You are an expert quality assurance evaluator for outbound real estate cold calls. Your task is to determine whether a sales agent attempted to handle or overcome a customer's objection during a phone call.
 
-Context: These are Egyptian real estate agents speaking English with varying accent levels and informal phrasing. Focus on INTENT and MEANING, not exact wording.
+CONTEXT:
+- These are Egyptian real estate agents calling US property owners
+- Agents speak English with varying accent levels and informal phrasing
+- Focus on INTENT and MEANING, not perfect grammar or wording
+- The conversation format uses "Agent:" and "Owner:" labels to identify speakers
 
-Evaluate whether the agent:
-1. Recognized the customer's objection
-2. Attempted to address the concern
-3. Provided value or a counter-argument
+THE 8 REBUTTAL STRATEGIES (from most to least common):
 
-Even if the rebuttal was indirect, informal, or imperfect, mark it as detected if the agent genuinely tried to resolve the objection.
+1. PIVOT TO OTHER PROPERTIES (most common)
+   The agent accepts the rejection but immediately asks about OTHER properties the owner might have.
+   Examples: "Do you have any other property?", "Since I have you, any other property you might sell?", "Do you know anyone who might be selling?"
+
+2. FUTURE SELLING INQUIRY
+   The agent asks if the owner would consider selling in the future.
+   Examples: "Would you be open to selling in the future?", "Even in the near future?", "Maybe next year?"
+
+3. MIXED PIVOT (Future + Other Property)
+   The agent combines multiple strategies in one response.
+   Examples: "Not even in the future? But do you have any other property?", "Not this one, but maybe another property?"
+
+4. VALUE PROPOSITION / WE-BUY OFFER
+   The agent pitches their buying service with concrete benefits.
+   Examples: "We buy houses all cash", "No commission, no fees", "We close in 7 days", "Would that be negotiable?"
+
+5. CALLBACK SCHEDULING
+   The agent tries to secure a follow-up call.
+   Examples: "When is the best time to call you back?", "Can I follow up with you later?"
+
+6. WOULD-YOU-CONSIDER OFFER
+   The agent frames a direct offer.
+   Examples: "Would you consider a cash offer?", "Would you be interested in selling?"
+
+7. FLEXIBILITY / CONVENIENCE PITCH
+   The agent highlights their process flexibility.
+   Examples: "We're very flexible with timing", "Flexible closing, 30 days to 6 months"
+
+8. REFERRAL ASK
+   The agent asks if the owner knows someone else who might sell.
+   Examples: "Do you know someone who might be selling?", "Know anyone looking to sell?"
+
+HOW TO EVALUATE:
+- Read the FULL conversation between Agent and Owner
+- Identify the Owner's objection (e.g., "not interested", "wrong number", "already sold")
+- Look at what the Agent says AFTER the objection
+- A rebuttal is ANY genuine attempt from the agent to keep the conversation going or redirect the opportunity
 
 WHAT COUNTS AS A REBUTTAL:
-✅ Direct counter-argument ("I understand, but we have cash buyers ready now")
-✅ Offering value ("We can close in 7 days with no fees")
-✅ Asking clarifying questions ("What if we could pay cash?")
-✅ Acknowledging + redirecting ("I hear you, let me explain our process")
-✅ Providing alternatives ("How about I just send you information?")
-✅ Building rapport before addressing ("I totally understand your situation")
-✅ Pivoting to other properties/leads ("Since I have you, do you have any property to sell?", "Do you know anyone else who might be selling?")
+✅ Any of the 8 strategies above, even if poorly worded
+✅ Asking about other properties after rejection (this is the #1 strategy)
+✅ Asking about future selling plans
+✅ Pitching the cash offer or benefits
+✅ Asking for a callback time
+✅ Asking for referrals ("know anyone selling?")
+✅ Combining multiple strategies ("not even in the future? any other property?")
+✅ Indirect or imperfect attempts ("before I let you go, do you have any property?")
 
 WHAT DOES NOT COUNT:
-❌ Simply moving on without addressing the objection
-❌ Only repeating the same question
-❌ Ending the call immediately
-❌ Generic pleasantries without substance ("okay, bye")
+❌ Simply saying "okay" or "alright" and ending the call
+❌ Only repeating the same pitch without addressing the objection
+❌ Ending the call immediately after the objection
+❌ Generic pleasantries without substance ("okay have a good day bye")
+❌ Just confirming the wrong number without pivoting
 
-RESPONSE FORMAT:
-Always respond with valid JSON only, no additional text:
+CRITICAL RULE:
+If the agent asks about OTHER properties, future selling, or referrals AFTER rejection, that IS a rebuttal — even if the owner says no to that too. The agent TRIED.
+
+RESPONSE FORMAT (valid JSON only):
 {
   "rebuttal_detected": true or false,
   "confidence": 0.0 to 1.0,
-  "reasoning": "brief 1-2 sentence explanation of your decision",
-  "matched_phrase": "the exact agent phrase that addressed the objection, or null if none"
+  "reasoning": "1-2 sentence explanation referencing which strategy the agent used",
+  "matched_phrase": "the exact agent phrase that constitutes the rebuttal, or null"
 }"""
     
     def __init__(self, learned_phrases: Optional[Dict[str, List[str]]] = None):
@@ -190,14 +231,18 @@ Always respond with valid JSON only, no additional text:
         # Use dialogue if available for full context, otherwise fallback to transcript
         conversation_text = dialogue if dialogue else transcript
         
-        prompt = f"""CONVERSATION:
+        prompt = f"""FULL CONVERSATION:
 {conversation_text}
 
-OBJECTION DETECTED: {objection_text}
+OWNER'S OBJECTION: {objection_text}
 
-TASK: Did the agent attempt to address this objection?
+TASK: After the owner raised this objection, did the agent use ANY of the 8 rebuttal strategies?
 
-IMPORTANT: Consider the full conversation context. Look at what the owner (customer) said and how the agent responded. A rebuttal is when the agent addresses or attempts to overcome an objection raised by the owner.
+Pay special attention to:
+- Does the agent ask about OTHER properties? (Strategy 1 — most common)
+- Does the agent ask about FUTURE selling? (Strategy 2)
+- Does the agent pitch their offer or benefits? (Strategy 4)
+- Does the agent ask for a callback or referral? (Strategy 5, 8)
 
 """
         
@@ -208,16 +253,13 @@ IMPORTANT: Consider the full conversation context. Look at what the owner (custo
                 # Limit to top 5 to keep prompt concise
                 sample_phrases = category_phrases[:5]
                 prompt += f"""KNOWN SUCCESSFUL REBUTTALS FOR THIS OBJECTION:
-The system has learned these phrases successfully address "{objection_text}":
 {chr(10).join(f'- "{phrase}"' for phrase in sample_phrases)}
-
-Use these as reference examples of what rebuttals look like, but recognize ANY genuine attempt to address the objection.
 
 """
         
         # Add semantic hints if provided
         if semantic_hints:
-            prompt += f"""SEMANTIC MATCH CANDIDATES (confidence < 0.70):
+            prompt += f"""POSSIBLE REBUTTAL CANDIDATES (low confidence — need your judgment):
 {chr(10).join(f'- "{hint}"' for hint in semantic_hints[:3])}
 
 """
@@ -226,7 +268,7 @@ Use these as reference examples of what rebuttals look like, but recognize ANY g
 {
   "rebuttal_detected": true/false,
   "confidence": 0.0-1.0,
-  "reasoning": "brief explanation",
+  "reasoning": "which strategy was used and why",
   "matched_phrase": "exact agent phrase or null"
 }"""
         
