@@ -324,16 +324,10 @@ def show_audit_section(
                 "DNC - Unknown",
                 "Unknown",
                 "DNC - Decision Maker",
-                "Decision Maker - Lead",
-                "Callback",
                 "Wrong Number",
-                "Voicemail",
                 "Decision Maker - NYI",
                 "Dead Call",
                 "Not logged",
-                "Do Not Call",
-                "Not Available",
-                "Not interested",
             ]
             selected_dispositions = st.multiselect(
                 "Call Dispositions",
@@ -1574,16 +1568,10 @@ def show_audit_section(
                     "DNC - Unknown",
                     "Unknown",
                     "DNC - Decision Maker",
-                    "Decision Maker - Lead",
-                    "Callback",
                     "Wrong Number",
-                    "Voicemail",
                     "Decision Maker - NYI",
                     "Dead Call",
                     "Not logged",
-                    "Do Not Call",
-                    "Not Available",
-                    "Not interested",
                 ]
                 selected_dispositions = st.multiselect(
                     "Call Dispositions",
