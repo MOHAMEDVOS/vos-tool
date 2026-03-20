@@ -148,7 +148,7 @@ vos-tool/
 |--|------------|------------|
 | **Approach** | Full transcription + accent correction | Keyword spotting + pattern matching |
 | **Analysis** | Complete rebuttal analysis with confidence scores | Basic quality metrics |
-| **Speed** | ~3-5 min per minute of audio | ~15-30 sec per call |
+| **Speed** | ~200 records in 3 minutes | ~1000 records in 8 minutes |
 | **Use Case** | Critical calls requiring detail | High-volume rapid screening |
 
 ---
