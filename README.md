@@ -3,7 +3,7 @@
 </h1>
 
 <p align="center">
-  <strong>AI-powered call center quality assurance platform with automated transcription, rebuttal detection, and comprehensive audit dashboards</strong>
+  <strong>An AI system that audits call center audio, transcribes it, and detects rebuttals</strong>
 </p>
 
 <p align="center">
@@ -19,14 +19,14 @@
 
 ## 📋 What is VOS Tool?
 
-VOS Tool is an enterprise-grade voice analytics platform designed for call center quality assurance. It automatically transcribes calls, detects rebuttals using NLP, identifies quality issues (late hello, releasing), and provides comprehensive audit dashboards with role-based access control.
+VOS Tool analyzes voice calls for quality assurance. It uses AssemblyAI to transcribe audio and NLP to check if agents properly used rebuttals. It also flags quality issues like "late hello" or releasing calls early.
 
-**Key Use Cases:**
-- 🔊 Automated call quality monitoring
-- 🔍 Rebuttal detection and analysis
-- 📈 Agent performance tracking
-- 📊 Campaign-level audit reporting
-- 🔒 User-isolated dashboard analytics
+**What it does:**
+- 🔊 Transcribes audio files automatically
+- 🔍 Detects rebuttals in agent speech
+- 📈 Tracks agent performance over time
+- 📊 Generates campaign audit reports
+- 🔒 Keeps users' dashboard data isolated
 
 ---
 
@@ -34,14 +34,14 @@ VOS Tool is an enterprise-grade voice analytics platform designed for call cente
 
 | Feature | Description |
 |---------|-------------|
-| **🎤 Cloud Transcription** | AssemblyAI integration for accurate, fast transcription |
-| **🧠 Rebuttal Detection** | Semantic matching with Sentence Transformers (all-MiniLM-L6-v2) |
-| **⚡ Dual Audit Modes** | Heavy (comprehensive) and Lite (rapid screening) |
-| **👥 Role-Based Access** | Owner, Admin, and Auditor roles with granular permissions |
-| **🔒 Data Isolation** | Complete dashboard isolation per user |
-| **📊 Analytics Dashboards** | Agent-level, campaign-level, and lite audit dashboards |
-| **🎯 Quality Detection** | Late hello, releasing, and rebuttal detection |
-| **🌐 ReadyMode Integration** | Automated call download from ReadyMode dialers |
+| **🎤 Cloud Transcription** | Uses AssemblyAI for speech-to-text |
+| **🧠 Rebuttal Detection** | Checks text against known rebuttals using Sentence Transformers |
+| **⚡ Dual Audit Modes** | Heavy (full transcription) and Lite (quick keyword spotting) |
+| **👥 Role-Based Access** | Owner, Admin, and Auditor permission levels |
+| **🔒 Data Isolation** | Users only see their assigned data |
+| **📊 Analytics Dashboards** | Filterable stats for agents and campaigns |
+| **🎯 Quality Detection** | Flags late hellos and releasing |
+| **🌐 ReadyMode Integration** | Pulls calls directly from ReadyMode dialers |
 
 ---
 
