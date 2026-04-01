@@ -123,77 +123,173 @@ class RebuttalPromptBuilder:
 
 CONTEXT:
 - These are Egyptian real estate agents calling US property owners
-- Agents speak English with varying accent levels and informal phrasing
-- Focus on INTENT and MEANING, not perfect grammar or wording
+- Agents speak English as a second language — expect broken grammar, heavy accent, garbled words
+- Focus entirely on INTENT and MEANING, never on grammar or pronunciation
 - The conversation format uses "Agent:" and "Owner:" labels to identify speakers
+- Your job is to catch agents who TRIED, not just agents who spoke perfectly
 
-THE 8 REBUTTAL STRATEGIES (from most to least common):
+THE 20 REBUTTAL STRATEGIES:
 
-1. PIVOT TO OTHER PROPERTIES (most common)
-   The agent accepts the rejection but immediately asks about OTHER properties the owner might have.
-   Examples: "Do you have any other property?", "Since I have you, any other property you might sell?", "Do you know anyone who might be selling?"
+1. PIVOT TO OTHER PROPERTIES (most common — look hard for this)
+   Agent accepts rejection but immediately asks if the owner has OTHER properties to sell.
+   Examples from real calls:
+   - "do you have any other property you'd like to sell"
+   - "do you happen to have any other property"
+   - "by any chance, do you have any other property you want to sell"
+   - "any other properties you might consider selling"
+   - "any other property that you might be interested in selling"
+   - "do you have another one that might be up for sales"
+   - "do you guys have another one that might be up for sales"
+   - "before i go, do you have any other property you want to sell"
+   - "but do you have any other property"
+   - "by the way, do you have any other property"
+   - "any other property, would you be thinking about selling"
+   - "any other house or land you may want to sell"
+   - "any property or land that you want to sell"
+   - "do you happen to have any other properties that you'd like to sell"
+   - "consider selling that's okay but do you have any other property you may want to"
+   - "any other property you want to sell or know anyone who want to sell"
+   - "any interestt to sell it okay do you have okay do you have other"
+   CRITICAL: Even broken/trailing phrases like these ARE this strategy — the agent TRIED.
 
 2. FUTURE SELLING INQUIRY
-   The agent asks if the owner would consider selling in the future.
-   Examples: "Would you be open to selling in the future?", "Even in the near future?", "Maybe next year?"
+   Agent asks if the owner might sell in the future.
+   Examples: "Would you be open to selling in the future?", "Even in the near future?", "Maybe next year?", "Not even in the future?", "Maybe down the road?", "You think you could possibly sell next year or so?"
 
-3. MIXED PIVOT (Future + Other Property)
-   The agent combines multiple strategies in one response.
-   Examples: "Not even in the future? But do you have any other property?", "Not this one, but maybe another property?"
+3. MIXED PIVOT (combines strategies 1 + 2 in one sentence)
+   Agent asks about future AND other properties in same breath.
+   Examples: "Not even in the future? But do you have any other property?", "Not this one but maybe another property?", "Not now but other property later?"
 
-4. VALUE PROPOSITION / WE-BUY OFFER
-   The agent pitches their buying service with concrete benefits.
-   Examples: "We buy houses all cash", "No commission, no fees", "We close in 7 days", "Would that be negotiable?"
+4. VALUE PROPOSITION / CASH OFFER PITCH
+   Agent pitches their cash buying service and its benefits.
+   Examples: "We buy houses all cash", "No commission no fees", "We close in 7 days", "We pay all closing costs", "As-is no repairs needed", "We buy in any condition"
 
-5. CALLBACK SCHEDULING
-   The agent tries to secure a follow-up call.
-   Examples: "When is the best time to call you back?", "Can I follow up with you later?"
+5. PRICE NEGOTIATION REBUTTAL
+   Agent challenges or negotiates the price after rejection.
+   Examples: "Would that be negotiable?", "Is that price negotiable?", "How did you come up with that number?", "Would you take less?", "Is there room for negotiation?", "What's your best price?", "Would you consider a lower offer?"
 
-6. WOULD-YOU-CONSIDER OFFER
-   The agent frames a direct offer.
-   Examples: "Would you consider a cash offer?", "Would you be interested in selling?"
+6. CALLBACK SCHEDULING
+   Agent tries to schedule a follow-up call instead of ending the conversation.
+   Examples: "When is the best time to call you back?", "What's a good time to reach you?", "When should I follow up?", "Can I call you again later?", "When would be better to talk?"
 
-7. FLEXIBILITY / CONVENIENCE PITCH
-   The agent highlights their process flexibility.
-   Examples: "We're very flexible with timing", "Flexible closing, 30 days to 6 months"
+7. WOULD-YOU-CONSIDER OFFER
+   Agent directly asks if the owner would consider any kind of offer or deal.
+   Examples: "Would you consider selling?", "Would you consider a cash offer?", "Would you be open to an offer?", "Would you entertain an offer?", "Would you be willing to sell?"
 
 8. REFERRAL ASK
-   The agent asks if the owner knows someone else who might sell.
-   Examples: "Do you know someone who might be selling?", "Know anyone looking to sell?"
+   Agent asks if the owner knows anyone else who might sell.
+   Examples: "Do you know someone who might be selling?", "Know anyone looking to sell?", "Know anyone selling?", "Do you know someone by any chance?"
+
+9. OPPORTUNISTIC TRANSITION PIVOT
+   Agent uses a transitional phrase to pivot before hanging up — a very common Egyptian agent technique.
+   Examples: "Since I have you...", "Since I got you on the phone...", "Before I let you go...", "While I have you...", "Just before you go...", "Before we hang up...", "By the way..."
+   IMPORTANT: Any sentence that starts with these phrases and then asks about property IS a rebuttal.
+
+10. SPECIFIC PROPERTY TYPE INQUIRY
+    Agent asks about specific types of property the owner might have.
+    Examples: "Do you have any rental properties?", "Any investment properties?", "Do you have any land?", "Any commercial properties?", "Do you have any vacant lots?", "Any foreclosure properties?", "Do you own any undeveloped land?"
+
+11. FAMILY / INHERITED PROPERTY INQUIRY
+    Agent asks about property within the owner's family or network.
+    Examples: "Any other property in the family?", "Any property you inherited?", "Does anyone in your family have property to sell?", "Any property under a family member's name?"
+
+12. FLEXIBILITY / CONVENIENCE PITCH
+    Agent highlights how easy and flexible their process is.
+    Examples: "We're very flexible with timing", "Flexible closing 30 days to 6 months", "Very simple process", "We make it easy for you", "No hassle process"
+
+13. LOCATION-BASED PIVOT
+    Agent asks about properties the owner might have in other locations.
+    Examples: "Do you have property in other areas?", "Any property elsewhere?", "Property in another state?", "Any other addresses you own?"
+
+14. BROKEN ENGLISH PROPERTY QUESTION (CRITICAL — do not miss these)
+    Agent asks about property with heavy accent or broken grammar. These are real rebuttals even if hard to understand.
+    Examples: "you haf any uzzer broperty", "haf any ozer hows", "you have like any other", "do you haf any ozer", "any uzzer bropertiz", "you don't have like any other"
+    RULE: If you can see ANY attempt to ask about property even in broken/garbled English, it IS a rebuttal.
+
+15. DOUBLE QUESTION PIVOT
+    Agent asks two questions in rapid succession to maximize chances.
+    Examples: "Not even in the future? Do you have any other property?", "Not this one? What about other houses?", "Not interested? Do you know anyone who might be?"
+
+16. SOFT AGREEMENT + REDIRECT
+    Agent agrees with the rejection but immediately redirects to a new angle.
+    Examples: "I understand, but just quickly...", "I respect that, but do you happen to have...", "No problem, but before I go...", "That's fine, but do you know anyone..."
+
+17. EXTENDED PROPERTY PORTFOLIO QUESTION
+    Agent asks broad questions about the owner's real estate holdings.
+    Examples: "Do you own multiple properties?", "Any other real estate you own?", "Do you have other properties in your portfolio?", "Any real estate assets?", "Other investment holdings?"
+
+18. URGENCY / MARKET PITCH
+    Agent creates urgency about the market or their offer timeline.
+    Examples: "The market is really good right now", "We have buyers looking right now", "We're buying in your area right now", "Prices are high right now"
+
+19. EMPATHY + REFRAME
+    Agent acknowledges the owner's situation and reframes the opportunity.
+    Examples: "I understand you're not ready, but what if...", "I know it's not the right time, but...", "I completely understand, however...", "That makes sense, but have you considered..."
+
+20. FRAGMENTED / INCOMPLETE ATTEMPT (catch-all — very important)
+    Agent starts a rebuttal but doesn't finish it cleanly — still counts as an attempt.
+    Examples: "Do you have any...", "What about...", "Is there any chance...", "Would you ever...", "Do you happen to..."
+    RULE: Any sentence fragment that clearly points toward asking about property, future selling, or referrals IS a rebuttal attempt. The agent TRIED.
 
 HOW TO EVALUATE:
 - Read the FULL conversation between Agent and Owner
-- Identify the Owner's objection (e.g., "not interested", "wrong number", "already sold")
-- Look at what the Agent says AFTER the objection
-- A rebuttal is ANY genuine attempt from the agent to keep the conversation going or redirect the opportunity
+- Identify the Owner's objection
+- Look at EVERYTHING the Agent says AFTER the objection
+- A rebuttal is ANY genuine attempt to keep the conversation going or redirect to a new opportunity
 
 WHAT COUNTS AS A REBUTTAL:
-✅ Any of the 8 strategies above, even if poorly worded
-✅ Asking about other properties after rejection (this is the #1 strategy)
-✅ Asking about future selling plans
-✅ Pitching the cash offer or benefits
-✅ Asking for a callback time
-✅ Asking for referrals ("know anyone selling?")
-✅ Combining multiple strategies ("not even in the future? any other property?")
-✅ Indirect or imperfect attempts ("before I let you go, do you have any property?")
-✅ Broken English or garbled attempts where the agent clearly TRIED to say something beyond "okay bye" — even if the words are hard to understand (e.g., "you have like, any" = attempted pivot to other properties)
+✅ Any of the 20 strategies above, even if broken or incomplete
+✅ Any question about other properties after rejection — this is #1, look very hard for it
+✅ Any question about future selling
+✅ Any pivot using transitional phrases (since I have you, before I let you go, etc.)
+✅ Any price negotiation after rejection
+✅ Any request for referrals
+✅ Any attempt to schedule a callback
+✅ Broken/garbled English where you can still detect the intent to ask about property
+✅ Two or more strategies combined in one response
+✅ Incomplete sentence fragments that clearly point toward a rebuttal
 
 WHAT DOES NOT COUNT:
-❌ Simply saying "okay" or "alright" and ending the call
-❌ Only repeating the same pitch without addressing the objection
-❌ Ending the call immediately after the objection
-❌ Generic pleasantries without substance ("okay have a good day bye")
-❌ Just confirming the wrong number without pivoting
+❌ Only saying "okay", "alright", "thank you", "have a good day", "bye" and ending
+❌ Repeating the same opening pitch word-for-word after the objection (not addressing it)
+❌ Ending the call immediately after the objection with no attempt
+❌ Pure pleasantries with zero substance ("okay sorry to bother you goodbye")
+
+REAL TRANSCRIPT PATTERNS (from actual recorded calls — study these carefully):
+These are exactly how your agents speak. All of these ARE rebuttals:
+- "and by any chance, do you have a property yourself you're thinking to sell thank you"
+- "and do you have any other property you'd like to sell"
+- "any other properties that you'd like to sell okay"
+- "any other property you want to sell in the future okay thanks a lot sir"
+- "before i go, really quick, don't you have like any other properties you might be"
+- "do you happen to have any other property consider selling we can take anything okay"
+- "do you happen to have any other property you consider selling okay ma'am"
+- "any other properties you might be interested in selling"
+- "did you happen to have any other for sale"
+- "a real estate expert do you have any property you might consider selling okay"
+- "any property you may want to sell though if if you happen to that's okay"
+
+KEY PATTERNS TO RECOGNIZE:
+- Phrases ending in "okay", "thank you", "sir", "ma'am", "all right" are NORMAL call endings added after a rebuttal — do not let them make you miss the rebuttal before them
+- "do you happen to have any other" (even incomplete) = rebuttal
+- "by any chance" before a property question = always a rebuttal
+- "before i go" + any property question = always a rebuttal
+- "but do you have any other property" = rebuttal (the "but" signals pivot)
+- Repeated words like "okay do you have okay do you have other" = agent trying despite confusion = rebuttal
+- Double "l" in "selll", "interestted", "sellling" = AssemblyAI transcription artifacts, NOT different words
 
 CRITICAL RULES:
-1. If the agent asks about OTHER properties, future selling, or referrals AFTER rejection, that IS a rebuttal — even if the owner says no to that too. The agent TRIED.
-2. BROKEN ENGLISH RULE: These agents are Egyptian and speak English as a second language. Their sentences may be grammatically broken, garbled, or hard to understand. If you can detect ANY intent to rebut (even fragments like "you have any" or "do you have like property"), count it as a rebuttal. The goal is to distinguish agents who TRY from agents who simply give up and say goodbye.
+1. ATTEMPT = REBUTTAL: If the agent asks about OTHER properties, future selling, referrals, or uses any of the 20 strategies AFTER rejection — that IS a rebuttal, even if the owner says no again. The agent TRIED and that is what we measure.
+2. BROKEN ENGLISH RULE: These are Egyptian agents speaking English as a second language. Grammar will be broken. Words will be mispronounced. Sentences will be fragmented. If you can detect ANY intent to rebut — even from fragments like "you have any", "do you have like", "haf any ozer" — count it as a rebuttal. Do NOT penalize them for imperfect English.
+3. TRANSCRIPTION ARTIFACTS: AssemblyAI sometimes doubles letters ("selll", "interestted", "sellling") or repeats words. Treat these as the normal word they represent.
+4. OPPORTUNISTIC PIVOTS: Phrases like "since I have you", "before I let you go", "while I have you", "by any chance", "by the way" followed by ANY property question are ALWAYS rebuttals. Never miss these.
+5. BE GENEROUS: When in doubt, lean toward rebuttal_detected=true with lower confidence rather than missing a real attempt. A false negative (missing a real rebuttal) is worse than a false positive.
 
 RESPONSE FORMAT (valid JSON only):
 {
   "rebuttal_detected": true or false,
   "confidence": 0.0 to 1.0,
-  "reasoning": "1-2 sentence explanation referencing which strategy the agent used",
+  "reasoning": "1-2 sentence explanation referencing which strategy number and name the agent used",
   "matched_phrase": "the exact agent phrase that constitutes the rebuttal, or null"
 }"""
     
@@ -238,13 +334,17 @@ RESPONSE FORMAT (valid JSON only):
 
 OWNER'S OBJECTION: {objection_text}
 
-TASK: After the owner raised this objection, did the agent use ANY of the 8 rebuttal strategies?
+TASK: After the owner raised this objection, did the agent use ANY of the 20 rebuttal strategies?
 
-Pay special attention to:
-- Does the agent ask about OTHER properties? (Strategy 1 — most common)
+Pay special attention to (most commonly missed):
+- Does the agent ask about OTHER properties? (Strategy 1 — most common, look very hard)
+- Does the agent use a transition phrase like "since I have you" or "before I let you go"? (Strategy 9)
 - Does the agent ask about FUTURE selling? (Strategy 2)
-- Does the agent pitch their offer or benefits? (Strategy 4)
-- Does the agent ask for a callback or referral? (Strategy 5, 8)
+- Does the agent ask about specific property types like rental, land, commercial? (Strategy 10)
+- Does the agent negotiate price? (Strategy 5)
+- Does the agent ask for a callback or referral? (Strategy 6, 8)
+- Is there ANY broken English attempt to ask about property? (Strategy 14 — do not miss these)
+- Does the agent ask an incomplete question that points toward property? (Strategy 20)
 
 """
         
