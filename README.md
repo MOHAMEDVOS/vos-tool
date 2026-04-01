@@ -20,7 +20,7 @@
 
 ## What is VOS Tool?
 
-VOS (Voice Observation System) automatically downloads call recordings from ReadyMode dialers, transcribes them using AssemblyAI, and analyzes agent performance using a 3-layer AI detection system. Manual analysis took 45 seconds per call — VOS does it in 2–3 seconds at $2–3 per 1,000 calls.
+VOS (Voice Observation System) automatically downloads call recordings from ReadyMode dialers, transcribes them using AssemblyAI, and analyzes agent performance using a 3-layer AI detection system. Manual analysis took 45 seconds per call — VOS does it in 2–3 seconds 
 
 **What it does:**
 - 🎤 Transcribes call audio via AssemblyAI
