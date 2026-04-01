@@ -3,7 +3,7 @@
 </h1>
 
 <p align="center">
-  <strong>An AI system that audits call center audio, transcribes it, and detects rebuttals</strong>
+  <strong>AI-powered call center QA automation for Egyptian real estate sales calls</strong>
 </p>
 
 <p align="center">
@@ -13,72 +13,131 @@
   <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/AssemblyAI-000000?style=for-the-badge" alt="AssemblyAI">
+  <img src="https://img.shields.io/badge/Groq-LLM-orange?style=for-the-badge" alt="Groq">
 </p>
 
 ---
 
-## 📋 What is VOS Tool?
+## What is VOS Tool?
 
-VOS Tool analyzes voice calls for quality assurance. It uses AssemblyAI to transcribe audio and NLP to check if agents properly used rebuttals. It also flags quality issues like "late hello" or releasing calls early.
+VOS (Voice Observation System) automatically downloads call recordings from ReadyMode dialers, transcribes them using AssemblyAI, and analyzes agent performance using a 3-layer AI detection system. Manual analysis took 45 seconds per call — VOS does it in 2–3 seconds at $2–3 per 1,000 calls.
 
 **What it does:**
-- 🔊 Transcribes audio files automatically
-- 🔍 Detects rebuttals in agent speech
-- 📈 Tracks agent performance over time
-- 📊 Generates campaign audit reports
-- 🔒 Keeps users' dashboard data isolated
+- 🎤 Transcribes call audio via AssemblyAI
+- 🧠 Detects sales rebuttals using 2,000+ phrase library + semantic matching + LLM fallback
+- 📊 Flags quality issues: late hello, releasing, agent-only calls, silence
+- 📈 Tracks agent performance over time across campaigns
+- 🌐 Downloads calls automatically from ReadyMode dialers (8 instances)
+- 🔒 Keeps each user's dashboard data fully isolated
 
 ---
 
-## ✨ Key Features
+## Key Features
 
 | Feature | Description |
 |---------|-------------|
-| **🎤 Cloud Transcription** | Uses AssemblyAI for speech-to-text |
-| **🧠 Rebuttal Detection** | Checks text against known rebuttals using Sentence Transformers |
-| **⚡ Dual Audit Modes** | Heavy (full transcription) and Lite (quick keyword spotting) |
-| **👥 Role-Based Access** | Owner, Admin, and Auditor permission levels |
-| **🔒 Data Isolation** | Users only see their assigned data |
-| **📊 Analytics Dashboards** | Filterable stats for agents and campaigns |
-| **🎯 Quality Detection** | Flags late hellos and releasing |
-| **🌐 ReadyMode Integration** | Pulls calls directly from ReadyMode dialers |
+| **3-Layer Rebuttal Detection** | Exact match → Semantic similarity → Groq LLM fallback |
+| **2,000+ Phrase Library** | Domain-specific Egyptian real estate rebuttal phrases |
+| **80% Early-Exit Rate** | Layer 1/2 resolves most calls, LLM only for edge cases |
+| **Dual Audit Modes** | Full audit (transcription + AI) and Lite audit (fast keyword scan) |
+| **ReadyMode Integration** | Playwright automation to download MP3s from 8 dialer instances |
+| **Role-Based Access** | Owner, Admin, User permission levels |
+| **Campaign Dashboards** | Per-agent and campaign-level analytics with CSV export |
+| **Self-Learning Phrases** | Auto-learns new rebuttal patterns from confirmed calls |
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
-│   Frontend      │         │    Backend      │         │   PostgreSQL    │
-│   (Streamlit)   │◄────────┤   (FastAPI)     │◄────────┤    Database     │
-│   Port: 8501    │  HTTP   │   Port: 8000    │  SQL    │   Port: 5432   │
-└─────────────────┘         └─────────────────┘         └─────────────────┘
-                                      │
-                                      │ API Calls
-                                      ▼
-                            ┌─────────────────┐
-                            │   AssemblyAI    │
-                            │  (Transcription)│
-                            └─────────────────┘
-                                      │
-                                      │ Automation
-                                      ▼
-                            ┌─────────────────┐
-                            │    ReadyMode    │
-                            │  (Call Download)│
-                            └─────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        USER (Browser)                           │
+│                    Streamlit UI (port 8501)                      │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+          ┌────────────────┼────────────────┐
+          ▼                ▼                ▼
+  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+  │  app.py      │ │  frontend/   │ │  backend/    │
+  │  (Streamlit  │ │  (UI logic,  │ │  (FastAPI    │
+  │   entry)     │ │   auth, CSS) │ │   REST API)  │
+  │  3098 lines  │ │              │ │  port 8000   │
+  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
+         │                │                │
+         ├────────────────┴────────────────┤
+         ▼                                 ▼
+  ┌──────────────┐                 ┌──────────────┐
+  │    lib/      │                 │  automation/  │
+  │  (Core       │                 │  (ReadyMode   │
+  │   business   │                 │   Playwright  │
+  │   logic)     │                 │   downloader) │
+  └──────┬───────┘                 └──────┬───────┘
+         │                                │
+    ┌────┼────┬────────┐                  │
+    ▼    ▼    ▼        ▼                  ▼
+┌───────┐┌───────┐┌─────────┐     ┌──────────────┐
+│audio_ ││analy- ││process- │     │  ReadyMode   │
+│pipe-  ││zer/   ││ing/     │     │  Dialer      │
+│line/  ││       ││(batch)  │     │  (External)  │
+└───┬───┘└───┬───┘└────┬────┘     └──────────────┘
+    │        │         │
+    ▼        ▼         ▼
+┌─────────────────────────────────────────┐
+│           External Services             │
+│  ┌───────────┐  ┌───────┐  ┌─────────┐ │
+│  │AssemblyAI │  │ Groq  │  │ Railway │ │
+│  │(Transcr.) │  │(LLM)  │  │(Postgre)│ │
+│  └───────────┘  └───────┘  └─────────┘ │
+└─────────────────────────────────────────┘
 ```
 
 ---
 
-## 🚀 Quick Start (Docker)
+## 3-Layer Rebuttal Detection
+
+```
+MP3 File → AssemblyAI Transcription
+                    │
+        ┌───────────▼────────────┐
+        │  Layer 1: Exact Match  │  confidence = 1.00 → STOP
+        │  2,000+ phrase library │  (saves ~40 seconds)
+        └───────────┬────────────┘
+                    │ no match
+        ┌───────────▼────────────┐
+        │  Layer 2: Semantic     │  confidence > 0.7 → STOP
+        │  Sentence Transformers │  (~2–5 seconds)
+        └───────────┬────────────┘
+                    │ confidence ≤ 0.7
+        ┌───────────▼────────────┐
+        │  Layer 3: LLM          │  Groq / Llama 3.1
+        │  20 rebuttal strategies│  edge cases only
+        └────────────────────────┘
+```
+
+**Result:** 80% early-exit rate. Only ~20% of calls reach Layer 3 (LLM).  
+**Cost:** $2–3 per 1,000 calls vs $15–20 naive approach.  
+**Speed:** 2,500 calls in ~2.5 hours vs 12.5 hours without optimization.
+
+---
+
+## Audit Modes
+
+| | Full Audit | Lite Audit |
+|--|-----------|------------|
+| **Approach** | Full transcription + 3-layer AI analysis | Fast keyword spotting + pattern matching |
+| **Speed** | ~200 calls in 3 minutes | ~1,000 calls in 8 minutes |
+| **Use Case** | Deep QA review, agent coaching | High-volume daily screening |
+
+---
+
+## Quick Start (Docker)
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/MOHAMEDVOS/vos-tool.git
 cd vos-tool
 
-# 2. Create environment file (see .env.example)
+# 2. Create environment file
 cp .env.example .env
 # Edit .env with your values
 
@@ -91,134 +150,103 @@ docker-compose up --build
 # API Docs:    http://localhost:8000/docs
 ```
 
-📖 **For detailed setup, see [DOCKER_SETUP.md](DOCKER_SETUP.md)**
+📖 See [docs/guides/DOCKER_SETUP.md](docs/guides/DOCKER_SETUP.md) for full setup guide.
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 vos-tool/
-├── app.py                      # Frontend entry point (Streamlit)
-├── config.py                   # Main configuration
-├── backend/                    # Backend API (FastAPI)
-│   ├── main.py                # Backend entry point
-│   ├── api/                   # API routes
-│   ├── core/                  # Core functionality
-│   ├── models/                # Data models
-│   └── services/              # Business logic
-├── frontend/                   # Frontend components
-│   ├── app_ai/                # UI components & auth
-│   └── api_client.py          # Backend API client
-├── analyzer/                   # Rebuttal detection engine
-├── audio_pipeline/            # Audio processing pipeline
-├── processing/                 # Batch processing
-├── models/                     # ML model management
-├── docker-compose.yml          # Docker orchestration
-├── requirements-production.txt # Production dependencies
-└── docs/                       # Documentation
+├── app.py                      # Streamlit entry point
+├── config.py                   # Central configuration
+├── backend/                    # FastAPI REST API (port 8000)
+│   ├── api/                   # Auth, audio, dashboard, settings routes
+│   ├── core/                  # JWT, DB pool, security
+│   └── services/              # Business logic layer
+├── frontend/                   # Streamlit UI components
+│   ├── app_ai/auth/           # Login, session validation
+│   └── app_ai/ui/             # Audit, dashboard, phrase management
+├── analyzer/                   # AI analysis engine
+│   ├── rebuttal_detection.py  # 3-layer detection + 2,000+ phrase library
+│   └── llm_rebuttal_evaluator.py  # Groq LLM (20 rebuttal strategies)
+├── audio_pipeline/            # Audio processing (load, split, detect, transcribe)
+├── processing/                # Batch processing engine
+├── lib/                       # Core business logic (28 modules)
+├── automation/                # ReadyMode Playwright downloader
+├── models/                    # ML model management (Sentence Transformers)
+└── docs/                      # Architecture, guides, fixes
 ```
 
 ---
 
-## 👥 User Roles & Permissions
+## User Roles
 
-| Feature | Owner | Admin | Auditor |
-|---------|:-----:|:-----:|:-------:|
-| Settings | ✅ | Limited | ❌ |
-| User Management | Full | Create Auditors | ❌ |
-| Modify/Delete Users | ✅ | ❌ | ❌ |
-| System Health | ✅ | ❌ | ❌ |
-| Dashboard Access | Personal | Personal | Personal |
-
----
-
-## 🔍 Rebuttal Detection
-
-- **Semantic Matching** using Sentence Transformers (all-MiniLM-L6-v2) with cosine similarity
-- **Optimal Threshold** of 0.68 minimizes false positives
-- **Pattern Library** of 50+ common rebuttal phrases with contextual variations
-- **Agent-Only Analysis** focuses on agent channel for accurate detection
+| Feature | Owner | Admin | User |
+|---------|:-----:|:-----:|:----:|
+| User management | ✅ Full | ✅ Limited | ❌ |
+| Phrase management | ✅ | ❌ | ❌ |
+| System health | ✅ | ❌ | ❌ |
+| Quotas & limits | ✅ | ✅ | ❌ |
+| Audit & dashboard | ✅ | ✅ | ✅ |
 
 ---
 
-## ⚡ Audit Modes
-
-| | Heavy Audit | Lite Audit |
-|--|------------|------------|
-| **Approach** | Full transcription + accent correction | Keyword spotting + pattern matching |
-| **Analysis** | Complete rebuttal analysis with confidence scores | Basic quality metrics |
-| **Speed** | ~200 records in 3 minutes | ~1000 records in 8 minutes |
-| **Use Case** | Critical calls requiring detail | High-volume rapid screening |
-
----
-
-## 🔒 Security
-
-- **JWT Authentication** with 24-hour session expiration
-- **Single Session Enforcement** per user
-- **Complete Data Isolation** between users
-- **Encrypted Credentials** for external service integrations
-- **CORS Protection** with configurable policies
-
----
-
-## 📡 API Endpoints
+## API Endpoints
 
 | Endpoint | Description |
 |----------|-------------|
-| `/api/auth/*` | Authentication & session management |
-| `/api/audio/*` | Audio processing & transcription |
-| `/api/dashboard/*` | Dashboard data & analytics |
-| `/api/settings/*` | Application settings |
-| `/api/readymode/*` | ReadyMode integration |
+| `POST /api/auth/login` | Authenticate, returns JWT + session ID |
+| `GET /api/auth/me` | Current user info |
+| `POST /api/audio/upload` | Upload and process audio file |
+| `GET /api/audio/status/{job_id}` | Background job status |
+| `GET /api/dashboard/audits/agent` | Agent audit results |
+| `GET /api/dashboard/audits/campaign` | Campaign audit results |
+| `GET /api/settings` | App settings CRUD |
+| `POST /api/readymode/download-calls` | Trigger ReadyMode download |
+| `GET /api/health/database` | DB connection pool health |
 
-Interactive docs available at `http://localhost:8000/docs` (Swagger UI)
-
----
-
-## 🛠️ Development
-
-### Prerequisites
-- Python 3.11+
-- PostgreSQL 15+ (or use Docker)
-- AssemblyAI API key
-
-### Local Setup
-
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements-production.txt
-
-# Start backend
-cd backend && uvicorn main:app --reload --port 8000
-
-# Start frontend (new terminal)
-streamlit run app.py --server.port 8501
-```
-
-### Running Tests
-
-```bash
-cd backend && pytest
-```
+Interactive docs: `http://localhost:8000/docs`
 
 ---
 
-## 📚 Documentation
+## External Services
 
-| Guide | Description |
-|-------|-------------|
-| [DOCKER_SETUP.md](DOCKER_SETUP.md) | Complete Docker build guide |
-| [README-DOCKER-HUB.md](README-DOCKER-HUB.md) | Quick start with Docker Hub images |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Deployment guide |
+| Service | Purpose |
+|---------|---------|
+| **AssemblyAI** | Speech-to-text transcription |
+| **Groq / Llama 3.1** | LLM rebuttal evaluation (Layer 3 fallback) |
+| **Railway PostgreSQL** | Database hosting |
+| **Sentence Transformers** | Semantic similarity (all-MiniLM-L6-v2) |
+| **ReadyMode** | Call center dialer (8 instances) |
 
 ---
 
-## 📄 License
+## Deployment (Railway)
+
+5 services on Railway:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| Frontend | 8501 | Streamlit app |
+| Backend | 8000 | FastAPI API |
+| PostgreSQL | 5432 | Database |
+| Redis | 6379 | Celery broker |
+| Celery Worker | — | Background batch jobs |
+
+---
+
+## Documentation
+
+| Doc | Description |
+|-----|-------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture reference |
+| [docs/DETECTION_WORKFLOW.md](docs/DETECTION_WORKFLOW.md) | 3-layer detection explained |
+| [docs/guides/DOCKER_SETUP.md](docs/guides/DOCKER_SETUP.md) | Docker setup guide |
+| [docs/guides/RAILWAY_DEPLOYMENT.md](docs/guides/RAILWAY_DEPLOYMENT.md) | Railway deployment guide |
+
+---
+
+## License
 
 Proprietary Software — All rights reserved.
