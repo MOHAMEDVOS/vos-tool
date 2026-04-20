@@ -2453,24 +2453,21 @@ def show_agent_audit_dashboard():
     if 'audit_type' in display_df.columns:
         display_df = display_df.rename(columns={'audit_type': 'Audit Type'})
     
-    # Standard column order (matching the image)
+    # Standard column order (visible columns only — other fields stay in df for CSV/logic)
     standard_column_order = [
         'Agent Name',
         'Phone Number',
-        'Timestamp',
         'Disposition',
         'Releasing Detection',
         'Late Hello Detection',
         'Rebuttal Detection',
         'Transcription',
-        'Owner Name',
+        'Dialer Name',
         'Agent Intro',
+        'Owner Name',
         'Reason for calling',
         'Intro Score',
         'Status',
-        'Dialer Name',
-        'Audit Type',
-        'Auditor'
     ]
     
     # Handle column name variations - check all possible variations
@@ -2508,18 +2505,10 @@ def show_agent_audit_dashboard():
             else:
                 display_df[col] = ''
     
-    # Reorder columns to match standard order - ALL standard columns should be present now
-    # Force include all standard columns in the correct order
-    ordered_cols = []
-    for col in standard_column_order:
-        if col in display_df.columns:
-            ordered_cols.append(col)
-    
-    # Add any remaining columns that aren't in the standard order
-    remaining_cols = [col for col in display_df.columns if col not in standard_column_order]
-    
-    # Final column order: standard columns first (in correct order), then any remaining columns
-    display_df = display_df[ordered_cols + remaining_cols]
+    # Reorder columns to match standard order — hide everything else from the UI.
+    # Non-standard columns are kept out of `display_df` but remain in `df` for CSV export.
+    ordered_cols = [col for col in standard_column_order if col in display_df.columns]
+    display_df = display_df[ordered_cols]
     
     # Apply conditional styling to the filtered dataframe
     styled_df = display_df.copy()

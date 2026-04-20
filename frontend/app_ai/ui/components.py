@@ -1,10 +1,70 @@
 from datetime import date, timedelta
+import json
 import logging
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 logger = logging.getLogger(__name__)
+
+
+def _render_copy_button(df: pd.DataFrame, key: str) -> None:
+    """Render a small 'Copy rows' button that copies the dataframe as TSV (no header).
+
+    Paste into Google Sheets and each cell lands in its own column, matching the
+    column order of `df`. Newlines inside a cell are collapsed so rows stay aligned.
+    """
+    if df is None or df.empty:
+        return
+
+    def _cell(v) -> str:
+        if v is None:
+            return ""
+        s = str(v)
+        # Collapse anything that would break TSV row/column alignment
+        return s.replace("\t", " ").replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+
+    tsv = "\n".join("\t".join(_cell(v) for v in row) for row in df.itertuples(index=False, name=None))
+    payload = json.dumps(tsv)
+    row_count = len(df)
+
+    components.html(
+        f"""
+        <div style="margin: 4px 0 12px 0;">
+          <button id="vos-copy-btn-{key}"
+                  style="background:#1f77b4;color:#fff;border:0;border-radius:6px;
+                         padding:6px 14px;font-size:13px;cursor:pointer;">
+            Copy {row_count} rows (no header)
+          </button>
+          <span id="vos-copy-msg-{key}" style="margin-left:10px;color:#0a0;font-size:12px;"></span>
+        </div>
+        <script>
+          (function() {{
+            const btn = document.getElementById("vos-copy-btn-{key}");
+            const msg = document.getElementById("vos-copy-msg-{key}");
+            const data = {payload};
+            btn.addEventListener("click", async () => {{
+              try {{
+                await navigator.clipboard.writeText(data);
+                msg.textContent = "Copied — paste into your Google Sheet";
+                setTimeout(() => {{ msg.textContent = ""; }}, 3000);
+              }} catch (e) {{
+                const ta = document.createElement("textarea");
+                ta.value = data;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand("copy");
+                document.body.removeChild(ta);
+                msg.textContent = "Copied (fallback)";
+                setTimeout(() => {{ msg.textContent = ""; }}, 3000);
+              }}
+            }});
+          }})();
+        </script>
+        """,
+        height=50,
+    )
 
 
 def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
@@ -253,25 +313,21 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
         if 'audit_type' in display_df.columns:
             display_df = display_df.rename(columns={'audit_type': 'Audit Type'})
         
-        # Standard column order (matching the image)
+        # Standard column order (visible columns only — other fields stay in df for CSV/logic)
         standard_column_order = [
             'Agent Name',
             'Phone Number',
-            'Timestamp',
             'Disposition',
             'Releasing Detection',
             'Late Hello Detection',
             'Rebuttal Detection',
             'Transcription',
-            'Feedback',
-            'Owner Name',
+            'Dialer Name',
             'Agent Intro',
+            'Owner Name',
             'Reason for calling',
             'Intro Score',
             'Status',
-            'Dialer Name',
-            'Audit Type',
-            'Auditor'
         ]
         
         # Handle column name variations - check all possible variations
@@ -309,20 +365,21 @@ def show_campaign_audit_dashboard(dashboard_manager, generate_csv_data):
                 else:
                     display_df[col] = ''
         
-        # Reorder columns to match standard order
+        # Keep full df for CSV export; build a visible-only view for rendering
+        full_df = display_df.copy()
         existing_standard_cols = [col for col in standard_column_order if col in display_df.columns]
-        remaining_cols = [col for col in display_df.columns if col not in standard_column_order]
-        
-        # Final column order: standard columns first, then any remaining columns
-        display_df = display_df[existing_standard_cols + remaining_cols]
+        visible_df = display_df[existing_standard_cols]
 
         # Display the data table (after any Lite/Heavy filtering)
-        st.dataframe(display_df, width="stretch")
+        st.dataframe(visible_df, width="stretch")
+
+        # Copy-to-clipboard button: TSV of visible rows, NO header — paste straight into Google Sheets
+        _render_copy_button(visible_df, key=f"copy_campaign_{selected_campaign}")
 
         # Download options - CSV only (respecting same filtering)
-        # Use display_df for CSV to include the renamed 'Auditor' column
+        # CSV keeps every column so nothing is lost on export
         csv_data, filename = generate_csv_data(
-            display_df, f"campaign_audit_{selected_campaign}"
+            full_df, f"campaign_audit_{selected_campaign}"
         )
         st.download_button(
             label="Download CSV",
