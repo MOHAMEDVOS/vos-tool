@@ -89,3 +89,16 @@ async def get_current_owner_user(
         )
     return current_user
 
+
+async def get_current_settings_user(
+    current_user: dict = Depends(get_current_user)
+) -> dict:
+    """Verify caller has settings access (Owner or Admin only). Mirrors legacy has_settings_access."""
+    role = current_user.get("role")
+    if role not in ("Owner", "Admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Settings access requires Owner or Admin role"
+        )
+    return current_user
+

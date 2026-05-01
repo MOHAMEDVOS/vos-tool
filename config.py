@@ -70,6 +70,14 @@ PASSWORD = os.getenv("READYMODE_PASSWORD")  # Optional: System fallback password
 
 # Note: No warning if not set - this is intentional since each user has their own credentials
 
+
+def _looks_like_encrypted_secret(value: str) -> bool:
+    """Return true for the encrypted token format produced by security_utils."""
+    if not value:
+        return False
+    stripped = value.strip()
+    return len(stripped) > 80 and stripped.startswith(("Z0FB", "gAAAA"))
+
 # ────────────── User Management Functions ──────────────
 def _get_user_data(username: str, field: str, fallback=None):
     """
@@ -109,18 +117,6 @@ def get_user_readymode_credentials(username: str) -> Union[Tuple[None, None], Tu
         # Use secure credential retrieval method
         readymode_user, readymode_pass = user_manager.get_user_readymode_credentials(username)
         if readymode_user and readymode_pass:
-            # Decrypt password if it's encrypted
-            # Fernet tokens are long (>100 chars). Double-encoded tokens start with Z0F.
-            # Plain passwords are usually short.
-            if len(readymode_pass) > 60:
-                try:
-                    from lib.security_utils import security_manager
-                    decrypted_pass = security_manager.decrypt_string(readymode_pass)
-                    if decrypted_pass:
-                        readymode_pass = decrypted_pass
-                except Exception:
-                    # If decryption fails or module import fails, use as-is but log warning
-                    pass
             return readymode_user, readymode_pass
     except ImportError:
         pass
@@ -129,14 +125,15 @@ def get_user_readymode_credentials(username: str) -> Union[Tuple[None, None], Tu
     # This is only used if the user doesn't have their own ReadyMode credentials
     if USERNAME and PASSWORD:
         # Also apply decryption to fallback credentials if needed
-        if len(PASSWORD) > 60:
+        if _looks_like_encrypted_secret(PASSWORD):
             try:
                 from lib.security_utils import security_manager
                 decrypted_pass = security_manager.decrypt_string(PASSWORD)
-                if decrypted_pass:
+                if decrypted_pass and decrypted_pass != PASSWORD:
                     return USERNAME, decrypted_pass
             except Exception:
                 pass
+            return None, None
         return USERNAME, PASSWORD
     
     # If no fallback is set, return None (caller should handle this)

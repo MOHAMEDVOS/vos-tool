@@ -43,7 +43,7 @@ If you prefer SQL:
    docker-compose logs backend | Select-String -Pattern "PostgreSQL|connection|successfully"
    ```
 
-3. **Test login** at http://localhost:8501
+3. **Test login** at http://localhost:3000
 
 ## Troubleshooting
 

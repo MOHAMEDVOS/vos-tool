@@ -340,13 +340,13 @@ class QuotaManager:
     
     # ==================== OWNER OPERATIONS ====================
     
-    def set_admin_limits(self, admin_username: str, max_users: int, daily_quota: int, owner_username: str):
+    def set_admin_limits(self, admin_username: str, max_users: int, total_daily_quota: int, owner_username: str):
         """Owner sets limits for an Admin.
         
         Args:
             admin_username: Username of the admin
             max_users: Maximum number of users the admin can create
-            daily_quota: Daily quota per user for this admin
+            total_daily_quota: Total daily quota for the entire admin group
             owner_username: Username of the owner setting the limits
             
         Raises:
@@ -356,8 +356,8 @@ class QuotaManager:
             raise DatabaseUnavailableError("Cannot set admin limits: Database not available")
         
         try:
-            # Calculate total daily quota (per-user quota * max users)
-            total_daily_quota = daily_quota * max_users
+            # Calculate per-user quota (Total / Max Users)
+            per_user_daily_quota = total_daily_quota // max_users if max_users > 0 else 0
             
             query = """
                 INSERT INTO admin_limits (admin_username, max_active_users, per_user_daily_quota, created_by, created_at)
@@ -372,11 +372,11 @@ class QuotaManager:
             self._db_manager.execute_query(query, (
                 admin_username,
                 max_users,
-                daily_quota,
+                per_user_daily_quota,
                 owner_username
             ))
             
-            logger.info(f"Set admin limits for {admin_username}: {max_users} users, {daily_quota} quota per user")
+            logger.info(f"Set admin limits for {admin_username}: {max_users} users, {total_daily_quota} total daily pool")
             
         except Exception as e:
             logger.error(f"Error setting admin limits: {e}")
@@ -395,8 +395,13 @@ class QuotaManager:
             result = {}
             for admin_username, limits in quota_data.get("admin_limits", {}).items():
                 admin_usage = usage_data.get("admin_usage", {}).get(admin_username, {})
+                users_created = len(self.get_admin_created_users(admin_username))
+                max_users = limits.get("max_users", 0)
+                
                 result[admin_username] = {
                     **limits,
+                    "users_created": users_created,
+                    "remaining_slots": max(0, max_users - users_created),
                     "current_usage": admin_usage.get("total_used", 0)
                 }
             
@@ -756,8 +761,9 @@ class QuotaManager:
                     
                     if admin_exists:
                         # Auto-assign to admin
-                        # SPECIAL CASE: Give Mohamed Abdo unlimited (999999) quota, others 1000
-                        daily_limit = 999999 if username == "Mohamed Abdo" else 1000
+                        # SPECIAL CASE: Give Mohamed Abdo & Owner Email unlimited (999999) quota, others 1000
+                        owner_emails = ["Mohamed Abdo", "mohamedibrahimpayonner@gmail.com", "mohamedabdo@res-va.com"]
+                        daily_limit = 999999 if username in owner_emails else 1000
                         self.assign_user_to_admin(username, "admin", daily_quota=daily_limit)
                         
                         # Reload quota data to get the new assignment
@@ -855,6 +861,11 @@ class QuotaManager:
             daily_quota = user_assignment.get("daily_quota", 0)
             admin_username = user_assignment.get("assigned_to_admin")
             
+            # SPECIAL CASE: Owner email gets unlimited quota display
+            owner_emails = ["Mohamed Abdo", "mohamedibrahimpayonner@gmail.com"]
+            if username in owner_emails:
+                daily_quota = 999999
+            
             # Get current usage from database
             usage_query = """
                 SELECT usage_count FROM user_usage 
@@ -868,8 +879,10 @@ class QuotaManager:
             
             return {
                 "has_quota": True,
+                "managed": True,  # For compatibility with dashboard_manager
                 "daily_quota": daily_quota,
                 "used_today": used_today,
+                "current_usage": used_today,  # Alias for compatibility
                 "remaining": remaining,
                 "percentage_used": percentage_used,
                 "admin": admin_username

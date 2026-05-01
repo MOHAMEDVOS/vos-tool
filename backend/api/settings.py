@@ -19,7 +19,8 @@ from backend.models.schemas import (
 from backend.core.dependencies import (
     get_current_user,
     get_current_admin_user,
-    get_current_owner_user
+    get_current_owner_user,
+    get_current_settings_user,
 )
 from backend.services.user_service import (
     get_user_settings,
@@ -37,8 +38,8 @@ router = APIRouter()
 
 
 @router.get("/", response_model=UserSettings)
-async def get_settings(current_user: dict = Depends(get_current_user)):
-    """Get current user settings."""
+async def get_settings(current_user: dict = Depends(get_current_settings_user)):
+    """Get current user settings (Owner/Admin only — legacy has_settings_access)."""
     try:
         settings = get_user_settings(current_user["username"])
         return UserSettings(**settings)
@@ -103,9 +104,9 @@ async def check_assemblyai_key(current_user: dict = Depends(get_current_user)):
 @router.put("/", response_model=UserSettings)
 async def update_settings(
     settings: UserSettings,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_settings_user)
 ):
-    """Update current user settings."""
+    """Update current user settings (Owner/Admin only — legacy has_settings_access)."""
     try:
         success = update_user_settings(
             current_user["username"],
@@ -133,7 +134,10 @@ async def update_settings(
 async def list_users(current_user: dict = Depends(get_current_admin_user)):
     """Get list of all users (admin only)."""
     try:
-        users = get_all_users()
+        users = get_all_users(
+            caller_username=current_user["username"],
+            caller_role=current_user["role"]
+        )
         user_infos = [
             UserInfo(
                 username=u["username"],
@@ -156,27 +160,46 @@ async def create_new_user(
     request: CreateUserRequest,
     current_user: dict = Depends(get_current_admin_user)
 ):
-    """Create new user (admin only)."""
+    """Create new user (admin only).
+
+    Role restrictions mirror old_app.py:850:
+    - Owner may create Auditor or Admin (never another Owner).
+    - Admin may only create Auditor.
+    """
+    caller_role = current_user["role"]
+    requested_role = request.role or "Auditor"
+
+    if caller_role == "Admin" and requested_role != "Auditor":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admins can only create Auditor users"
+        )
+    if caller_role == "Owner" and requested_role not in ("Auditor", "Admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Owners can only create Auditor or Admin users"
+        )
+
     try:
         success = create_user(
-            request.username,
-            request.password,
-            request.role,
-            current_user["username"],
-            request.daily_limit,
-            request.readymode_username,
-            request.readymode_password
+            username=request.username,
+            password=request.password,
+            role=requested_role,
+            created_by=current_user["username"],
+            daily_limit=request.daily_limit,
+            readymode_username=request.readymode_username,
+            readymode_password=request.readymode_password,
         )
         if not success:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Failed to create user"
             )
-        
+
         user_data = get_user_settings(request.username)
         return UserInfo(
             username=request.username,
-            role=request.role,
+            role=requested_role,
             daily_limit=user_data.get("daily_limit")
         )
     except HTTPException:
@@ -189,13 +212,51 @@ async def create_new_user(
         )
 
 
+def _assert_can_modify(caller: dict, target_username: str) -> None:
+    """Enforce legacy tenancy rules for user modification (old_app.py:899, 1032).
+
+    - Owner: can modify anyone except the protected 'Mohamed Abdo' account.
+    - Admin: can only modify users they created (get_admin_created_users).
+    Raises HTTP 403 on violation.
+    """
+    from lib.dashboard_manager import user_manager as _um
+    caller_role = caller["role"]
+    caller_username = caller["username"]
+
+    if target_username == "Mohamed Abdo":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The protected owner account cannot be modified"
+        )
+
+    if caller_role == "Owner":
+        return  # Owner can modify anyone (except protected, checked above)
+
+    # Admin: only own created users
+    created = _um.get_admin_created_users(caller_username)
+    if target_username not in created:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admins can only modify users they created"
+        )
+
+
 @router.put("/users/{username}", response_model=UserInfo)
 async def update_existing_user(
     username: str,
     request: UpdateUserRequest,
-    current_user: dict = Depends(get_current_owner_user)
+    current_user: dict = Depends(get_current_admin_user)
 ):
-    """Update user (owner only)."""
+    """Update user (Owner or Admin — with tenancy check, mirrors old_app.py:1454-1745)."""
+    _assert_can_modify(current_user, username)
+
+    # Admins cannot promote users to Admin or Owner (role escalation guard)
+    if current_user["role"] == "Admin" and request.role and request.role in ("Admin", "Owner"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admins cannot promote users to Admin or Owner"
+        )
+
     try:
         success = update_user(
             username,
@@ -211,7 +272,7 @@ async def update_existing_user(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Failed to update user"
             )
-        
+
         user_data = get_user_settings(username)
         from lib.dashboard_manager import user_manager
         return UserInfo(
@@ -232,9 +293,11 @@ async def update_existing_user(
 @router.delete("/users/{username}")
 async def delete_existing_user(
     username: str,
-    current_user: dict = Depends(get_current_owner_user)
+    current_user: dict = Depends(get_current_admin_user)
 ):
-    """Delete user (owner only)."""
+    """Delete user (Owner or Admin — with tenancy check, mirrors old_app.py:1021-1053)."""
+    _assert_can_modify(current_user, username)
+
     try:
         success = delete_user(username, current_user["username"])
         if not success:
@@ -252,3 +315,104 @@ async def delete_existing_user(
             detail="Failed to delete user"
         )
 
+
+
+# ---------------------------------------------------------------------------
+# Application-wide persistent settings (gap G6)
+# ---------------------------------------------------------------------------
+# Wraps lib.app_settings_manager.app_settings so the React UI does not need to
+# import it directly. Supported categories today: "audio", "detection".
+
+
+ALLOWED_APP_CONFIG_CATEGORIES = {"audio", "detection"}
+
+
+@router.get("/app-config/{category}")
+async def get_app_config_category(
+    category: str,
+    _: dict = Depends(get_current_owner_user),
+):
+    """Return persistent app-wide settings for a category (owner-only)."""
+    if category not in ALLOWED_APP_CONFIG_CATEGORIES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown app-config category '{category}'",
+        )
+    try:
+        from lib.app_settings_manager import app_settings
+        return app_settings.get_category(category)
+    except Exception as e:
+        logger.error(f"get_app_config_category failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load app config",
+        )
+
+
+@router.put("/app-config/{category}")
+async def update_app_config_category(
+    category: str,
+    updates: dict,
+    _: dict = Depends(get_current_owner_user),
+):
+    """Update multiple keys in a persistent app-config category (owner-only)."""
+    if category not in ALLOWED_APP_CONFIG_CATEGORIES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown app-config category '{category}'",
+        )
+    try:
+        from lib.app_settings_manager import app_settings
+        ok = app_settings.update_category(category, updates)
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to persist settings",
+            )
+        return {"success": True, "category": category, "values": app_settings.get_category(category)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"update_app_config_category failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update app config",
+        )
+
+
+# ---------------------------------------------------------------------------
+# AssemblyAI key: owner-of-key can read their decrypted value (gap G9)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/assemblyai-key/reveal")
+async def reveal_assemblyai_key(current_user: dict = Depends(get_current_user)):
+    """Return the decrypted AssemblyAI key for the CURRENT user only.
+
+    Used by the React audit UI to perform client-visible key checks without
+    the Streamlit-style direct lib.security_manager import.
+    """
+    try:
+        user_settings = get_user_settings(current_user["username"])
+        encrypted = user_settings.get("assemblyai_api_key_encrypted")
+        if not encrypted:
+            return {"has_key": False, "api_key": None}
+
+        try:
+            from lib.security_utils import security_manager
+            decrypted = security_manager.decrypt_string(encrypted)
+            return {"has_key": True, "api_key": decrypted}
+        except Exception as decrypt_err:
+            logger.error(f"AssemblyAI key decryption failed: {decrypt_err}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to decrypt API key",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"reveal_assemblyai_key failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reveal API key",
+        )

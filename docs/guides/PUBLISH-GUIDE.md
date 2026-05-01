@@ -1,6 +1,6 @@
-# Publishing to Docker Hub - Quick Guide
+# Publishing To Docker Hub
 
-This guide explains how to publish VOS Tool Docker images to Docker Hub.
+This guide explains how to publish the React webapp and FastAPI backend images.
 
 ## Prerequisites
 
@@ -19,11 +19,8 @@ This guide explains how to publish VOS Tool Docker images to Docker Hub.
 # 1. Login to Docker Hub
 docker login
 
-# 2. Run the publish script
-.\publish-to-dockerhub.ps1 -DockerHubUsername "your-username"
-
-# Or with a specific version
-.\publish-to-dockerhub.ps1 -DockerHubUsername "your-username" -Version "v1.0.0"
+# 2. Build and push the images manually
+# The old Streamlit publish script is retired.
 ```
 
 ### Manual Steps
@@ -38,15 +35,15 @@ docker login
 docker build -t your-username/vos-backend:latest -f backend/Dockerfile .
 docker tag your-username/vos-backend:latest your-username/vos-backend:v1.0.0
 
-# 3. Build and tag frontend image
-docker build -t your-username/vos-frontend:latest -f frontend/Dockerfile .
-docker tag your-username/vos-frontend:latest your-username/vos-frontend:v1.0.0
+# 3. Build and tag React webapp image
+docker build -t your-username/vos-webapp:latest -f webapp/Dockerfile ./webapp
+docker tag your-username/vos-webapp:latest your-username/vos-webapp:v1.0.0
 
 # 4. Push images
 docker push your-username/vos-backend:latest
 docker push your-username/vos-backend:v1.0.0
-docker push your-username/vos-frontend:latest
-docker push your-username/vos-frontend:v1.0.0
+docker push your-username/vos-webapp:latest
+docker push your-username/vos-webapp:v1.0.0
 ```
 
 ## After Publishing
@@ -57,21 +54,21 @@ docker push your-username/vos-frontend:v1.0.0
 
 2. **Verify on Docker Hub**
    - Visit https://hub.docker.com/r/your-username/vos-backend
-   - Visit https://hub.docker.com/r/your-username/vos-frontend
+   - Visit https://hub.docker.com/r/your-username/vos-webapp
    - Ensure images are visible
 
 3. **Test Pulling**
    ```bash
    # Test on a clean machine or different directory
    docker pull your-username/vos-backend:latest
-   docker pull your-username/vos-frontend:latest
+   docker pull your-username/vos-webapp:latest
    ```
 
 ## Image Sizes
 
 Expected image sizes:
 - Backend: ~800MB-1.2GB
-- Frontend: ~1GB-1.5GB
+- Webapp: ~50MB-150MB
 
 First push may take 10-30 minutes depending on your internet speed.
 
@@ -81,7 +78,10 @@ To update images after making changes:
 
 ```bash
 # Rebuild and push
-.\publish-to-dockerhub.ps1 -DockerHubUsername "your-username"
+docker build -t your-username/vos-backend:latest -f backend/Dockerfile .
+docker build -t your-username/vos-webapp:latest -f webapp/Dockerfile ./webapp
+docker push your-username/vos-backend:latest
+docker push your-username/vos-webapp:latest
 ```
 
 Users can update with:
@@ -107,5 +107,4 @@ docker-compose up -d
 
 ---
 
-**Last Updated**: 2024
-
+**Last Updated**: 2026

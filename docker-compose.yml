@@ -16,7 +16,7 @@ services:
       - DEBUG=${DEBUG:-false}
       
       # Frontend URL for CORS
-      - FRONTEND_URL=${FRONTEND_URL:-http://frontend:8501}
+      - FRONTEND_URL=${FRONTEND_URL:-http://webapp:3000}
       
       # Security
       - SECRET_KEY=${SECRET_KEY}
@@ -68,47 +68,14 @@ services:
           cpus: '2.0'
           memory: 4G
 
-  # Streamlit Frontend Service
-  frontend:
+  # React Webapp Service
+  webapp:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    container_name: vos-frontend
-    environment:
-      # Timezone (EST/Eastern Time)
-      - TZ=America/New_York
-      # Backend API URL
-      - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
-      
-      # Streamlit settings
-      - STREAMLIT_SERVER_PORT=8501
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-      - STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
-      
-      # Deployment mode
-      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-enterprise}
-      - FORCE_READYMODE=${FORCE_READYMODE:-false}
-      
-      # ReadyMode credentials (optional)
-      - READYMODE_USER=${READYMODE_USER:-}
-      - READYMODE_PASSWORD=${READYMODE_PASSWORD:-}
-      
-      # Database (for direct access if needed)
-      - DB_TYPE=postgresql
-      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
-      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
-      - POSTGRES_DB=${POSTGRES_DB:-vos_tool}
-      - POSTGRES_USER=${POSTGRES_USER:-vos_user}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      
-      # AssemblyAI (for frontend if needed)
-      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY:-}
-    volumes:
-      - recordings_data:/app/Recordings
-      - dashboard_data:/app/dashboard_data
-      - chrome_sessions:/app/chrome_profile_sessions
+      context: ./webapp
+      dockerfile: Dockerfile
+    container_name: vos-webapp
     ports:
-      - "${FRONTEND_PORT:-8501}:8501"
+      - "${WEBAPP_PORT:-3000}:3000"
     depends_on:
       backend:
         condition: service_healthy
@@ -116,19 +83,19 @@ services:
     networks:
       - vos-network
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8501/_stcore/health', timeout=5)"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
-      start_period: 15s
+      start_period: 10s
       retries: 3
     deploy:
       resources:
         limits:
-          cpus: '2.0'
-          memory: 4G
-        reservations:
           cpus: '1.0'
-          memory: 2G
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   # Optional: Redis for caching (if needed in future)
   redis:
@@ -161,4 +128,3 @@ volumes:
 networks:
   vos-network:
     driver: bridge
-

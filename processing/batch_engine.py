@@ -139,7 +139,7 @@ class BatchProcessor:
         #     preloader = get_model_preloader()
         #     preload_success = preloader.preload_all_models()
         #     if preload_success:
-        #         logger.info("✓ All models pre-loaded successfully")
+        #         logger.info("All models pre-loaded successfully")
         #     else:
         #         logger.warning("Some models failed to pre-load, will load on-demand")
         # except Exception as e:
@@ -176,9 +176,12 @@ class BatchProcessor:
             
             logger.info(f"Processing batch {batch_num} (adaptive size: {len(batch_files)} files)")
             
-            # Capture Streamlit context to pass to threads
-            from streamlit.runtime.scriptrunner import get_script_run_ctx
-            ctx = get_script_run_ctx()
+            # Capture Streamlit context only when the retired Streamlit runtime is present.
+            try:
+                from streamlit.runtime.scriptrunner import get_script_run_ctx
+                ctx = get_script_run_ctx()
+            except Exception:
+                ctx = None
             
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                 # Submit batch for processing
@@ -213,7 +216,7 @@ class BatchProcessor:
                                 from lib.dashboard_manager import dashboard_manager
                                 df_batch = pd.DataFrame(results)
                                 dashboard_manager.save_agent_audit_results(df_batch, username)
-                                logger.info(f"💾 Saved {len(results)} results to database (incremental save)")
+                                logger.info(f"Saved {len(results)} results to database (incremental save)")
                                 
                                 # Clear results from memory after saving
                                 results.clear()
@@ -256,7 +259,7 @@ class BatchProcessor:
                         
                         # Check for specific concurrency-related errors
                         if "connection pool exhausted" in error_msg.lower() or "rate limit" in error_msg.lower():
-                            logger.error(f"⚠️ CONCURRENCY ISSUE: {error_msg} - This may indicate resource exhaustion")
+                            logger.error(f"CONCURRENCY ISSUE: {error_msg} - This may indicate resource exhaustion")
                         
                         results.append({
                             'agent_name': 'Error',
@@ -295,7 +298,7 @@ class BatchProcessor:
         
         # Log if processing stopped early (potential issue)
         if completed_global < total_files:
-            logger.warning(f"⚠️ EARLY STOP DETECTED: User {username or 'default'} processed {completed_global}/{total_files} files. Missing {total_files - completed_global} files!")
+            logger.warning(f"EARLY STOP DETECTED: User {username or 'default'} processed {completed_global}/{total_files} files. Missing {total_files - completed_global} files!")
             logger.warning(f"This may indicate worker pool exhaustion, resource contention, or API rate limits.")
         
         return results
@@ -341,7 +344,7 @@ class BatchProcessor:
             from lib.phrase_learning import PhraseLearningManager
             phrase_manager = PhraseLearningManager()
             phrase_manager.enable_deferred_mode()
-            logger.info("📦 Batch mode: Phrase learning deferred until completion")
+            logger.info("Batch mode: Phrase learning deferred until completion")
         except Exception as e:
             logger.warning(f"Could not enable deferred phrase learning: {e}")
         
@@ -354,7 +357,7 @@ class BatchProcessor:
         #     preloader = get_model_preloader()
         #     preload_success = preloader.preload_all_models()
         #     if preload_success:
-        #         logger.info("✓ All models pre-loaded successfully")
+        #         logger.info("All models pre-loaded successfully")
         #     else:
         #         logger.warning("Some models failed to pre-load, will load on-demand")
         # except Exception as e:
@@ -376,9 +379,12 @@ class BatchProcessor:
         semaphore = asyncio.Semaphore(self.max_workers)
         logger.info(f"Semaphore initialized with {self.max_workers} max workers")
         
-        # Capture Streamlit context
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
-        ctx = get_script_run_ctx()
+        # Capture Streamlit context only when the retired Streamlit runtime is present.
+        try:
+            from streamlit.runtime.scriptrunner import get_script_run_ctx
+            ctx = get_script_run_ctx()
+        except Exception:
+            ctx = None
         
         # Using SHARED _batch_executor to avoid nested deadlock hangs on Windows
         
@@ -540,8 +546,9 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
             }
             
             # Add dialer name if available in metadata
-            if 'dialer_name' in result:
-                flagged_call['Dialer Name'] = result['dialer_name']
+            dialer_val = result.get('dialer_name') or result.get('Dialer Name') or ''
+            if dialer_val:
+                flagged_call['Dialer Name'] = dialer_val
 
             if 'API Key Source' in result:
                 flagged_call['API Key Source'] = result['API Key Source']
@@ -660,8 +667,9 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
         }
         
         # Add dialer name if available in metadata
-        if 'dialer_name' in result:
-            formatted_result['Dialer Name'] = result['dialer_name']
+        dialer_val = result.get('dialer_name') or result.get('Dialer Name') or ''
+        if dialer_val:
+            formatted_result['Dialer Name'] = dialer_val
 
         if 'API Key Source' in result:
             formatted_result['API Key Source'] = result['API Key Source']
@@ -1317,7 +1325,39 @@ def batch_analyze_folder_fast(folder_path: str, progress_callback: Optional[Call
     if use_async:
         # Use async processing (Phase 2 optimization)
         logger.info("Using async batch processing (Phase 2 optimization)")
-        results = asyncio.run(processor.process_folder_async(folder_path, progress_callback, additional_metadata, username=username, user_api_key=user_api_key))
+        
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+            
+        coro = processor.process_folder_async(folder_path, progress_callback, additional_metadata, username=username, user_api_key=user_api_key)
+        
+        if loop and loop.is_running():
+            # If an event loop is already running (e.g., inside FastAPI async routes), 
+            # asyncio.run() will fail. We execute the coroutine in a new thread.
+            import threading
+            result_container = {}
+            
+            def run_in_thread(c, container):
+                try:
+                    new_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(new_loop)
+                    container['result'] = new_loop.run_until_complete(c)
+                except Exception as e:
+                    container['error'] = e
+                finally:
+                    new_loop.close()
+            
+            thread = threading.Thread(target=run_in_thread, args=(coro, result_container))
+            thread.start()
+            thread.join()
+            
+            if 'error' in result_container:
+                raise result_container['error']
+            results = result_container.get('result', [])
+        else:
+            results = asyncio.run(coro)
     else:
         # Use traditional ThreadPoolExecutor processing
         logger.info("Using ThreadPoolExecutor batch processing")

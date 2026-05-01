@@ -41,7 +41,7 @@ After:  [Search: (empty)]           → All containers shown
 
 Even if Docker Desktop doesn't show them, you can verify:
 
-1. **Open browser**: http://localhost:8501
+1. **Open browser**: http://localhost:3000
 2. **If it loads**, containers are running!
 
 Or run in terminal:

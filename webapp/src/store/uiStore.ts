@@ -1,0 +1,49 @@
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+type NavTab = 'Audit' | 'Actions' | 'Call Review' | 'Dashboard' | 'Phrase Management' | 'Settings'
+type Theme = 'light' | 'dark'
+
+interface UiState {
+  activeTab: NavTab
+  sidebarCollapsed: boolean
+  theme: Theme
+  setActiveTab: (tab: NavTab) => void
+  setSidebarCollapsed: (v: boolean) => void
+  setTheme: (t: Theme) => void
+  toggleTheme: () => void
+}
+
+function applyTheme(theme: Theme) {
+  document.documentElement.setAttribute('data-theme', theme)
+}
+
+export const useUiStore = create<UiState>()(
+  persist(
+    (set, get) => ({
+      activeTab: 'Dashboard',
+      sidebarCollapsed: false,
+      theme: 'light',
+      setActiveTab: (tab) => set({ activeTab: tab }),
+      setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+      setTheme: (t) => {
+        applyTheme(t)
+        set({ theme: t })
+      },
+      toggleTheme: () => {
+        const next: Theme = get().theme === 'light' ? 'dark' : 'light'
+        applyTheme(next)
+        set({ theme: next })
+      },
+    }),
+    {
+      name: 'vos-ui',
+      partialize: (s) => ({ theme: s.theme, sidebarCollapsed: s.sidebarCollapsed }),
+      onRehydrateStorage: () => (state) => {
+        if (state) applyTheme(state.theme)
+      },
+    },
+  ),
+)
+
+export type { NavTab, Theme }

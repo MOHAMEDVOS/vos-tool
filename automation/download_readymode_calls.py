@@ -1,4 +1,4 @@
-﻿"""ReadyMode Call Recording Downloader - Playwright EXACT Selenium Port.
+"""ReadyMode Call Recording Downloader - Playwright EXACT Selenium Port.
 
 This is a line-by-line port of the Selenium automation WITHOUT any assumptions.
 Following the actual workflow discovered from analyzing working Selenium code.
@@ -23,12 +23,29 @@ USERNAME = os.getenv("READYMODE_USER")
 PASSWORD = os.getenv("READYMODE_PASSWORD")
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class ReadyModeLoginError(Exception):
     pass
 
 
 class ReadyModeNoCallsError(Exception):
     pass
+
+
+def _visible_text(page, selector: str) -> str:
+    try:
+        locator = page.locator(selector).first
+        if locator.count() and locator.is_visible():
+            return locator.inner_text(timeout=1000).strip()
+    except Exception:
+        return ""
+    return ""
 
 
 # Concurrent download configuration
@@ -114,28 +131,96 @@ def login_to_readymode(page, dialer_url, readymode_user=None, readymode_pass=Non
     print(f"DEBUG LOGIN: Using username='{login_username}' (length={len(login_username) if login_username else 0})")
     print(f"DEBUG LOGIN: Using password length={len(login_password) if login_password else 0}")
     
+    # Let page JS run (sets user_tz hidden field; required for login)
+    import time as _time
+    _time.sleep(2)
+
     # Fill login form
     page.fill("input[name='login_account']", login_username)
     page.fill("input[name='login_password']", login_password)
-    
+
+    # Set user_tz via JS in case the page script didn't fire
+    page.evaluate("() => { try { document.querySelector('input[name=user_tz]').value = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch(e){} }")
+
     # Check admin checkbox if not already checked
     admin_checkbox = page.locator("#login_as_admin")
     if not admin_checkbox.is_checked():
         admin_checkbox.check()
-    
+
     # Click sign in
     page.click("input[type='submit']")
     
-    # Handle potential "Continue" button
+    # Handle "already logged in" Continue dialog
     try:
-        page.wait_for_selector("input.button.primary.primary-l.sign-in[value='Continue']", timeout=5000)
-        page.click("input.button.primary.primary-l.sign-in[value='Continue']")
+        page.wait_for_selector("input[type='submit'][value='Continue']", timeout=8000)
+        page.click("input[type='submit'][value='Continue']")
+        print("SUCCESS Clicked Continue (already logged in dialog)")
     except PlaywrightTimeout:
         pass
-    
-    # Wait for login to complete
-    page.wait_for_url(lambda url: "login" not in url, timeout=60000)
-    print("✅ Login successful")
+
+    # Wait for login to complete. ReadyMode sometimes keeps the same URL while
+    # showing an error, MFA/interstitial, or an already-logged-in page, so poll
+    # visible state instead of waiting only for a full navigation event.
+    deadline = time.time() + 60
+    last_state = ""
+    while time.time() < deadline:
+        current_url = page.url
+        try:
+            title = page.title()
+        except Exception:
+            title = ""
+
+        login_visible = False
+        try:
+            login_visible = page.locator("input[name='login_account']").first.is_visible(timeout=1000)
+        except Exception:
+            pass
+
+        error_text = (
+            _visible_text(page, ".alert-danger")
+            or _visible_text(page, ".error")
+            or _visible_text(page, ".errors")
+            or _visible_text(page, "#login_error")
+        )
+        if error_text:
+            raise ReadyModeLoginError(f"ReadyMode login error: {error_text}")
+
+        if "login_new" not in current_url and not login_visible:
+            print(f"SUCCESS Login successful: url={current_url}, title={title}")
+            return
+
+        post_login_markers = [
+            "a[href*='+CCS Reports/call_log']",
+            "text=Call Logs",
+            "text=CCS Reports",
+            "text=Logout",
+            "text=Sign Out",
+        ]
+        for marker in post_login_markers:
+            try:
+                if page.locator(marker).first.is_visible(timeout=500):
+                    print(f"SUCCESS Login successful via marker '{marker}': url={current_url}, title={title}")
+                    return
+            except Exception:
+                pass
+
+        state = f"url={current_url}, title={title}, login_visible={login_visible}"
+        if state != last_state:
+            print(f"WAIT Login pending: {state}")
+            last_state = state
+        time.sleep(1)
+
+    screenshot_path = Path.cwd() / "readymode-login-timeout.png"
+    try:
+        page.screenshot(path=str(screenshot_path), full_page=True)
+        print(f"DEBUG Login timeout screenshot saved: {screenshot_path}")
+    except Exception as screenshot_error:
+        print(f"WARNING Could not save login timeout screenshot: {screenshot_error}")
+
+    raise ReadyModeLoginError(
+        "ReadyMode login did not complete within 60 seconds. "
+        f"Current URL: {page.url}. Title: {page.title() if page else ''}"
+    )
 
 
 def format_agent_name_for_filename(agent_name):
@@ -201,7 +286,7 @@ def download_single_file(session, cookies, headers, href, filepath, min_duration
                     os.remove(temp_filepath)
                 return False, None, None
         
-        os.rename(temp_filepath, filepath)
+        os.replace(temp_filepath, filepath)
         return True, filepath, None
     except Exception as e:
         print(f"CRITICAL Error downloading {href}: {e}")
@@ -273,9 +358,21 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
     print(f"DEBUG Current working directory: {os.getcwd()}")
     
     # Initialize Playwright
+    browser_headless = _env_flag("READYMODE_HEADLESS", True)
+    keep_browser_open = keep_browser_open or _env_flag("READYMODE_KEEP_BROWSER_OPEN", False)
+    slow_mo_ms = int(os.getenv("READYMODE_SLOW_MO_MS", "0") or "0")
+
+    print(
+        "DEBUG BROWSER: "
+        f"headless={browser_headless}, "
+        f"keep_browser_open={keep_browser_open}, "
+        f"slow_mo_ms={slow_mo_ms}"
+    )
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=browser_headless,
+            slow_mo=slow_mo_ms,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -382,26 +479,69 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         # 2. Select Campaign via Direct JS (Works with hidden/custom UI)
                         print(f"Selecting campaign '{campaign_name}' via Direct JS...")
 
-                        found_and_selected = page.evaluate("""
-                            (campaignName) => {
-                                const select = document.querySelector('#restrict_campaign');
-                                if (!select) return false;
+                        # Wait for any select to have options (sometimes they load late)
+                        page.wait_for_function("""
+                            () => {
+                                const selects = document.querySelectorAll('select');
+                                return Array.from(selects).some(s => s.options.length > 1);
+                            }
+                        """, timeout=15000)
 
-                                let found = false;
-                                for(let i=0; i<select.options.length; i++) {
-                                    if(select.options[i].text.includes(campaignName)) {
-                                        select.selectedIndex = i;
-                                        select.dispatchEvent(new Event('change'));
-                                        found = true;
-                                        break;
+                        available_info = page.evaluate("""
+                            () => {
+                                const selects = Array.from(document.querySelectorAll('select'));
+                                return selects.map(s => ({
+                                    id: s.id,
+                                    name: s.name,
+                                    options: Array.from(s.options).map(o => o.text.trim())
+                                }));
+                            }
+                        """)
+                        print(f"DEBUG Found {len(available_info)} select elements.")
+                        for info in available_info:
+                            print(f"DEBUG Select(id={info['id']}, name={info['name']}) options: {info['options'][:5]}... (Total: {len(info['options'])})")
+
+                        # 2. Select Campaign via Direct JS
+                        selection_result = page.evaluate("""
+                            (campaignName) => {
+                                const selects = Array.from(document.querySelectorAll('select'));
+                                const target = campaignName.trim().toLowerCase();
+                                
+                                const findAndSelect = (select) => {
+                                    for(let i=0; i<select.options.length; i++) {
+                                        if(select.options[i].text.trim().toLowerCase().includes(target)) {
+                                            select.selectedIndex = i;
+                                            select.dispatchEvent(new Event('change'));
+                                            // Return a unique selector for this element
+                                            if (select.id) return '#' + select.id;
+                                            if (select.name) return `select[name="${select.name}"]`;
+                                            return null;
+                                        }
                                     }
+                                    return false;
+                                };
+
+                                // Priority 1: #restrict_campaign
+                                const primary = document.querySelector('#restrict_campaign');
+                                if (primary) {
+                                    const res = findAndSelect(primary);
+                                    if (res) return { success: true, selector: res };
                                 }
-                                return found;
+
+                                // Priority 2: Any other select
+                                for (const select of selects) {
+                                    const res = findAndSelect(select);
+                                    if (res) return { success: true, selector: res };
+                                }
+                                return { success: false };
                             }
                         """, campaign_name.strip())
 
+                        found_and_selected = selection_result.get("success", False)
+                        used_selector = selection_result.get("selector", "#restrict_campaign")
+
                         if not found_and_selected:
-                            print(f"WARNING: Campaign '{campaign_name}' not found in dropdown list via JS.")
+                            print(f"WARNING: Campaign '{campaign_name}' not found in any dropdown.")
                             # Fallback: Try Playwright's native select force
                             try:
                                 page.select_option("#restrict_campaign", label=campaign_name.strip(), force=True)
@@ -411,15 +551,18 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         time.sleep(1)
 
                         # 3. Verify selection
-                        selected_value = page.eval_on_selector("#restrict_campaign", "el => el.options[Math.max(0, el.selectedIndex)].text")
+                        try:
+                            selected_value = page.eval_on_selector(used_selector, "el => el.options[Math.max(0, el.selectedIndex)].text")
+                        except:
+                            selected_value = "unknown"
 
-                        if campaign_name.strip() not in selected_value:
-                            print(f"WARNING Selection verification failed. Got '{selected_value}', expected '{campaign_name}'")
+                        if campaign_name.strip().lower() not in selected_value.lower():
+                            print(f"WARNING Selection verification failed on '{used_selector}'. Got '{selected_value}', expected '{campaign_name}'")
                             time.sleep(2)
                             continue
 
                         campaign_selected = True
-                        print(f"SUCCESS Campaign filter selected: {campaign_name}")
+                        print(f"SUCCESS Campaign filter selected: {selected_value} (via {used_selector})")
 
                         # Wait for page to update
                         print("WAIT Waiting for page to refresh with filtered results...")
@@ -445,7 +588,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             
             # STEP 6: AGENT FILTER (if not "All users")
             # STEP 6: AGENT FILTER (if not "All users") - ROBUST IMPLEMENTATION
-            if agent and agent.strip().lower() not in ["any", "all users"]:
+            if agent and agent.strip().lower() not in ["any", "all users", "all agents"]:
                 print(f"\n{'='*60}")
                 print(f"Applying Agent Filter: '{agent}'")
                 print(f"{'='*60}")
@@ -531,12 +674,12 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         print("WAIT Waiting for page to refresh with filtered results...")
                         time.sleep(3) # Initial wait for trigger
                         try:
-                            # Wait for results to be visible (table row or mp3 link)
-                            page.wait_for_selector("a[href*='.mp3']", timeout=15000)
+                            # Wait for network requests to finish
+                            page.wait_for_load_state("networkidle", timeout=15000)
                             print("SUCCESS Page updated with filtered results")
                             break # Success!
                         except:
-                             print("WARNING: No MP3 links found explicitly (could be 0 results), but filter applied.")
+                             print("WARNING: Timeout waiting for load after agent filter, but filter applied.")
                              break # Assume success if filter applied but no results
 
                     except Exception as e:
@@ -636,14 +779,13 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         
                         # 5. Wait for results to reload
                         print("WAIT Waiting for results to reload after disposition change...")
-                        # Wait for the loading overlay or for results to change table state
                         time.sleep(2) # Initial waiting for trigger
                         try:
-                            # Wait for a stable state - e.g. results table or mp3 links
-                            page.wait_for_selector("a[href*='.mp3']", timeout=15000)
+                            # Wait for the network requests to finish completely to ensure results are new
+                            page.wait_for_load_state("networkidle", timeout=15000)
                             print("SUCCESS Results reloaded")
                         except:
-                            print("WARNING: No results found after filter (or timeout waiting for load)")
+                            print("WARNING: Timeout waiting for load after filter")
                         
                         filter_success = True
                         break # Success!
@@ -942,7 +1084,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     
                     # FIXED: Use sequential pagination for BOTH Agent and Campaign audits
                     # to ensure all results are collected (was skipping 80% of results in Campaign mode)
-                    # Sequential navigation: 1→2→3→4... (instead of 1→5→10→15...)
+                    # Sequential navigation: 1, 2, 3, 4... (instead of 1, 5, 10, 15...)
                     current = pagination.locator("li.page.selected")
                     next_page = current.locator("xpath=following-sibling::li[@class='page']").first
                     next_page.click()

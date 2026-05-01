@@ -75,7 +75,7 @@ RUN echo "=== Build Context Debug ===" && \
     (test -f backend/models/schemas.py && echo "backend/models/schemas.py exists" || echo "backend/models/schemas.py NOT found") || true
 
 # Copy only required backend code (excludes archive/, test files, etc. via .dockerignore)
-# Backend doesn't need: app.py, frontend/, ui/, static/ (frontend-only)
+# Backend doesn't need the retired Streamlit frontend files.
 # Copy backend directory structure
 COPY backend/api/ /app/backend/api/
 COPY backend/core/ /app/backend/core/
@@ -110,7 +110,6 @@ RUN echo "Schema cachebust=${SCHEMA_CACHEBUST}"
 COPY cloud-migration/init.sql /app/cloud-migration/init.sql
 COPY cloud-migration/migration_schema.sql /app/cloud-migration/migration_schema.sql
 COPY config.py /app/
-COPY scripts/ /app/scripts/
 COPY backend/entrypoint.sh /app/entrypoint.sh
 
 # Make entrypoint script executable

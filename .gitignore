@@ -53,6 +53,7 @@ llama.cpp/
 # ────────────── PYTHON & DEVELOPMENT ──────────────
 # Python cache
 __pycache__/
+migration.log
 *.py[cod]
 *$py.class
 *.so

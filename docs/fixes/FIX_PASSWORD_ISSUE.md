@@ -59,7 +59,7 @@ To verify what password is currently set:
    ```bash
    docker-compose logs backend | Select-String -Pattern "PostgreSQL|connection"
    ```
-4. **Test login** at http://localhost:8501
+4. **Test login** at http://localhost:3000
 
 ## Quick Fix Script
 

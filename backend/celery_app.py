@@ -3,69 +3,62 @@ Celery application configuration for VOS Backend.
 This handles async job processing.
 """
 
-from celery import Celery
 import os
 import sys
 from pathlib import Path
 
-# Add parent directory to path
+from celery import Celery
+
+# Add parent directory to path.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Get Redis URL from environment (default to localhost)
-# Priority: REDIS_URL (Public), then REDIS_PRIVATE_URL (Internal/Recommended)
-# Fixed: Added REDIS_PUBLIC_URL fallback for user-proofing
+# Get Redis URL from environment.
+# Priority: REDIS_URL (public), then REDIS_PRIVATE_URL (internal/recommended),
+# then REDIS_PUBLIC_URL for Railway compatibility.
 redis_url = (
-    os.getenv('REDIS_URL') or 
-    os.getenv('REDIS_PRIVATE_URL') or 
-    os.getenv('REDIS_PUBLIC_URL') or
-    'redis://localhost:6379/0'
+    os.getenv("REDIS_URL")
+    or os.getenv("REDIS_PRIVATE_URL")
+    or os.getenv("REDIS_PUBLIC_URL")
+    or "redis://localhost:6379/0"
 )
 
-if not os.getenv('REDIS_URL') and not os.getenv('REDIS_PRIVATE_URL'):
-    print("⚠️  WARNING: REDIS_URL/REDIS_PRIVATE_URL not found in environment.")
+if not os.getenv("REDIS_URL") and not os.getenv("REDIS_PRIVATE_URL"):
+    print("WARNING: REDIS_URL/REDIS_PRIVATE_URL not found in environment.")
     print("   Worker will attempt to connect to localhost:6379 (likely to fail on Railway).")
 else:
     try:
         from urllib.parse import urlparse
+
         parsed = urlparse(redis_url)
-        print(f"🛰️  Celery using broker at: {parsed.hostname}")
-    except:
-        print("🛰️  Celery broker configured from environment variables")
+        print(f"Celery using broker at: {parsed.hostname}")
+    except Exception:
+        print("Celery broker configured from environment variables")
 
-# Create Celery app
+# Create Celery app.
 celery_app = Celery(
-    'vos_backend',
-    broker=redis_url,          # Where to send jobs
-    backend=redis_url          # Where to store results
+    "vos_backend",
+    broker=redis_url,
+    backend=redis_url,
 )
 
-# Configure Celery
+# Configure Celery.
 celery_app.conf.update(
-    # Serialization (how data is stored)
-    task_serializer='json',
-    accept_content=['json'],
-    result_serializer='json',
-    
-    # Timezone
-    timezone='UTC',
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    timezone="UTC",
     enable_utc=True,
-    
-    # Task settings
-    task_track_started=True,           # Track when task starts
-    task_time_limit=3600,              # Max 1 hour per task
-    task_soft_time_limit=3300,         # Warning at 55 minutes
-    
-    # Worker settings
-    worker_prefetch_multiplier=1,      # Fair distribution (one task at a time)
-    worker_max_tasks_per_child=50,     # Restart worker every 50 tasks (prevent memory leaks)
-    worker_disable_rate_limits=True,   # No rate limits (we handle this in API)
-    
-    # Result backend settings
-    result_expires=86400,               # Keep results for 24 hours
-    result_extended=True,               # Store full task info
+    task_track_started=True,
+    task_time_limit=3600,
+    task_soft_time_limit=3300,
+    worker_prefetch_multiplier=1,
+    worker_max_tasks_per_child=50,
+    worker_disable_rate_limits=True,
+    result_expires=86400,
+    result_extended=True,
 )
 
-# Auto-discover tasks in backend/tasks/ folder
-celery_app.autodiscover_tasks(['backend.job_tasks'])
+# Auto-discover tasks in backend/job_tasks.py.
+celery_app.autodiscover_tasks(["backend.job_tasks"])
 
-print("✅ Celery app configured successfully")
+print("Celery app configured successfully")

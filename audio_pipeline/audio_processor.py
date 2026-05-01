@@ -491,11 +491,13 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
                 RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
                 RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '')
+                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', ''),
+                "file_path": result.get('file_path', '')
             }
 
-            if 'dialer_name' in result:
-                flagged_call['Dialer Name'] = result['dialer_name']
+            dialer_val = result.get('dialer_name') or result.get('Dialer Name') or ''
+            if dialer_val:
+                flagged_call['Dialer Name'] = dialer_val
 
             flagged_calls.append(flagged_call)
 
@@ -517,11 +519,13 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> List[Dict]:
             RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
             RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
             RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '')
+            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', ''),
+            "file_path": result.get('file_path', '')
         }
 
-        if 'dialer_name' in result:
-            formatted_result['Dialer Name'] = result['dialer_name']
+        dialer_val = result.get('dialer_name') or result.get('Dialer Name') or ''
+        if dialer_val:
+            formatted_result['Dialer Name'] = dialer_val
 
         formatted_results.append(formatted_result)
 

@@ -82,7 +82,8 @@ docker-compose*.yml
 !docker-compose.yml
 Dockerfile*
 !backend/Dockerfile
-!frontend/Dockerfile
+!webapp/Dockerfile
+!webapp/nginx.conf
 .dockerignore
 
 # Cloud migration (keep init.sql, ignore rest)
@@ -90,8 +91,7 @@ cloud-migration/
 !cloud-migration/init.sql
 !cloud-migration/migration_schema.sql
 
-# Scripts (needed for build-time operations)
-!scripts/
+# Scripts were retired with the Streamlit frontend sunset.
 
 
 

@@ -9,7 +9,7 @@ import os
 import time
 from decimal import Decimal
 from contextlib import contextmanager
-from typing import List, Dict, Any, Optional, Tuple, Set
+from typing import List, Dict, Any, Optional, Tuple, Set, Union
 from datetime import datetime, timedelta
 import re
 from pathlib import Path
@@ -1244,7 +1244,7 @@ class PhraseLearningManager:
             if conn:
                 self._return_db_connection(conn)
     
-    def approve_phrase(self, phrase_id: int) -> bool:
+    def approve_phrase(self, phrase_id: Union[int, str]) -> bool:
         """Approve a pending phrase and add it to repository."""
         try:
             conn = self._get_db_connection()
@@ -1687,7 +1687,7 @@ class PhraseLearningManager:
             logger.error(f"Failed to add phrase manually: {e}")
             return {"success": False, "message": f"Error adding phrase: {str(e)}"}
     
-    def reject_phrase(self, phrase_id: int, reason: str = "") -> bool:
+    def reject_phrase(self, phrase_id: Union[int, str], reason: str = "") -> bool:
         """Reject a pending phrase and add to blacklist."""
         try:
             with self._db_connection() as conn:

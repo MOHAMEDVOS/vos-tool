@@ -19,7 +19,9 @@ from backend.services.dashboard_service import (
     clear_agent_audits,
     clear_lite_audits,
     clear_campaign_audits,
-    get_available_campaigns
+    get_available_campaigns,
+    get_flagged_calls,
+    get_flagged_count,
 )
 import logging
 
@@ -120,7 +122,12 @@ async def get_campaign_audit_data(
     end_date: Optional[date] = Query(None),
     current_user: dict = Depends(get_current_user)
 ):
-    """Get campaign audit data."""
+    """Get campaign audit data (Owner/Admin only — old_audit.py:107-114)."""
+    if current_user["role"] == "Auditor":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Campaign audits are not available for Auditor role"
+        )
     try:
         records = get_campaign_audits(
             current_user["username"],
@@ -159,7 +166,12 @@ async def get_campaign_audit_data(
 
 @router.get("/campaigns", response_model=List[str])
 async def get_campaigns_list(current_user: dict = Depends(get_current_user)):
-    """Get list of available campaigns."""
+    """Get list of available campaigns (Owner/Admin only — old_audit.py:107-114)."""
+    if current_user["role"] == "Auditor":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Campaign data is not available for Auditor role"
+        )
     try:
         return get_available_campaigns(current_user["username"])
     except Exception as e:
@@ -169,7 +181,7 @@ async def get_campaigns_list(current_user: dict = Depends(get_current_user)):
 
 @router.post("/clear/agent-audits")
 async def clear_agent_audit_data(current_user: dict = Depends(get_current_user)):
-    """Clear all agent audit data."""
+    """Clear the caller's own agent audit data (all roles — old_app.py:2544-2551)."""
     try:
         success = clear_agent_audits(current_user["username"])
         if success:
@@ -191,7 +203,7 @@ async def clear_agent_audit_data(current_user: dict = Depends(get_current_user))
 
 @router.post("/clear/lite-audits")
 async def clear_lite_audit_data(current_user: dict = Depends(get_current_user)):
-    """Clear all lite audit data."""
+    """Clear the caller's own lite audit data (all roles — old_app.py:2544-2551)."""
     try:
         success = clear_lite_audits(current_user["username"])
         if success:
@@ -216,7 +228,7 @@ async def clear_campaign_audit_data(
     campaign: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Clear campaign audit data."""
+    """Clear the caller's own campaign audit data (all roles — old_app.py:2544-2551)."""
     try:
         success = clear_campaign_audits(current_user["username"], campaign)
         if success:
@@ -235,3 +247,23 @@ async def clear_campaign_audit_data(
             detail="Failed to clear campaign audit data"
         )
 
+
+
+@router.get("/flagged-calls")
+async def flagged_calls(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Convenience endpoint for the Actions / Flagged Calls page (G12).
+
+    Returns combined agent + lite audits filtered to rows that have at least
+    one quality issue (releasing, late hello, or missing rebuttal).
+    """
+    return get_flagged_calls(current_user["username"], start_date, end_date)
+
+
+@router.get("/flagged-calls/count")
+async def flagged_calls_count(current_user: dict = Depends(get_current_user)):
+    """Lightweight count for the navigation badge."""
+    return {"count": get_flagged_count(current_user["username"])}

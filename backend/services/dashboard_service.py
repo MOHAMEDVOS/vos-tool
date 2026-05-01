@@ -23,7 +23,7 @@ def _filter_df_by_date(df, start_date: Optional[date], end_date: Optional[date])
         import pandas as pd
 
         ts_col = None
-        for candidate in ["audit_timestamp = datetime.now().strftime(\"%Y-%m-%d %H:%M:%S\")", "Timestamp", "timestamp", "created_at"]:
+        for candidate in ["audit_timestamp", "Timestamp", "timestamp", "created_at"]:
             if candidate in df.columns:
                 ts_col = candidate
                 break
@@ -147,12 +147,12 @@ def clear_campaign_audits(username: str, campaign: Optional[str] = None) -> bool
     """Clear campaign audit data."""
     try:
         if campaign:
-            dashboard_manager.clear_campaign_audit_data(campaign, username)
+            dashboard_manager.clear_campaign_audit_data(username=username, campaign_name=campaign)
         else:
             # Clear all campaigns
             campaigns = dashboard_manager.get_available_campaigns(username)
             for camp in campaigns:
-                dashboard_manager.clear_campaign_audit_data(camp, username)
+                dashboard_manager.clear_campaign_audit_data(username=username, campaign_name=camp)
         return True
     except Exception as e:
         logger.error(f"Error clearing campaign audits: {e}", exc_info=True)
@@ -167,3 +167,72 @@ def get_available_campaigns(username: str) -> List[str]:
         logger.error(f"Error getting campaigns: {e}", exc_info=True)
         return []
 
+
+
+def get_flagged_calls(
+    username: str,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> List[Dict[str, Any]]:
+    """Return the combined agent+lite audits filtered to flagged rows (G12).
+
+    Flagged logic mirrors app.py::get_actions_flagged_count:
+      (Releasing=Yes OR Late Hello=Yes) with (Rebuttal in No/N/A)
+      OR Rebuttal Detection = No
+    """
+    try:
+        import pandas as pd
+        agent_df = dashboard_manager.get_combined_agent_audit_data(username)
+        lite_df = dashboard_manager.get_combined_lite_audit_data(username)
+
+        def _drop_campaign_rows(df):
+            """Exclude rows that belong to a campaign audit (have Campaign Name set)."""
+            if df is None or df.empty:
+                return df
+            if "Campaign Name" in df.columns:
+                return df[df["Campaign Name"].isna() | (df["Campaign Name"].astype(str).str.strip() == "")]
+            return df
+
+        agent_df = _drop_campaign_rows(agent_df)
+        lite_df  = _drop_campaign_rows(lite_df)
+
+        frames = [df for df in (agent_df, lite_df) if df is not None and not df.empty]
+        if not frames:
+            return []
+        combined = pd.concat(frames, ignore_index=True)
+
+        if start_date or end_date:
+            combined = _filter_df_by_date(combined, start_date, end_date)
+
+        if combined.empty:
+            return []
+
+        quality = (
+            (combined.get("Releasing Detection", "No") == "Yes")
+            | (combined.get("Late Hello Detection", "No") == "Yes")
+        )
+
+        if "Rebuttal Detection" in combined.columns:
+            no_rebuttal = combined["Rebuttal Detection"].isin(["No", "N/A"])
+            rebuttal_issue = combined["Rebuttal Detection"] == "No"
+        else:
+            no_rebuttal = pd.Series([True] * len(combined), index=combined.index)
+            rebuttal_issue = pd.Series([False] * len(combined), index=combined.index)
+
+        flagged = combined[(quality & no_rebuttal) | rebuttal_issue]
+        if flagged.empty:
+            return []
+        import json as _json
+        return _json.loads(flagged.to_json(orient="records", force_ascii=False))
+    except Exception as e:
+        logger.error(f"get_flagged_calls failed: {e}", exc_info=True)
+        return []
+
+
+def get_flagged_count(username: str) -> int:
+    """Cheap count used by the nav badge."""
+    try:
+        return len(get_flagged_calls(username))
+    except Exception as e:
+        logger.error(f"get_flagged_count failed: {e}", exc_info=True)
+        return 0

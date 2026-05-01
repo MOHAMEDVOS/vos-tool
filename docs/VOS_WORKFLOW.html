@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VOS Workflow</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Inter, Arial, sans-serif;
+        background: #f8fafc;
+        color: #111827;
+      }
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 48px 24px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 36px;
+      }
+      section {
+        border-top: 1px solid #d1d5db;
+        padding: 24px 0;
+      }
+      li {
+        margin: 8px 0;
+      }
+      code {
+        background: #e5e7eb;
+        border-radius: 4px;
+        padding: 2px 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>VOS Workflow</h1>
+      <p>The active VOS runtime is React on port <code>3000</code> with FastAPI on port <code>8000</code>.</p>
+
+      <section>
+        <h2>Runtime Flow</h2>
+        <ol>
+          <li>Users open the React webapp.</li>
+          <li>The webapp authenticates with the FastAPI backend using localStorage JWTs.</li>
+          <li>Audit uploads, dashboard actions, ReadyMode, phrase management, settings, quota, sharing, campaign reports, and system sessions all call backend API routes.</li>
+          <li>Background audio processing runs through backend jobs and Celery workers.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>Docker Services</h2>
+        <ul>
+          <li><code>webapp</code>: React static build served by nginx.</li>
+          <li><code>backend</code>: FastAPI and business services.</li>
+          <li><code>postgres</code>: application database.</li>
+          <li><code>redis</code>: job queue broker and result backend.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

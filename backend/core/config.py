@@ -22,7 +22,7 @@ from config import FileConfig, ProcessingConfig, SecurityConfig
 
 def _get_cors_origins() -> List[str]:
     """Helper function to get CORS origins from environment or defaults."""
-    _frontend_url = os.getenv("FRONTEND_URL", "http://localhost:8501")
+    _frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
     _cors_origins_env = os.getenv("CORS_ORIGINS", "").strip()
     
     if _cors_origins_env:
@@ -30,8 +30,8 @@ def _get_cors_origins() -> List[str]:
         return [origin.strip() for origin in _cors_origins_env.split(",") if origin.strip()]
     else:
         return [
-            "http://localhost:8501",
-            "http://127.0.0.1:8501",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
             _frontend_url
         ]
 
@@ -118,6 +118,10 @@ _COMMON_SETTINGS = {
     "READYMODE_PASSWORD": os.getenv("READYMODE_PASSWORD"),
     "ENCRYPTION_KEY": os.getenv("ENCRYPTION_KEY"),
     "SESSION_SECRET": os.getenv("SESSION_SECRET"),
+    
+    # Google OAuth
+    "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID", ""),
+    "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET", ""),
 }
 
 
@@ -161,6 +165,8 @@ if PYDANTIC_V2:
         READYMODE_PASSWORD: Optional[str] = _COMMON_SETTINGS["READYMODE_PASSWORD"]
         ENCRYPTION_KEY: Optional[str] = _COMMON_SETTINGS["ENCRYPTION_KEY"]
         SESSION_SECRET: Optional[str] = _COMMON_SETTINGS["SESSION_SECRET"]
+        GOOGLE_CLIENT_ID: str = _COMMON_SETTINGS["GOOGLE_CLIENT_ID"]
+        GOOGLE_CLIENT_SECRET: str = _COMMON_SETTINGS["GOOGLE_CLIENT_SECRET"]
         
         @field_validator('CORS_ORIGINS', mode='before')
         @classmethod
@@ -176,6 +182,15 @@ if PYDANTIC_V2:
             if isinstance(v, list):
                 return v
             return _get_cors_origins()
+
+        @field_validator('DEBUG', mode='before')
+        @classmethod
+        def parse_debug(cls, v):
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                return v.strip().lower() in {"1", "true", "yes", "on", "debug", "dev", "development"}
+            return False
         
         model_config = SettingsConfigDict(
             env_file=".env",
@@ -223,6 +238,8 @@ else:
         READYMODE_PASSWORD: Optional[str] = _COMMON_SETTINGS["READYMODE_PASSWORD"]
         ENCRYPTION_KEY: Optional[str] = _COMMON_SETTINGS["ENCRYPTION_KEY"]
         SESSION_SECRET: Optional[str] = _COMMON_SETTINGS["SESSION_SECRET"]
+        GOOGLE_CLIENT_ID: str = _COMMON_SETTINGS["GOOGLE_CLIENT_ID"]
+        GOOGLE_CLIENT_SECRET: str = _COMMON_SETTINGS["GOOGLE_CLIENT_SECRET"]
         
         @validator('CORS_ORIGINS', pre=True)
         @classmethod
@@ -238,6 +255,15 @@ else:
             if isinstance(v, list):
                 return v
             return _get_cors_origins()
+
+        @validator('DEBUG', pre=True)
+        @classmethod
+        def parse_debug(cls, v):
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                return v.strip().lower() in {"1", "true", "yes", "on", "debug", "dev", "development"}
+            return False
         
         class Config:
             env_file = ".env"

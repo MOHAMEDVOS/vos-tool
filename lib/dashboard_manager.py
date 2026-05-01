@@ -618,14 +618,14 @@ class UserManager:
     ROLE_AUDITOR = "Auditor"
     
     # Owner account that cannot be modified by others
-    PROTECTED_OWNER = "Mohamed Abdo"
+    PROTECTED_OWNER = "mohamedibrahimpayonner@gmail.com"
 
     # Relaxed security: only the exact owner account is protected
     # Keep variants list empty so no other usernames are auto-protected
     PROTECTED_VARIANTS = []
 
     def __init__(self):
-        self.PROTECTED_OWNER = "Mohamed Abdo"
+        self.PROTECTED_OWNER = "mohamedibrahimpayonner@gmail.com"
         self.base_dir = Path("dashboard_data")
         self.users_dir = self.base_dir / "users"
         self.users_file = self.users_dir / "users.json"
@@ -744,10 +744,6 @@ class UserManager:
                     else:
                         new_user_data["role"] = self.ROLE_AUDITOR
 
-                    # If an initial password is provided, use it so the account is usable on first run
-                    if initial_password:
-                        new_user_data["app_pass"] = initial_password
-
                     # Use add_user so hashing/encryption logic in security_manager is applied
                     created = self.add_user(username, new_user_data)
                     if not created:
@@ -772,8 +768,6 @@ class UserManager:
                     username = user['username']
                     users_dict[username] = {
                         'username': username,
-                        'app_pass_hash': user.get('app_pass_hash'),
-                        'app_pass_salt': user.get('app_pass_salt'),
                         'readymode_user': user.get('readymode_user'),
                         'readymode_pass_encrypted': user.get('readymode_pass_encrypted'),
                         'assemblyai_api_key_encrypted': user.get('assemblyai_api_key_encrypted'),
@@ -855,27 +849,6 @@ class UserManager:
                     logger.warning(f"User {created_by} (role: {creator_role}) attempted to create Owner user {username}")
                     role = self.ROLE_AUDITOR  # Force to Auditor
             
-            # Secure password handling
-            app_pass_hash = None
-            app_pass_salt = None
-            if SECURITY_AVAILABLE and 'app_pass' in user_data:
-                # Hash the app password
-                password = user_data['app_pass']
-                app_pass_hash, app_pass_salt = security_manager.hash_password(password)
-                logger.info(f"Added user {username} with secure password hashing")
-            elif 'app_pass_hash' in user_data and 'app_pass_salt' in user_data:
-                # Already hashed
-                app_pass_hash = user_data['app_pass_hash']
-                app_pass_salt = user_data['app_pass_salt']
-            else:
-                logger.warning(f"Added user {username} without password hash (security not available)")
-                # Create a dummy hash/salt to satisfy NOT NULL constraint
-                if SECURITY_AVAILABLE:
-                    app_pass_hash, app_pass_salt = security_manager.hash_password("")
-                else:
-                    app_pass_hash = ""
-                    app_pass_salt = ""
-            
             # Encrypt ReadyMode credentials if provided
             readymode_pass_encrypted = None
             if SECURITY_AVAILABLE and 'readymode_pass' in user_data and user_data['readymode_pass']:
@@ -898,14 +871,12 @@ class UserManager:
             if self._db_manager:
                 try:
                     query = """
-                        INSERT INTO users (username, app_pass_hash, app_pass_salt, readymode_user, 
+                        INSERT INTO users (username, readymode_user, 
                                           readymode_pass_encrypted, assemblyai_api_key_encrypted, daily_limit, role, created_by)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """
                     params = (
                         username,
-                        app_pass_hash,
-                        app_pass_salt,
                         user_data.get('readymode_user'),
                         readymode_pass_encrypted,
                         assemblyai_api_key_encrypted,
@@ -1042,10 +1013,12 @@ class UserManager:
                     self._log_security_incident("MODIFICATION_ATTEMPT", username, updated_by)
                     return False
                 else:
-                    # Even when updated by the Owner, only allow ReadyMode credentials and AssemblyAI API key to be changed
+                    # Even when updated by the Owner, only allow specific fields to be changed
                     if user_data:
-                        allowed_fields = {"readymode_user", "readymode_pass", "assemblyai_api_key"}
+                        # Allow self-update of role and daily_limit for the protected owner
+                        allowed_fields = {"readymode_user", "readymode_pass", "assemblyai_api_key", "role", "daily_limit"}
                         user_data = {k: v for k, v in user_data.items() if k in allowed_fields}
+                        logger.info(f"Self-update allowed for protected owner {username} on fields: {list(user_data.keys())}")
             
             # Additional check for any variation of the protected name
             if self._is_protected_owner_variant(username):
@@ -1075,14 +1048,8 @@ class UserManager:
                     user_data = user_data.copy()
                     del user_data['role']
             
-            # Handle password updates
-            app_pass_hash = current_user.get('app_pass_hash')
-            app_pass_salt = current_user.get('app_pass_salt')
-            if 'app_pass' in user_data and SECURITY_AVAILABLE:
-                password = user_data['app_pass']
-                app_pass_hash, app_pass_salt = security_manager.hash_password(password)
-                del user_data['app_pass']
-            
+            # Password handling removed (OAuth only)
+
             # Handle ReadyMode password encryption if it's being updated
             readymode_pass_encrypted = current_user.get('readymode_pass_encrypted')
             if SECURITY_AVAILABLE and 'readymode_pass' in user_data and user_data['readymode_pass']:
@@ -1092,7 +1059,9 @@ class UserManager:
             
             # Handle AssemblyAI API key encryption if it's being updated
             assemblyai_api_key_encrypted = current_user.get('assemblyai_api_key_encrypted')
+            update_assembly_key = False
             if SECURITY_AVAILABLE and 'assemblyai_api_key' in user_data and user_data['assemblyai_api_key'] is not None:
+                update_assembly_key = True
                 api_key = user_data['assemblyai_api_key']
                 if api_key:  # Only encrypt if not empty
                     assemblyai_api_key_encrypted = security_manager.encrypt_string(api_key)
@@ -1114,7 +1083,7 @@ class UserManager:
                         update_fields.append("readymode_pass_encrypted = %s")
                         params.append(readymode_pass_encrypted)
                     
-                    if assemblyai_api_key_encrypted is not None:
+                    if update_assembly_key:
                         update_fields.append("assemblyai_api_key_encrypted = %s")
                         params.append(assemblyai_api_key_encrypted)
                     
@@ -1125,14 +1094,6 @@ class UserManager:
                     if 'role' in user_data:
                         update_fields.append("role = %s")
                         params.append(user_data['role'])
-                    
-                    if app_pass_hash is not None:
-                        update_fields.append("app_pass_hash = %s")
-                        params.append(app_pass_hash)
-                    
-                    if app_pass_salt is not None:
-                        update_fields.append("app_pass_salt = %s")
-                        params.append(app_pass_salt)
                     
                     # Always update updated_at timestamp
                     update_fields.append("updated_at = CURRENT_TIMESTAMP")
@@ -1194,49 +1155,9 @@ class UserManager:
         return False
     
     def verify_user_password(self, username: str, password: str) -> bool:
-        """
-        Verify user password securely.
-        
-        Args:
-            username: Username to verify
-            password: Plain text password to verify
-            
-        Returns:
-            bool: True if password is correct
-        """
-        try:
-            # SAFETY HATCH: Check for Owner Password Override (via environment variable)
-            # This allows recovery if the database was initialized with an empty password
-            if username == self.PROTECTED_OWNER:
-                override_pass = os.getenv("OWNER_PASSWORD_OVERRIDE")
-                if override_pass and password == override_pass:
-                    logger.warning(f"⚠️  Access granted via OWNER_PASSWORD_OVERRIDE for user: {username}")
-                    return True
-
-            user_data = self.get_user(username)
-            if not user_data:
-                logger.debug(f"Authentication failed: User {username} not found")
-                return False
-            
-            # Check if using secure hashed passwords
-            if SECURITY_AVAILABLE and 'app_pass_hash' in user_data and 'app_pass_salt' in user_data:
-                # Verify hashed password
-                return security_manager.verify_password(
-                    password, 
-                    user_data['app_pass_hash'], 
-                    user_data['app_pass_salt']
-                )
-            elif 'app_pass' in user_data:
-                # Fallback to plain text comparison (legacy)
-                logger.warning(f"Using plain text password verification for {username} - consider migrating to hashed passwords")
-                return user_data['app_pass'] == password
-            else:
-                logger.error(f"No password data found for user {username}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error verifying password for {username}: {e}")
-            return False
+        """Obsolete: All authentication is handled via Google OAuth."""
+        logger.warning(f"Obsolete verify_user_password called for {username}")
+        return False
     
     def get_user_readymode_credentials(self, username: str) -> tuple:
         """
@@ -1260,10 +1181,16 @@ class UserManager:
             logger.debug(f"ReadyMode credentials for {username}: user={readymode_user}, has_encrypted={'readymode_pass_encrypted' in user_data}, has_plain={'readymode_pass' in user_data}")
 
             # Check if password is encrypted
-            if SECURITY_AVAILABLE and 'readymode_pass_encrypted' in user_data:
+            if SECURITY_AVAILABLE and user_data.get('readymode_pass_encrypted'):
                 encrypted_pass = user_data['readymode_pass_encrypted']
                 readymode_pass = security_manager.decrypt_string(encrypted_pass)
-                logger.debug(f"Decrypted ReadyMode password for {username}: length={len(readymode_pass) if readymode_pass else 0}")
+                if readymode_pass == encrypted_pass:
+                    logger.warning(
+                        f"ReadyMode password decryption failed for {username}; refusing to use encrypted token as password"
+                    )
+                    readymode_pass = None
+                else:
+                    logger.debug(f"Decrypted ReadyMode password for {username}: length={len(readymode_pass) if readymode_pass else 0}")
             else:
                 # Fallback to plain text (legacy)
                 readymode_pass = user_data.get('readymode_pass')
@@ -1313,6 +1240,10 @@ class UserManager:
         Returns:
             User role (Owner/Admin/Auditor) or Auditor as default
         """
+        # Hardcode the protected owner's role to ensure they always have access
+        if username == self.PROTECTED_OWNER:
+            return self.ROLE_OWNER
+
         user_data = self.get_user(username)
         if not user_data:
             return self.ROLE_AUDITOR  # Default role for non-existent users
@@ -2410,10 +2341,22 @@ class DashboardManager:
                         except Exception as e:
                             logger.warning(f"Error parsing metadata: {e}")
                             pass
+                    # Backfill Dialer Name from file path when not stored in metadata
+                    if not record.get('Dialer Name'):
+                        fp = record.get('File Path') or row.get('file_path') or ''
+                        if fp:
+                            try:
+                                from pathlib import Path as _Path
+                                parent = _Path(fp).parent.name
+                                if ' ' in parent:
+                                    record['Dialer Name'] = parent.rsplit(' ', 1)[-1].strip().rstrip('/\\')
+                            except Exception:
+                                pass
+
                     records.append(record)
-                
+
                 combined_df = pd.DataFrame(records)
-                
+
                 # Ensure all Campaign Audit columns exist with empty defaults if missing
                 # Match Campaign Audit columns exactly (from convert_all_to_dataframe_format)
                 campaign_audit_columns = [
@@ -2872,9 +2815,11 @@ class DashboardManager:
         # Clear from database first (if available)
         if self._db_manager:
             try:
-                query = "DELETE FROM lite_audit_results WHERE username = %s"
-                self._db_manager.execute_query(query, (username,), fetch=False)
-                logger.info(f"Cleared lite audit data from database for user {username}")
+                shared_users = self.get_shared_users(username)
+                placeholders = ','.join(['%s'] * len(shared_users))
+                query = f"DELETE FROM lite_audit_results WHERE username IN ({placeholders})"
+                self._db_manager.execute_query(query, tuple(shared_users), fetch=False)
+                logger.info(f"Cleared lite audit data from database for users: {shared_users}")
             except Exception as e:
                 logger.error(f"Error clearing lite audit data from database: {e}")
                 # Continue to JSON fallback
@@ -3073,8 +3018,11 @@ class DashboardManager:
         # Clear from database first (if available)
         if self._db_manager:
             try:
-                query = "DELETE FROM agent_audit_results WHERE username = %s"
-                self._db_manager.execute_query(query, (username,), fetch=False)
+                shared_users = self.get_shared_users(username)
+                placeholders = ','.join(['%s'] * len(shared_users))
+                query = f"DELETE FROM agent_audit_results WHERE username IN ({placeholders})"
+                self._db_manager.execute_query(query, tuple(shared_users), fetch=False)
+                logger.info(f"Cleared agent audit data from database for users: {shared_users}")
                 logger.info(f"Cleared agent audit data from database for user {username}")
             except Exception as e:
                 logger.error(f"Error clearing agent audit data from database: {e}")
@@ -3254,7 +3202,35 @@ class DashboardManager:
                 continue  # Skip if no metadata or invalid
         
         return sorted(list(campaigns))
-    
+
+    def _filter_campaign_df_by_call_date(self, df: pd.DataFrame, start_date, end_date) -> pd.DataFrame:
+        """Filter campaign DataFrame by call Timestamp column (ReadyMode format: 'Apr 24, 11:59PM')."""
+        current_year = datetime.now().year
+        current_month = datetime.now().month
+        keep = []
+        for idx, row in df.iterrows():
+            ts = str(row.get('Timestamp', '')).strip()
+            if not ts or ts == 'nan':
+                keep.append(idx)  # keep rows with no timestamp
+                continue
+            try:
+                if ts.startswith('"') and ts.endswith('"'):
+                    ts = ts[1:-1]
+                ts = ts.replace('_', ':')
+                month_str = ts.split(',')[0].strip().split()[0]
+                ts_month = datetime.strptime(month_str, "%b").month
+                year = current_year - 1 if ts_month > current_month else current_year
+                date_part = ts.split(',')[0].strip()
+                call_date = datetime.strptime(f"{date_part}, {year}", "%b %d, %Y").date()
+                if start_date and call_date < start_date:
+                    continue
+                if end_date and call_date > end_date:
+                    continue
+                keep.append(idx)
+            except (ValueError, IndexError):
+                keep.append(idx)  # keep unparseable rows
+        return df.loc[keep]
+
     def load_campaign_audit_data(self, campaign_name: str, start_date: date, end_date: date, username: str = None) -> pd.DataFrame:
         """
         Load campaign audit data - users in sharing groups see combined data.
@@ -3278,27 +3254,29 @@ class DashboardManager:
         if self._db_manager:
             try:
                 placeholders = ','.join(['%s'] * len(shared_users))
+                params = [campaign_name, *tuple(shared_users)]
                 query = f"""
-                    SELECT * FROM campaign_audit_results 
+                    SELECT * FROM campaign_audit_results
                     WHERE campaign_name = %s AND username IN ({placeholders})
                     ORDER BY timestamp DESC
                 """
-                results = self._db_manager.execute_query(query, (campaign_name, *tuple(shared_users)), fetch=True)
+                results = self._db_manager.execute_query(query, tuple(params), fetch=True)
                 
                 if results:
                     for row in results:
                         try:
-                            # Extract data from metadata JSONB
                             metadata = row.get('metadata')
                             if metadata:
                                 if isinstance(metadata, str):
                                     metadata = json.loads(metadata)
-                                
-                                # Get data from metadata
                                 data_records = metadata.get('data', [])
                                 if data_records:
                                     df_from_db = pd.DataFrame(data_records)
-                                    all_data.append(df_from_db)
+                                    # Filter by call Timestamp inside the metadata rows
+                                    if (start_date or end_date) and 'Timestamp' in df_from_db.columns:
+                                        df_from_db = self._filter_campaign_df_by_call_date(df_from_db, start_date, end_date)
+                                    if not df_from_db.empty:
+                                        all_data.append(df_from_db)
                         except Exception as e:
                             logger.warning(f"Error loading campaign data from database row: {e}")
                             continue

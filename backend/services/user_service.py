@@ -23,13 +23,23 @@ def get_user(username: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def get_all_users() -> List[Dict[str, Any]]:
-    """Get all users (admin only)."""
+def get_all_users(caller_username: Optional[str] = None, caller_role: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Get all users. Filters if caller is Admin."""
     try:
         users = user_manager.get_all_users()
+        
+        visible_usernames = None
+        if caller_role == "Admin" and caller_username:
+            created = user_manager.get_admin_created_users(caller_username)
+            visible_usernames = set(created)
+            visible_usernames.add(caller_username)
+            
         # Remove sensitive data
         result = []
         for username, user_data in users.items():
+            if visible_usernames is not None and username not in visible_usernames:
+                continue
+                
             result.append({
                 "username": username,
                 "role": user_manager.get_user_role(username),
@@ -44,26 +54,40 @@ def get_all_users() -> List[Dict[str, Any]]:
 
 def create_user(
     username: str,
-    password: str,
+    password: str = "",
     role: str = "Auditor",
+    created_by: str = "",
     daily_limit: Optional[int] = None,
     readymode_username: Optional[str] = None,
     readymode_password: Optional[str] = None,
     assemblyai_api_key_encrypted: Optional[str] = None
 ) -> bool:
-    """Create new user."""
+    """Create new user and sync to whitelist."""
     try:
+        # Sync to whitelist first
+        from backend.core.database import get_db
+        db = get_db()
+        if db:
+            db.execute_query(
+                "INSERT INTO whitelist (email, name, role, readymode_user, readymode_password) "
+                "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (email) DO UPDATE SET "
+                "role = EXCLUDED.role, readymode_user = EXCLUDED.readymode_user, "
+                "readymode_password = EXCLUDED.readymode_password",
+                (username, username.split('@')[0], role, readymode_username, readymode_password),
+                fetch=False
+            )
+
         user_data = {
-            "app_pass": password,
+            "app_pass": password or "OAUTH_ONLY",
             "role": role,
             "daily_limit": daily_limit or 5000,
-            "created_by": username,
+            "created_by": created_by or username,
             "readymode_user": readymode_username,
             "readymode_pass": readymode_password,
             "assemblyai_api_key_encrypted": assemblyai_api_key_encrypted
         }
-        
-        return user_manager.add_user(username, user_data, username)
+
+        return user_manager.add_user(username, user_data, created_by or username)
     except Exception as e:
         logger.error(f"Error creating user: {e}", exc_info=True)
         return False
@@ -79,8 +103,32 @@ def update_user(
     readymode_password: Optional[str] = None,
     assemblyai_api_key: Optional[str] = None,
 ) -> bool:
-    """Update user."""
+    """Update user and sync to whitelist."""
     try:
+        # Sync to whitelist
+        from backend.core.database import get_db
+        db = get_db()
+        if db:
+            updates = []
+            params = []
+            if role:
+                updates.append("role = %s")
+                params.append(role)
+            if readymode_username is not None:
+                updates.append("readymode_user = %s")
+                params.append(readymode_username)
+            if readymode_password is not None:
+                updates.append("readymode_password = %s")
+                params.append(readymode_password)
+            
+            if updates:
+                params.append(username)
+                db.execute_query(
+                    f"UPDATE whitelist SET {', '.join(updates)}, updated_at = CURRENT_TIMESTAMP WHERE email = %s",
+                    tuple(params),
+                    fetch=False
+                )
+
         user_data = {}
         if password:
             user_data["app_pass"] = password
@@ -88,12 +136,10 @@ def update_user(
             user_data["role"] = role
         if daily_limit is not None:
             user_data["daily_limit"] = daily_limit
-        if readymode_username:
+        if readymode_username is not None:
             user_data["readymode_user"] = readymode_username
-        if readymode_password:
+        if readymode_password is not None:
             user_data["readymode_pass"] = readymode_password
-        # Pass plaintext key; dashboard_manager handles encryption into
-        # assemblyai_api_key_encrypted when updating storage
         if assemblyai_api_key is not None:
             user_data["assemblyai_api_key"] = assemblyai_api_key
         
@@ -104,8 +150,14 @@ def update_user(
 
 
 def delete_user(username: str, deleted_by: str) -> bool:
-    """Delete user."""
+    """Delete user and sync to whitelist."""
     try:
+        # Remove from whitelist
+        from backend.core.database import get_db
+        db = get_db()
+        if db:
+            db.execute_query("DELETE FROM whitelist WHERE email = %s", (username,), fetch=False)
+            
         return user_manager.remove_user(username, deleted_by)
     except Exception as e:
         logger.error(f"Error deleting user: {e}", exc_info=True)

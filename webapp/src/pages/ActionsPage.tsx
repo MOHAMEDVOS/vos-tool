@@ -1,0 +1,351 @@
+﻿import { useMemo, useState, useEffect } from 'react'
+import { useFlaggedCalls, useAgentAudits, useLiteAudits } from '@/hooks/useDashboard'
+import { useBadgeStore } from '@/store/badgeStore'
+import { Button } from '@/components/ui/Button'
+import { Spinner } from '@/components/ui/Spinner'
+import type { FlaggedCall } from '@/types/api'
+import { useQueryClient, useMutation } from '@tanstack/react-query'
+import { dashboardApi } from '@/api/dashboard'
+import { RefreshCw, Search, ChevronDown, Check, Copy } from 'lucide-react'
+import { CustomSelect } from '@/components/ui/Select'
+import { motion, AnimatePresence } from 'framer-motion'
+
+interface AgentDeductionRow {
+  agentName: string; totalCalls: number; flaggedCalls: number
+  releasing: number; lateHello: number; noRebuttals: number
+  dialerNames: string[]; deduction: boolean
+}
+
+function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  const headers = [
+    { key: 'agentName',    label: 'Agent Name',     cls: 'min-w-[200px]' },
+    { key: 'totalCalls',   label: 'Total Calls',    cls: 'min-w-[100px] text-right' },
+    { key: 'flaggedCalls', label: 'Flagged Calls',  cls: 'min-w-[110px] text-right' },
+    { key: 'releasing',    label: 'Releasing',      cls: 'min-w-[90px] text-right' },
+    { key: 'lateHello',    label: 'Late Hello',     cls: 'min-w-[100px] text-right' },
+    { key: 'noRebuttals',  label: 'No Rebuttals',   cls: 'min-w-[110px] text-right' },
+    { key: 'dialerNames',  label: 'Dialer Name(s)', cls: 'min-w-[150px]' },
+    { key: 'deduction',    label: 'Deduction',      cls: 'min-w-[100px]' },
+  ]
+
+  return (
+    <div className="rounded-lg shadow-card border border-b-subtle overflow-hidden bg-c-base">
+      <div className="overflow-auto max-h-[380px] resize-y min-h-[200px] custom-scrollbar">
+        <table className="w-max min-w-full border-collapse text-sm relative">
+          <thead className="sticky top-0 z-20 bg-c-base shadow-[inset_0_-1px_0_rgba(255,255,255,0.05)]">
+            <tr>
+              {headers.map((h) => (
+                <th key={h.key} className={`${h.cls} border-r border-b-subtle px-3 py-2.5 text-left text-[10px] font-black uppercase tracking-[0.15em] text-vos-500 whitespace-nowrap last:border-r-0`}>
+                  {h.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+        <tbody className="divide-y divide-b-subtle">
+          {rows.map((row, idx) => {
+            const flagBg = row.flaggedCalls >= 5 ? 'bg-semantic-error/10 text-semantic-error' : row.flaggedCalls === 4 ? 'bg-amber-950/50' : ''
+            const deductionBg = row.deduction ? 'bg-semantic-error/10 text-semantic-error' : 'bg-semantic-success/10 text-semantic-success'
+            const flagText = row.flaggedCalls >= 4 ? 'text-t-primary font-black' : 'text-t-primary'
+            const deductionText = 'text-t-primary font-black'
+            const copyId = `action-${idx}`
+            
+            return (
+              <tr key={row.agentName} className="hover:bg-c-raised/50 transition-colors group/row">
+                <td className="min-w-[200px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-t-primary font-medium group/cell relative">
+                  <div className="flex items-center justify-start gap-3">
+                    <span className="block whitespace-nowrap">{row.agentName}</span>
+                    <button 
+                      onClick={() => copyToClipboard(row.agentName, copyId)}
+                      className="opacity-0 group-hover/cell:opacity-100 p-1 rounded hover:bg-c-raised transition-all text-vos-500 hover:text-t-primary shrink-0"
+                    >
+                      <AnimatePresence mode="wait">
+                        {copiedId === copyId ? (
+                          <motion.div key="check" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+                            <Check size={12} className="text-green-500" />
+                          </motion.div>
+                        ) : (
+                          <motion.div key="copy" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
+                            <Copy size={12} />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  </div>
+                </td>
+                <td className="min-w-[100px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">{row.totalCalls}</td>
+                <td className={`min-w-[110px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right tabular-nums font-bold ${flagBg} ${flagText}`}>{row.flaggedCalls}</td>
+                <td className="min-w-[90px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">{row.releasing}</td>
+                <td className="min-w-[100px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">{row.lateHello}</td>
+                <td className="min-w-[110px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">{row.noRebuttals}</td>
+                <td className="min-w-[150px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-t-primary font-medium">
+                  <span className="block whitespace-nowrap">{row.dialerNames.length ? row.dialerNames.join(' & ') : '—'}</span>
+                </td>
+                <td className={`min-w-[100px] px-3 py-2.5 whitespace-nowrap font-black uppercase tracking-widest text-[10px] ${deductionBg} ${deductionText}`}>{row.deduction ? 'Yes' : 'No'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+export function ActionsPage() {
+  const qc = useQueryClient()
+  const { data: flaggedCalls, isLoading: flaggedLoading, isError: flaggedError } = useFlaggedCalls()
+  const { data: allAuditsData, isLoading: auditsLoading } = useAgentAudits()
+  const { data: liteAuditsData, isLoading: liteLoading } = useLiteAudits()
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const markAsSeen = useBadgeStore(s => s.markAsSeen)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
+  }
+
+  const isLoading = flaggedLoading || auditsLoading || liteLoading
+  const isError = flaggedError
+
+  const allAuditRecords = useMemo(() => {
+    const agentRecords = allAuditsData?.records?.map((r) => r.metadata ?? r) ?? []
+    const liteRecords = liteAuditsData?.records?.map((r) => r.metadata ?? r) ?? []
+    return [...agentRecords, ...liteRecords]
+  }, [allAuditsData, liteAuditsData])
+
+  const totalCallsMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const row of allAuditRecords) {
+      const name = ((row as Record<string, unknown>)['Agent Name'] as string | undefined)?.trim()
+      if (name) map.set(name, (map.get(name) ?? 0) + 1)
+    }
+    return map
+  }, [allAuditRecords])
+
+  const auditedDialers = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const row of allAuditRecords) {
+      const r = row as Record<string, unknown>
+      const dialer = (r['Dialer Name'] || r['dialer_name'] || r['Dialer']) as string | undefined
+      if (dialer && dialer !== 'N/A' && dialer !== 'Unknown') map.set(dialer, (map.get(dialer) ?? 0) + 1)
+    }
+    return Array.from(map.entries()).map(([dialer, count]) => ({ dialer, count })).sort((a, b) => b.count - a.count)
+  }, [allAuditRecords])
+
+  const agentDeductions = useMemo<AgentDeductionRow[]>(() => {
+    const calls: FlaggedCall[] = flaggedCalls ?? []
+    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; dialerNames: Set<string> }>()
+    for (const call of calls) {
+      const name = (call['Agent Name'] ?? 'Unknown').trim()
+      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, dialerNames: new Set() })
+      const entry = agentMap.get(name)!
+      entry.flagged.push(call)
+      if (call['Releasing Detection'] === 'Yes') entry.releasing++
+      if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
+      if (call['Rebuttal Detection'] === 'No') entry.noRebuttals++
+      const dialer = call['Dialer Name'] as string | undefined
+      if (dialer) entry.dialerNames.add(dialer)
+    }
+    return [...agentMap.entries()].map(([agentName, data]) => ({
+      agentName, totalCalls: totalCallsMap.get(agentName) ?? data.flagged.length,
+      flaggedCalls: data.flagged.length, releasing: data.releasing, lateHello: data.lateHello,
+      noRebuttals: data.noRebuttals, dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
+    })).sort((a, b) => b.flaggedCalls - a.flaggedCalls)
+  }, [flaggedCalls, totalCallsMap])
+
+  const summary = useMemo(() => {
+    const all = flaggedCalls ?? []
+    return { total: all.length, releasing: all.filter((r) => r['Releasing Detection'] === 'Yes').length,
+      lateHello: all.filter((r) => r['Late Hello Detection'] === 'Yes').length,
+      noRebuttal: all.filter((r) => r['Rebuttal Detection'] === 'No').length }
+  }, [flaggedCalls])
+
+  const selectedAgentCalls = useMemo<FlaggedCall[]>(() => {
+    if (!selectedAgent) return []
+    return (flaggedCalls ?? []).filter((c) => (c['Agent Name'] || 'Unknown').trim() === selectedAgent)
+  }, [flaggedCalls, selectedAgent])
+
+  useEffect(() => { if (!flaggedLoading) markAsSeen() }, [markAsSeen, flaggedCalls, flaggedLoading])
+  useEffect(() => { if (!selectedAgent && agentDeductions.length > 0) setSelectedAgent(agentDeductions[0].agentName) }, [agentDeductions, selectedAgent])
+
+  const clearData = useMutation({
+    mutationFn: async () => { await dashboardApi.clearAgentAudits(); await dashboardApi.clearLiteAudits() },
+    onSuccess: () => {
+      setShowConfirm(false)
+      qc.invalidateQueries({ queryKey: ['flagged-calls'] }); qc.invalidateQueries({ queryKey: ['agent-audits'] })
+      qc.invalidateQueries({ queryKey: ['lite-audits'] }); qc.invalidateQueries({ queryKey: ['badge-count'] })
+    },
+  })
+
+  if (isLoading) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+  if (isError) return <p className="text-sm text-ship-red">Failed to load flagged calls.</p>
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-start justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-bold text-t-primary tracking-tight">Actions</h1>
+          <p className="text-vos-500 text-sm">Flagged calls requiring attention.</p>
+        </div>
+        <Button size="sm" variant="secondary" className="bg-vos-50 border-b-medium text-t-primary hover:bg-c-raised" onClick={() => { qc.invalidateQueries({ queryKey: ['flagged-calls'] }); qc.invalidateQueries({ queryKey: ['agent-audits'] }) }}>
+          <RefreshCw size={14} className="mr-2" /> Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <SummaryMetric label="Total Action Items" value={summary.total} />
+        <SummaryMetric label="Releasing Issues" value={summary.releasing} />
+        <SummaryMetric label="Late Hello Issues" value={summary.lateHello} />
+        <SummaryMetric label="Rebuttal Issues" value={summary.noRebuttal} />
+      </div>
+
+      <div>
+        <h2 className="mb-3 text-[10px] font-black uppercase tracking-widest text-vos-500 ml-1">Agent Deductions</h2>
+        {agentDeductions.length === 0 ? <p className="py-4 text-sm text-vos-500">No flagged calls found.</p> : <AgentDeductionsTable rows={agentDeductions} />}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label className="text-[10px] font-black uppercase tracking-widest text-vos-500 ml-1">Select agent to view detailed flagged calls</label>
+        <CustomSelect 
+          options={agentDeductions.map(row => row.agentName)}
+          value={selectedAgent || ''}
+          onChange={(v) => setSelectedAgent(v)}
+          placeholder="Select an agent..."
+          className="max-w-sm"
+        />
+      </div>
+
+      {selectedAgent && (
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8">
+          {/* Detailed Flagged Calls */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 ml-1">
+              <div className="w-1 h-4 bg-ship-red rounded-full" />
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Detailed flagged calls — {selectedAgent}</h3>
+            </div>
+            
+            <div className="rounded-2xl bg-surface-card border border-b-subtle shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl">
+              {/* Copy-all header */}
+              {selectedAgentCalls.length > 0 && (
+                <div className="flex items-center justify-between px-4 py-2.5 border-b border-b-subtle bg-c-raised/50">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-vos-500">{selectedAgentCalls.length} calls</span>
+                  <button
+                    onClick={() => {
+                      const text = selectedAgentCalls.map(c => {
+                        const issues = []
+                        if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
+                        if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
+                        if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
+                        return `${c['Phone Number'] || 'Unknown'} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}`
+                      }).join('\n')
+                      copyToClipboard(text, 'all')
+                    }}
+                    className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-vos-500 hover:text-t-primary transition-colors"
+                  >
+                    <AnimatePresence mode="wait">
+                      {copiedId === 'all'
+                        ? <Check size={12} className="text-green-500" />
+                        : <Copy size={12} />}
+                    </AnimatePresence>
+                    Copy All
+                  </button>
+                </div>
+              )}
+
+              <div className="overflow-y-auto custom-scrollbar flex-1 min-h-[400px] max-h-[600px]">
+                {selectedAgentCalls.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 opacity-30">
+                    <Search size={40} strokeWidth={1} className="mb-4" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">No detailed calls found</span>
+                  </div>
+                ) : (
+                  <div className="p-4 font-mono text-sm leading-7 text-t-label whitespace-pre select-text">
+                    {selectedAgentCalls.map((c, i) => {
+                      const issues = []
+                      if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
+                      if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
+                      if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
+                      return (
+                        <div key={i} className="hover:text-t-primary transition-colors">
+                          {c['Phone Number'] || 'Unknown'} - {issues.join(', ') || 'Flagged'} - {c['Dialer Name'] || 'Unknown'}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Audited Dialers */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 ml-1">
+              <div className="w-1 h-4 bg-dev-blue rounded-full" />
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Audited Dialers</h3>
+            </div>
+            
+            <div className="rounded-2xl bg-surface-card border border-b-subtle shadow-2xl overflow-hidden backdrop-blur-xl">
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-c-base border-b border-b-subtle">
+                  <tr>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Dialer</th>
+                    <th className="px-5 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-vos-500 text-right">Audited Calls</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-b-subtle">
+                  {auditedDialers.length === 0 ? (
+                    <tr><td colSpan={2} className="px-5 py-10 text-center text-vos-600 text-[10px] font-black uppercase tracking-widest">No dialer data</td></tr>
+                  ) : auditedDialers.map((d) => (
+                    <tr key={d.dialer} className="hover:bg-c-raised/50 transition-colors group">
+                      <td className="px-5 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-1.5 h-1.5 rounded-full bg-dev-blue/40 group-hover:bg-dev-blue transition-colors" />
+                          <span className="text-xs font-bold text-t-primary group-hover:text-dev-blue transition-colors">{d.dialer}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5 text-right tabular-nums text-sm font-black text-t-primary">{d.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-col items-start gap-3">
+        {!showConfirm ? (
+          <Button variant="danger" onClick={() => setShowConfirm(true)}>Clear All Data</Button>
+        ) : (
+          <div className="rounded-lg border border-ship-red/30 bg-ship-red/10 p-4 max-w-lg">
+            <p className="mb-3 text-sm text-vos-black"><strong>Warning:</strong> This permanently deletes all your audit data (agent and lite). This cannot be undone.</p>
+            <div className="flex gap-3">
+              <Button variant="danger" onClick={() => clearData.mutate()} disabled={clearData.isPending}>{clearData.isPending ? 'Clearing...' : 'Confirm Delete'}</Button>
+              <Button variant="secondary" onClick={() => setShowConfirm(false)} disabled={clearData.isPending}>Cancel</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SummaryMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg bg-c-base border border-b-subtle shadow-card p-5 group hover:border-ship-red/30 transition-colors">
+      <p className="text-[10px] font-black uppercase tracking-widest text-vos-500 mb-1">{label}</p>
+      <p className="text-3xl font-black text-t-primary tabular-nums leading-none group-hover:text-ship-red transition-colors">{value}</p>
+    </div>
+  )
+}

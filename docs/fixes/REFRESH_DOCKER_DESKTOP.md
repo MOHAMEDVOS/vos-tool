@@ -71,7 +71,7 @@ You can verify containers are running by:
    ```
 
 2. **Access the application**:
-   - Frontend: http://localhost:8501
+   - Frontend: http://localhost:3000
    - Backend: http://localhost:8000/docs
 
 If these URLs work, your containers are running even if Docker Desktop doesn't show them!

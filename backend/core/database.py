@@ -240,8 +240,6 @@ def create_tables_if_needed(db):
         CREATE TABLE IF NOT EXISTS users (
             id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
             username TEXT UNIQUE NOT NULL,
-            app_pass_hash TEXT NOT NULL,
-            app_pass_salt TEXT,
             readymode_user TEXT,
             readymode_pass_encrypted TEXT,
             assemblyai_api_key_encrypted TEXT,
@@ -256,12 +254,18 @@ def create_tables_if_needed(db):
         logger.info("✓ Users table created/verified")
 
         # Ensure required columns exist (safe no-op if already present)
-        db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS app_pass_salt TEXT;", fetch=False)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS readymode_user TEXT;", fetch=False)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS readymode_pass_encrypted TEXT;", fetch=False)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS assemblyai_api_key_encrypted TEXT;", fetch=False)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by TEXT;", fetch=False)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
+        
+        # Try to drop legacy password columns if they exist
+        try:
+            db.execute_query("ALTER TABLE users DROP COLUMN IF EXISTS app_pass_hash;", fetch=False)
+            db.execute_query("ALTER TABLE users DROP COLUMN IF EXISTS app_pass_salt;", fetch=False)
+        except Exception:
+            pass
         
         # Create user_sessions table
         create_sessions_table = """
@@ -367,6 +371,28 @@ def create_tables_if_needed(db):
 
         # Ensure updated_at column exists in daily_counters
         db.execute_query("ALTER TABLE daily_counters ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
+
+        # Create whitelist table
+        create_whitelist_table = """
+        CREATE TABLE IF NOT EXISTS whitelist (
+            email TEXT PRIMARY KEY,
+            name TEXT,
+            role TEXT DEFAULT 'Auditor',
+            readymode_user TEXT,
+            readymode_password TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+        db.execute_query(create_whitelist_table, fetch=False)
+        db.execute_query("ALTER TABLE whitelist ADD COLUMN IF NOT EXISTS readymode_user TEXT;", fetch=False)
+        db.execute_query("ALTER TABLE whitelist ADD COLUMN IF NOT EXISTS readymode_password TEXT;", fetch=False)
+        try:
+            db.execute_query("ALTER TABLE whitelist DROP COLUMN IF EXISTS unit;", fetch=False)
+            db.execute_query("ALTER TABLE whitelist DROP COLUMN IF EXISTS permissions;", fetch=False)
+        except Exception:
+            pass
+        logger.info("✓ Whitelist table created/verified")
 
         _apply_full_schema(db)
         

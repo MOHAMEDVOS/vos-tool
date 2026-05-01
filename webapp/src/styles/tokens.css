@@ -1,0 +1,216 @@
+/*
+   VOS Design Tokens — Vercel / Geist system
+   Light mode default. Dark mode via [data-theme="dark"] on <html>.
+   Shadow-as-border. Achromatic. AI-professional.
+*/
+
+/* ═══════════════════════════ LIGHT ═══════════════════════════ */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* ── Fonts ── */
+  --font-sans:  'Geist', 'Inter', Arial, 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+  --font-mono:  'Geist Mono', ui-monospace, SFMono-Regular, 'Roboto Mono', Menlo, Monaco, 'Courier New', monospace;
+
+  /* ── Brand accent — ink black ── */
+  --accent:          #0f1117;
+  --accent-hover:    #000000;
+  --accent-muted:    rgba(15, 17, 23, 0.07);
+  --accent-subtle:   rgba(15, 17, 23, 0.04);
+  --accent-border:   rgba(15, 17, 23, 0.18);
+  --accent-text:     #0f1117;
+
+  /* ── Canvas — warm off-white so cards lift off it ── */
+  --surface-page:   #f5f5f5;
+  --surface-card:   #ffffff;
+  --surface-input:  #ffffff;
+  --surface-soft:   #f0f2f5;
+
+  /* ── Glass surfaces (login card, modals) ── */
+  --glass-card-bg:     rgba(255, 255, 255, 0.72);
+  --glass-card-border: rgba(255, 255, 255, 0.90);
+  --glass-blur:        blur(20px) saturate(180%);
+
+  /* ── Text ── */
+  --t-primary:      #0f1117;
+  --t-secondary:    #3d4452;
+  --t-muted:        #6b7280;
+  --t-placeholder:  #9ca3af;
+  --t-on-dark:      #ffffff;
+  --t-on-primary:   #ffffff;
+
+  /* ── Borders ── */
+  --b-subtle:   rgba(0, 0, 0, 0.06);
+  --b-medium:   rgba(0, 0, 0, 0.09);
+  --b-strong:   #e2e6ec;
+  --b-divider:  #e8ebf0;
+  --b-focus:    var(--accent);
+
+  /* ── Shadow stack tokens ── */
+  --shadow-border: rgba(0, 0, 0, 0.08) 0px 0px 0px 1px;
+  --shadow-ring:   rgb(226, 230, 236) 0px 0px 0px 1px;
+  --shadow-card:   0px 0px 0px 1px rgba(0,0,0,0.06),
+                   0px 2px 4px rgba(0,0,0,0.04),
+                   0px 8px 24px rgba(0,0,0,0.06),
+                   0px 0px 0px 1px #ffffff inset;
+  --shadow-card-hover: 0px 0px 0px 1px rgba(0,0,0,0.08),
+                       0px 4px 8px rgba(0,0,0,0.06),
+                       0px 16px 40px rgba(0,0,0,0.10);
+  --shadow-glass:  0px 0px 0px 1px rgba(255,255,255,0.9),
+                   0px 4px 16px rgba(0,0,0,0.10),
+                   0px 20px 60px rgba(0,0,0,0.12);
+  --shadow-soft:   0px 2px 8px rgba(0,0,0,0.06);
+  --shadow-accent: 0px 4px 16px rgba(0,0,0,0.18);
+  --focus-ring:    0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+
+  /* ── Interactions ── */
+  --hover-overlay:  rgba(0, 0, 0, 0.03);
+  --active-overlay: rgba(0, 0, 0, 0.06);
+  --selected-bg:    var(--accent-muted);
+  --selected-text:  var(--accent-text);
+
+  /* ── Buttons ── */
+  --btn-primary-bg:     var(--accent);
+  --btn-primary-text:   #ffffff;
+  --btn-primary-hover:  var(--accent-hover);
+  --btn-secondary-bg:   #ffffff;
+  --btn-secondary-text: var(--t-primary);
+  --btn-secondary-shadow: rgb(226,230,236) 0px 0px 0px 1px;
+
+  /* ── Workflow accents ── */
+  --ship-red:     #ff5b4f;
+  --preview-pink: #de1d8d;
+  --dev-blue:     #0a72ef;
+  --link-blue:    #0072f5;
+
+  /* ── Badge ── */
+  --badge-bg:   #e8f1ff;
+  --badge-text: var(--accent-text);
+
+  /* ── Semantic ── */
+  --semantic-success: #16a34a;
+  --semantic-error:   #dc2626;
+  --semantic-warning: #d97706;
+
+  /* ── Legacy aliases ── */
+  --vos-black: #0f1117;
+  --vos-600:   #3d4452;
+  --vos-500:   #6b7280;
+  --vos-400:   #9ca3af;
+  --vos-200:   #e2e6ec;
+  --vos-50:    #f0f2f5;
+
+  --c-base:    #ffffff;
+  --c-deep:    #f4f6f9;
+  --c-float:   #ffffff;
+  --c-raised:  #f0f2f5;
+
+  --surface-strong: #e8ebf0;
+
+  /* ── Radius ── */
+  --radius-xs:   2px;
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-xl:   12px;
+  --radius-xxl:  64px;
+  --radius-pill: 9999px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ═══════════════════════════ DARK ════════════════════════════ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* ── Brand accent in dark mode — white ink ── */
+  --accent:        #ededed;
+  --accent-hover:  #ffffff;
+  --accent-muted:  rgba(237, 237, 237, 0.08);
+  --accent-subtle: rgba(237, 237, 237, 0.04);
+  --accent-border: rgba(237, 237, 237, 0.18);
+  --accent-text:   #ededed;
+
+  --glass-card-bg:     rgba(20, 20, 28, 0.80);
+  --glass-card-border: rgba(255, 255, 255, 0.08);
+  --glass-blur:        blur(20px) saturate(160%);
+
+  --surface-page:   #0a0a0a;
+  --surface-card:   #111111;
+  --surface-input:  #111111;
+  --surface-soft:   #1a1a1a;
+
+  --t-primary:      #ededed;
+  --t-secondary:    #a1a1a1;
+  --t-muted:        #737373;
+  --t-placeholder:  #525252;
+  --t-on-dark:      #171717;
+  --t-on-primary:   #000000;
+
+  --b-subtle:   rgba(255, 255, 255, 0.06);
+  --b-medium:   rgba(255, 255, 255, 0.09);
+  --b-strong:   #2e2e2e;
+  --b-divider:  #2e2e2e;
+  --b-focus:    hsla(212, 100%, 60%, 1);
+
+  --shadow-border: rgba(255,255,255,0.08) 0px 0px 0px 1px;
+  --shadow-ring:   rgba(255,255,255,0.12) 0px 0px 0px 1px;
+  --shadow-card:   rgba(255,255,255,0.06) 0px 0px 0px 1px,
+                   rgba(0,0,0,0.30) 0px 2px 8px,
+                   rgba(0,0,0,0.20) 0px 8px 24px -8px,
+                   rgba(255,255,255,0.02) 0px 0px 0px 1px inset;
+  --shadow-soft:   rgba(0,0,0,0.30) 0px 2px 8px;
+  --focus-ring:    0 0 0 2px #0a0a0a, 0 0 0 4px hsla(212, 100%, 60%, 1);
+
+  --hover-overlay:  rgba(255, 255, 255, 0.05);
+  --active-overlay: rgba(255, 255, 255, 0.08);
+  --selected-bg:    rgba(255, 255, 255, 0.08);
+  --selected-text:  #ededed;
+
+  --btn-primary-bg:     var(--accent);
+  --btn-primary-text:   #ffffff;
+  --btn-primary-hover:  var(--accent-hover);
+  --btn-secondary-bg:   #111111;
+  --btn-secondary-text: #ededed;
+  --btn-secondary-shadow: rgba(255,255,255,0.12) 0px 0px 0px 1px;
+
+  --shadow-glass:  0px 0px 0px 1px rgba(255,255,255,0.06),
+                   0px 4px 24px rgba(0,0,0,0.50),
+                   0px 20px 60px rgba(0,0,0,0.40);
+  --shadow-accent: 0px 4px 16px rgba(0,0,0,0.40);
+  --shadow-card-hover: 0px 0px 0px 1px rgba(255,255,255,0.10),
+                       0px 8px 32px rgba(0,0,0,0.50);
+  --selected-bg:   var(--accent-muted);
+  --selected-text: var(--accent-text);
+
+  --badge-bg:   rgba(0, 114, 245, 0.15);
+  --badge-text: #60a5fa;
+
+  --semantic-success: #4ade80;
+  --semantic-error:   #f87171;
+  --semantic-warning: #fbbf24;
+
+  --vos-black: #ededed;
+  --vos-600:   #a1a1a1;
+  --vos-500:   #737373;
+  --vos-400:   #525252;
+  --vos-200:   #2e2e2e;
+  --vos-50:    #1a1a1a;
+
+  --c-base:    #111111;
+  --c-deep:    #0a0a0a;
+  --c-float:   #161616;
+  --c-raised:  #1a1a1a;
+
+  --surface-strong: #1a1a1a;
+}
+
+/* ── Keyframes ── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

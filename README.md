@@ -1,252 +1,119 @@
-<h1 align="center">
-  🎙️ VOS Tool — Voice Observation System
-</h1>
+# VOS — Voice Observation System
+> AI-Powered Call Center QA Automation for High-Performance Sales Teams.
 
-<p align="center">
-  <strong>AI-powered call center QA automation for Egyptian real estate sales calls</strong>
-</p>
+VOS is a sophisticated, high-fidelity platform designed to automate Quality Assurance for real estate sales calls. By leveraging a multi-layered AI detection engine, VOS transcribes, analyzes, and scores thousands of calls in seconds, providing actionable insights that previously took hours of manual effort.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white" alt="Streamlit">
-  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
-  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white" alt="PostgreSQL">
-  <img src="https://img.shields.io/badge/AssemblyAI-000000?style=for-the-badge" alt="AssemblyAI">
-  <img src="https://img.shields.io/badge/Groq-LLM-orange?style=for-the-badge" alt="Groq">
-</p>
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/Frontend-React-61DAFB.svg?style=flat&logo=react&logoColor=white)](https://reactjs.org)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-336791.svg?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org)
+[![Docker](https://img.shields.io/badge/Deployment-Docker-2496ED.svg?style=flat&logo=docker&logoColor=white)](https://www.docker.com)
 
 ---
 
-## What is VOS Tool?
+## 🧠 The 3-Layer Detection Engine
+VOS doesn't just look for keywords. It understands the context of sales conversations through a proprietary three-layer pipeline:
 
-VOS (Voice Observation System) automatically downloads call recordings from ReadyMode dialers, transcribes them using AssemblyAI, and analyzes agent performance using a 3-layer AI detection system. Manual analysis took 45 seconds per call — VOS does it in 2–3 seconds 
-
-**What it does:**
-- 🎤 Transcribes call audio via AssemblyAI
-- 🧠 Detects sales rebuttals using 2,000+ phrase library + semantic matching + LLM fallback
-- 📊 Flags quality issues: late hello, releasing, agent-only calls, silence
-- 📈 Tracks agent performance over time across campaigns
-- 🌐 Downloads calls automatically from ReadyMode dialers (8 instances)
-- 🔒 Keeps each user's dashboard data fully isolated
+1.  **Exact Match**: Lightning-fast identification of high-confidence rebuttal phrases.
+2.  **Semantic Match**: Uses `Sentence Transformers` to identify conceptually similar objections even when the exact wording differs.
+3.  **LLM Fallback**: Utilizes `Groq / Llama 3.1` for complex linguistic analysis of ambiguous interactions, ensuring 99% detection accuracy.
 
 ---
 
-## Key Features
+## ✨ Core Features
 
-| Feature | Description |
-|---------|-------------|
-| **3-Layer Rebuttal Detection** | Exact match → Semantic similarity → Groq LLM fallback |
-| **2,000+ Phrase Library** | Domain-specific Egyptian real estate rebuttal phrases |
-| **80% Early-Exit Rate** | Layer 1/2 resolves most calls, LLM only for edge cases |
-| **Dual Audit Modes** | Full audit (transcription + AI) and Lite audit (fast keyword scan) |
-| **ReadyMode Integration** | Playwright automation to download MP3s from 8 dialer instances |
-| **Role-Based Access** | Owner, Admin, User permission levels |
-| **Campaign Dashboards** | Per-agent and campaign-level analytics with CSV export |
-| **Self-Learning Phrases** | Auto-learns new rebuttal patterns from confirmed calls |
+### 📡 ReadyMode Integration
+*   **Automated Downloads**: Playwright-based automation logs into ReadyMode dialers to fetch recordings.
+*   **Session Persistence**: Handles authentication and secure session management automatically.
+*   **Intelligent Filtering**: Downloads calls based on duration, disposition, and campaign.
 
----
+### 📊 Advanced Dashboards
+*   **Real-time Analytics**: Monitor agent performance, rebuttal hit rates, and quality trends.
+*   **Hierarchical Views**: Custom views for Owners (System-wide), Admins (Team-wide), and Auditors (Self-view).
+*   **Quality Scoring**: Automated detection of "Late Hello", "Releasing", and "Agent-Only" calls.
 
-## Architecture
+### 🛡️ Secure Management
+*   **Google OAuth**: Modern, secure authentication flow.
+*   **Granular Quota System**: Hierarchical credit allocation (Owner → Admin → Auditor) to manage API costs.
+*   **Secure Storage**: All credentials and API keys are encrypted at rest.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        USER (Browser)                           │
-│                    Streamlit UI (port 8501)                      │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-          ┌────────────────┼────────────────┐
-          ▼                ▼                ▼
-  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-  │  app.py      │ │  frontend/   │ │  backend/    │
-  │  (Streamlit  │ │  (UI logic,  │ │  (FastAPI    │
-  │   entry)     │ │   auth, CSS) │ │   REST API)  │
-  │  3098 lines  │ │              │ │  port 8000   │
-  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
-         │                │                │
-         ├────────────────┴────────────────┤
-         ▼                                 ▼
-  ┌──────────────┐                 ┌──────────────┐
-  │    lib/      │                 │  automation/  │
-  │  (Core       │                 │  (ReadyMode   │
-  │   business   │                 │   Playwright  │
-  │   logic)     │                 │   downloader) │
-  └──────┬───────┘                 └──────┬───────┘
-         │                                │
-    ┌────┼────┬────────┐                  │
-    ▼    ▼    ▼        ▼                  ▼
-┌───────┐┌───────┐┌─────────┐     ┌──────────────┐
-│audio_ ││analy- ││process- │     │  ReadyMode   │
-│pipe-  ││zer/   ││ing/     │     │  Dialer      │
-│line/  ││       ││(batch)  │     │  (External)  │
-└───┬───┘└───┬───┘└────┬────┘     └──────────────┘
-    │        │         │
-    ▼        ▼         ▼
-┌─────────────────────────────────────────┐
-│           External Services             │
-│  ┌───────────┐  ┌───────┐  ┌─────────┐ │
-│  │AssemblyAI │  │ Groq  │  │ Railway │ │
-│  │(Transcr.) │  │(LLM)  │  │(Postgre)│ │
-│  └───────────┘  └───────┘  └─────────┘ │
-└─────────────────────────────────────────┘
-```
+### 🎓 Phrase Learning System
+*   **Auto-Learning**: The system automatically identifies new successful rebuttals from high-performing agents.
+*   **Quality Tiers**: Phrases are scored and categorized into tiers (Premium, Standard, Lite) for precise detection.
 
 ---
 
-## 3-Layer Rebuttal Detection
+## 🛠️ Technology Stack
 
-```
-MP3 File → AssemblyAI Transcription
-                    │
-        ┌───────────▼────────────┐
-        │  Layer 1: Exact Match  │  confidence = 1.00 → STOP
-        │  2,000+ phrase library │  (saves ~40 seconds)
-        └───────────┬────────────┘
-                    │ no match
-        ┌───────────▼────────────┐
-        │  Layer 2: Semantic     │  confidence > 0.7 → STOP
-        │  Sentence Transformers │  (~2–5 seconds)
-        └───────────┬────────────┘
-                    │ confidence ≤ 0.7
-        ┌───────────▼────────────┐
-        │  Layer 3: LLM          │  Groq / Llama 3.1
-        │  20 rebuttal strategies│  edge cases only
-        └────────────────────────┘
-```
-
-**Result:** 80% early-exit rate. Only ~20% of calls reach Layer 3 (LLM).  
-**Cost:** $2–3 per 1,000 calls vs $15–20 naive approach.  
-**Speed:** 2,500 calls in ~2.5 hours vs 12.5 hours without optimization.
+| Component | Technology |
+| :--- | :--- |
+| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Geist/Stitch Design |
+| **Backend** | FastAPI, Python 3.11, Pydantic v2 |
+| **Database** | PostgreSQL (Primary), Redis (Caching/Jobs) |
+| **AI/ML** | AssemblyAI (Transcription), Sentence Transformers, Llama 3.1 (via Groq) |
+| **Automation** | Playwright (Chromium) |
+| **Infrastructure** | Docker, Celery (Background Tasks), Railway (Deployment) |
 
 ---
 
-## Audit Modes
+## 🚀 Quick Start
 
-| | Full Audit | Lite Audit |
-|--|-----------|------------|
-| **Approach** | Full transcription + 3-layer AI analysis | Fast keyword spotting + pattern matching |
-| **Speed** | ~200 calls in 3 minutes | ~1,000 calls in 8 minutes |
-| **Use Case** | Deep QA review, agent coaching | High-volume daily screening |
-
----
-
-## Quick Start (Docker)
+### 🐳 Using Docker (Recommended)
+The fastest way to get VOS running is with Docker Compose:
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/MOHAMEDVOS/vos-tool.git
-cd vos-tool
-
-# 2. Create environment file
-cp .env.example .env
-# Edit .env with your values
-
-# 3. Build and start all services
-docker-compose up --build
-
-# 4. Access the application
-# Frontend:    http://localhost:8501
-# Backend API: http://localhost:8000
-# API Docs:    http://localhost:8000/docs
+docker compose up --build
 ```
 
-📖 See [docs/guides/DOCKER_SETUP.md](docs/guides/DOCKER_SETUP.md) for full setup guide.
+Access the services:
+*   **Frontend**: `http://localhost:3000`
+*   **Backend API**: `http://localhost:8000`
+*   **API Documentation**: `http://localhost:8000/docs`
 
----
+### 💻 Local Development
 
-## Project Structure
-
+**1. Backend Setup**
+```bash
+python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+pip install -r requirements.txt
+uvicorn backend.main:app --reload
 ```
-vos-tool/
-├── app.py                      # Streamlit entry point
-├── config.py                   # Central configuration
-├── backend/                    # FastAPI REST API (port 8000)
-│   ├── api/                   # Auth, audio, dashboard, settings routes
-│   ├── core/                  # JWT, DB pool, security
-│   └── services/              # Business logic layer
-├── frontend/                   # Streamlit UI components
-│   ├── app_ai/auth/           # Login, session validation
-│   └── app_ai/ui/             # Audit, dashboard, phrase management
-├── analyzer/                   # AI analysis engine
-│   ├── rebuttal_detection.py  # 3-layer detection + 2,000+ phrase library
-│   └── llm_rebuttal_evaluator.py  # Groq LLM (20 rebuttal strategies)
-├── audio_pipeline/            # Audio processing (load, split, detect, transcribe)
-├── processing/                # Batch processing engine
-├── lib/                       # Core business logic (28 modules)
-├── automation/                # ReadyMode Playwright downloader
-├── models/                    # ML model management (Sentence Transformers)
-└── docs/                      # Architecture, guides, fixes
+
+**2. Frontend Setup**
+```bash
+cd webapp
+npm install
+npm run dev
 ```
 
 ---
 
-## User Roles
+## 📂 Project Structure
 
-| Feature | Owner | Admin | User |
-|---------|:-----:|:-----:|:----:|
-| User management | ✅ Full | ✅ Limited | ❌ |
-| Phrase management | ✅ | ❌ | ❌ |
-| System health | ✅ | ❌ | ❌ |
-| Quotas & limits | ✅ | ✅ | ❌ |
-| Audit & dashboard | ✅ | ✅ | ✅ |
-
----
-
-## API Endpoints
-
-| Endpoint | Description |
-|----------|-------------|
-| `POST /api/auth/login` | Authenticate, returns JWT + session ID |
-| `GET /api/auth/me` | Current user info |
-| `POST /api/audio/upload` | Upload and process audio file |
-| `GET /api/audio/status/{job_id}` | Background job status |
-| `GET /api/dashboard/audits/agent` | Agent audit results |
-| `GET /api/dashboard/audits/campaign` | Campaign audit results |
-| `GET /api/settings` | App settings CRUD |
-| `POST /api/readymode/download-calls` | Trigger ReadyMode download |
-| `GET /api/health/database` | DB connection pool health |
-
-Interactive docs: `http://localhost:8000/docs`
+```text
+backend/          # FastAPI routers, auth, services, and Pydantic models
+webapp/           # Modern React frontend (Vite + Tailwind)
+lib/              # Core business logic: Quota, User, and Session Managers
+analyzer/         # The 3-layer Rebuttal Detection engine
+audio_pipeline/   # Transcription and audio processing workflows
+automation/       # Playwright scripts for ReadyMode integration
+migrations/       # Database schema and migration scripts
+docs/             # Technical documentation and architecture diagrams
+```
 
 ---
 
-## External Services
-
-| Service | Purpose |
-|---------|---------|
-| **AssemblyAI** | Speech-to-text transcription |
-| **Groq / Llama 3.1** | LLM rebuttal evaluation (Layer 3 fallback) |
-| **Railway PostgreSQL** | Database hosting |
-| **Sentence Transformers** | Semantic similarity (all-MiniLM-L6-v2) |
-| **ReadyMode** | Call center dialer (8 instances) |
+## 📝 Configuration
+Copy `.env.example` to `.env` and configure your API keys:
+*   `ASSEMBLYAI_API_KEY`: For call transcription.
+*   `GROQ_API_KEY`: For LLM-powered semantic analysis.
+*   `DATABASE_URL`: PostgreSQL connection string.
+*   `GOOGLE_CLIENT_ID`: For OAuth authentication.
 
 ---
 
-## Deployment (Railway)
-
-5 services on Railway:
-
-| Service | Port | Description |
-|---------|------|-------------|
-| Frontend | 8501 | Streamlit app |
-| Backend | 8000 | FastAPI API |
-| PostgreSQL | 5432 | Database |
-| Redis | 6379 | Celery broker |
-| Celery Worker | — | Background batch jobs |
+## ⚠️ Legacy Notice
+The legacy Streamlit-based interface (`app.py`) has been sunset and is no longer maintained. Please use the modern React dashboard for all operations.
 
 ---
-
-## Documentation
-
-| Doc | Description |
-|-----|-------------|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Full architecture reference |
-| [docs/DETECTION_WORKFLOW.md](docs/DETECTION_WORKFLOW.md) | 3-layer detection explained |
-| [docs/guides/DOCKER_SETUP.md](docs/guides/DOCKER_SETUP.md) | Docker setup guide |
-| [docs/guides/RAILWAY_DEPLOYMENT.md](docs/guides/RAILWAY_DEPLOYMENT.md) | Railway deployment guide |
-
----
-
-## License
-
-Proprietary Software — All rights reserved.
+**VOS** — *Transforming voice data into operational intelligence.*
