@@ -47,6 +47,10 @@ def generate_campaign_report(
     if not template_id:
         raise ValueError("GOOGLE_DOC_TEMPLATE_ID is not configured")
 
+    folder_id = settings.GOOGLE_REPORT_DRIVE_FOLDER_ID
+    if not folder_id:
+        raise ValueError("GOOGLE_REPORT_DRIVE_FOLDER_ID is not configured")
+
     # --- Load service account credentials ---
     creds = get_service_account_credentials()
     drive = build_drive(creds)
@@ -62,7 +66,7 @@ def generate_campaign_report(
 
     # --- Create Sheet ---
     logger.info(f"Creating Sheet for campaign '{campaign_name}' ({len(rows)} rows)")
-    sheet_id, sheet_url = create_spreadsheet(drive, sheets_svc, name=campaign_name, rows=rows)
+    sheet_id, sheet_url = create_spreadsheet(drive, sheets_svc, name=campaign_name, rows=rows, folder_id=folder_id)
 
     # --- Build placeholder mapping ---
     mapping = build_doc_field_mapping(
@@ -76,7 +80,7 @@ def generate_campaign_report(
     # --- Copy & fill Doc ---
     logger.info(f"Copying Doc template for campaign '{campaign_name}'")
     doc_name = f"{campaign_name} – performance report"
-    doc_id = copy_template_doc(drive, template_id, doc_name)
+    doc_id = copy_template_doc(drive, template_id, doc_name, folder_id=folder_id)
     replace_doc_placeholders(docs_svc, doc_id, mapping)
 
     # --- Share both files with the logged-in user ---

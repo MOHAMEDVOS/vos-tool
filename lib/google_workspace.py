@@ -47,13 +47,14 @@ def share_file_with_user(drive, file_id: str, email: str) -> None:
         fileId=file_id,
         body={"type": "user", "role": "writer", "emailAddress": email},
         sendNotificationEmail=False,
+        supportsAllDrives=True,
     ).execute()
 
 
-def copy_template_doc(drive, template_id: str, new_name: str) -> str:
+def copy_template_doc(drive, template_id: str, new_name: str, folder_id: str) -> str:
     """Copy the template Doc and rename it. Returns new doc_id."""
-    body = {"name": new_name}
-    result = drive.files().copy(fileId=template_id, body=body).execute()
+    body = {"name": new_name, "parents": [folder_id]}
+    result = drive.files().copy(fileId=template_id, body=body, supportsAllDrives=True).execute()
     return result["id"]
 
 
@@ -62,10 +63,11 @@ def create_spreadsheet(
     sheets,
     name: str,
     rows: List[Dict[str, Any]],
+    folder_id: str,
 ) -> Tuple[str, str]:
     """
-    Create a new Google Sheet via Drive API (works with service accounts),
-    write header + data rows. Returns (sheet_id, sheet_url).
+    Create a new Google Sheet inside the specified Shared Drive folder.
+    Returns (sheet_id, sheet_url).
     """
     columns = [
         "Agent Name", "Phone Number", "Disposition",
@@ -77,15 +79,16 @@ def create_spreadsheet(
     header = [columns]
     data = [[str(r.get(col, "")) for col in columns] for r in rows]
 
-    # Create the spreadsheet file via Drive API
-    file_meta = {
+    # Create the spreadsheet file via Drive API to specify the parent folder
+    body = {
         "name": f"{name} – audit data",
         "mimeType": "application/vnd.google-apps.spreadsheet",
+        "parents": [folder_id]
     }
-    sheet_file = drive.files().create(body=file_meta, fields="id").execute()
-    sheet_id = sheet_file["id"]
+    spreadsheet = drive.files().create(body=body, supportsAllDrives=True).execute()
+    sheet_id = spreadsheet["id"]
 
-    # Write data via Sheets API
+    # Write data
     sheets.spreadsheets().values().update(
         spreadsheetId=sheet_id,
         range="Sheet1!A1",
