@@ -246,7 +246,9 @@ def style_report_doc(docs, doc_id: str, sheet_url: str, sheet_name: str) -> None
 
         start = element.get("startIndex", 0)
         end   = element.get("endIndex", 0)
-        if end <= start:
+        # end - 1 is the content range (excludes trailing newline);
+        # skip if that range would be empty (blank / newline-only paragraphs)
+        if end - 1 <= start:
             continue
 
         # Collect plain text of paragraph
