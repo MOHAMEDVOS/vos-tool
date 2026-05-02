@@ -29,7 +29,7 @@ function useCountUp(target: number | string, inView: boolean) {
       const progress = Math.min(elapsed / duration, 1)
       /* ease-out-expo */
       const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress)
-      const current = Math.round(from + (target - from) * eased)
+      const current = Math.round(from + (Number(target) - from) * eased)
       setDisplay(current)
       if (progress < 1) rafRef.current = requestAnimationFrame(tick)
     }

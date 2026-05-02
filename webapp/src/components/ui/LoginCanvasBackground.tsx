@@ -92,6 +92,7 @@ export function LoginCanvasBackground() {
     }
 
     function draw() {
+      if (!ctx) return
       ctx.clearRect(0, 0, w, h)
 
       /* ── Update nodes ── */

@@ -506,7 +506,7 @@ function ManageUsers() {
                     <Badge role={u.role}>{u.role}</Badge>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="text-t-primary font-mono text-[10px]">{u.daily_limit >= 999999 ? '∞' : u.daily_limit?.toLocaleString() ?? '5,000'}</span>
+                    <span className="text-t-primary font-mono text-[10px]">{(u.daily_limit ?? 0) >= 999999 ? '∞' : u.daily_limit?.toLocaleString() ?? '5,000'}</span>
                   </td>
                   <td className="px-6 py-4 text-right">
                     {u.role === 'Owner' ? (
