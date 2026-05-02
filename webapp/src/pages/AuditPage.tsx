@@ -139,8 +139,8 @@ function MultiSelectDropdown({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 5, scale: 0.98 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            style={{ backgroundColor: 'var(--c-dropdown)', borderColor: 'var(--b-medium)' }}
-            className="absolute z-50 mt-1 w-full rounded-lg shadow-2xl border p-1.5 flex flex-col gap-1"
+            style={{ backgroundColor: 'var(--c-dropdown, #1e1e1e)', borderColor: 'var(--b-medium)', opacity: 1 }}
+            className="absolute z-50 mt-1 w-full min-w-[280px] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.6)] border-2 p-2 flex flex-col gap-0.5"
           >
             <div className="px-1 pt-1 pb-2" style={{ borderBottom: '1px solid var(--b-divider)' }}>
               <input
@@ -154,11 +154,11 @@ function MultiSelectDropdown({
               />
             </div>
 
-            <div className="max-h-64 overflow-y-auto custom-scrollbar flex flex-col gap-1">
+            <div className="max-h-72 overflow-y-auto custom-scrollbar flex flex-col gap-0.5 py-1">
               {/* Select all */}
               <label
                 style={{ color: 'var(--t-primary)' }}
-                className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-semibold hover:bg-c-raised transition-colors select-none"
+                className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-c-raised transition-colors select-none"
               >
                 <div
                   style={{
@@ -188,9 +188,9 @@ function MultiSelectDropdown({
                       key={opt}
                       style={{
                         color: isChecked ? 'var(--t-primary)' : 'var(--t-label)',
-                        backgroundColor: isChecked ? 'var(--active-overlay)' : undefined,
+                        backgroundColor: isChecked ? 'rgba(255,255,255,0.06)' : undefined,
                       }}
-                      className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-c-raised transition-colors select-none"
+                      className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm hover:bg-c-raised transition-colors select-none"
                     >
                       <div
                         style={{
