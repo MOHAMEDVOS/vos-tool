@@ -17,7 +17,7 @@ import { useGenerateCampaignReport } from '@/hooks/useReports'
 export function CampaignAuditDashboard() {
   const qc = useQueryClient()
   const [showConfirm, setShowConfirm] = useState(false)
-  const [reportLinks, setReportLinks] = useState<{ sheet_url: string; doc_url: string } | null>(null)
+  const [reportLinks, setReportLinks] = useState<{ sheet_url: string } | null>(null)
   const [reportError, setReportError] = useState<string | null>(null)
   const { data: campaigns, isLoading: loadingCampaigns } = useCampaigns()
   const [selected, setSelected] = useState<string>('')
@@ -131,7 +131,6 @@ export function CampaignAuditDashboard() {
                     end_date: endDate || undefined,
                   })
                   setReportLinks(result)
-                  window.open(result.doc_url, '_blank')
                 } catch (err) {
                   setReportError(err instanceof Error ? err.message : 'Report generation failed')
                 }
@@ -144,24 +143,14 @@ export function CampaignAuditDashboard() {
             <SuccessFlash show={generateReport.isSuccess} label="Report ready" />
 
             {reportLinks && (
-              <div className="flex gap-3 text-xs">
-                <a
-                  href={reportLinks.doc_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
-                >
-                  Open Doc
-                </a>
-                <a
-                  href={reportLinks.sheet_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
-                >
-                  Open Sheet
-                </a>
-              </div>
+              <a
+                href={reportLinks.sheet_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              >
+                Open Sheet
+              </a>
             )}
 
             {reportError && (
