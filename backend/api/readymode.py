@@ -353,6 +353,7 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                     user_api_key=user_api_key,
                 )
                 if not df.empty:
+                    df["Audit Type"] = "Lite Audit"
                     if is_campaign:
                         dashboard_manager.save_campaign_audit_results(
                             df, request.campaign_name.strip(), current_user["username"]
@@ -369,6 +370,7 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                     user_api_key=user_api_key,
                 )
                 if not df.empty:
+                    df["Audit Type"] = "Heavy Audit"
                     if is_campaign:
                         dashboard_manager.save_campaign_audit_results(
                             df, request.campaign_name.strip(), current_user["username"]
