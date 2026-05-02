@@ -65,12 +65,17 @@ function MultiSelectDropdown({
 }) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
+  const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({})
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const ref = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      if (
+        ref.current && !ref.current.contains(e.target as Node) &&
+        triggerRef.current && !triggerRef.current.contains(e.target as Node)
+      ) setOpen(false)
     }
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
@@ -80,6 +85,16 @@ function MultiSelectDropdown({
     if (open) {
       setSearch('')
       setTimeout(() => inputRef.current?.focus(), 100)
+      if (triggerRef.current) {
+        const rect = triggerRef.current.getBoundingClientRect()
+        setDropdownStyle({
+          position: 'fixed',
+          top: rect.bottom + 6,
+          left: rect.left,
+          width: Math.max(rect.width, 300),
+          zIndex: 9999,
+        })
+      }
     }
   }, [open])
 
@@ -93,8 +108,9 @@ function MultiSelectDropdown({
   const filteredOptions = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()))
 
   return (
-    <div ref={ref} className="relative w-full">
+    <div className="relative w-full">
       <motion.button
+        ref={triggerRef}
         whileTap={{ scale: 0.995 }}
         type="button"
         disabled={disabled}
@@ -135,12 +151,17 @@ function MultiSelectDropdown({
       <AnimatePresence>
         {open && (
           <motion.div
+            ref={ref}
             initial={{ opacity: 0, y: 5, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 5, scale: 0.98 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            style={{ backgroundColor: 'var(--c-dropdown, #1e1e1e)', borderColor: 'var(--b-medium)', opacity: 1 }}
-            className="absolute z-50 mt-1 w-full min-w-[280px] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.6)] border-2 p-2 flex flex-col gap-0.5"
+            style={{
+              ...dropdownStyle,
+              backgroundColor: '#1e1e1e',
+              borderColor: 'var(--b-medium)',
+            }}
+            className="rounded-xl shadow-[0_8px_40px_rgba(0,0,0,0.8)] border-2 p-2 flex flex-col gap-0.5"
           >
             <div className="px-1 pt-1 pb-2" style={{ borderBottom: '1px solid var(--b-divider)' }}>
               <input
