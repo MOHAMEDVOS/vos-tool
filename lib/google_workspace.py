@@ -306,7 +306,7 @@ def style_report_doc(docs, doc_id: str, sheet_url: str, sheet_name: str) -> None
         for el in para.get("elements", []):
             tr = el.get("textRun", {})
             content_text = tr.get("content", "")
-            if sheet_url in content_text:
+            if "SHEET_LINK_PLACEHOLDER" in content_text:
                 el_start = el.get("startIndex", 0)
                 el_end   = el.get("endIndex", 0)
                 chip_requests.append({
