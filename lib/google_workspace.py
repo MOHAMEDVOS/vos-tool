@@ -353,18 +353,19 @@ def create_campaign_doc(
                              bg_cell_rgb: Tuple = None,
                              font_size: int = 10):
         idx = cell_start(r_idx, c_idx)
-        fmt_requests.append({"insertText": {"location": {"index": idx}, "text": text}})
-        end_idx = idx + len(text)
-        tf: Dict = {"bold": bold, "fontSize": {"magnitude": font_size, "unit": "PT"}}
-        if fg_rgb:
-            tf["foregroundColor"] = {"color": {"rgbColor": {"red": fg_rgb[0], "green": fg_rgb[1], "blue": fg_rgb[2]}}}
-        fmt_requests.append({
-            "updateTextStyle": {
-                "range": {"startIndex": idx, "endIndex": end_idx},
-                "textStyle": tf,
-                "fields": "bold,fontSize,foregroundColor",
-            }
-        })
+        if text:  # Docs API rejects insertText with empty string
+            fmt_requests.append({"insertText": {"location": {"index": idx}, "text": text}})
+            end_idx = idx + len(text)
+            tf: Dict = {"bold": bold, "fontSize": {"magnitude": font_size, "unit": "PT"}}
+            if fg_rgb:
+                tf["foregroundColor"] = {"color": {"rgbColor": {"red": fg_rgb[0], "green": fg_rgb[1], "blue": fg_rgb[2]}}}
+            fmt_requests.append({
+                "updateTextStyle": {
+                    "range": {"startIndex": idx, "endIndex": end_idx},
+                    "textStyle": tf,
+                    "fields": "bold,fontSize,foregroundColor",
+                }
+            })
         if bg_cell_rgb:
             set_cell_bg(r_idx, c_idx, *bg_cell_rgb)
 
