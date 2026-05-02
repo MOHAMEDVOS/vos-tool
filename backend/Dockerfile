@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
+# Cache-bust: change this value to force Railway to reinstall all Python deps
+ARG PIP_CACHEBUST=2026-05-02-001
+
 # Copy requirements and install Python dependencies
 COPY requirements-backend.txt /app/requirements-backend.txt
 
