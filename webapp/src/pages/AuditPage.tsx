@@ -139,8 +139,8 @@ function MultiSelectDropdown({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 5, scale: 0.98 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            style={{ backgroundColor: 'var(--c-float)', borderColor: 'var(--b-medium)' }}
-            className="absolute z-50 mt-1 w-full rounded-lg shadow-2xl border backdrop-blur-xl p-1.5 flex flex-col gap-1"
+            style={{ backgroundColor: 'var(--c-dropdown)', borderColor: 'var(--b-medium)' }}
+            className="absolute z-50 mt-1 w-full rounded-lg shadow-2xl border p-1.5 flex flex-col gap-1"
           >
             <div className="px-1 pt-1 pb-2" style={{ borderBottom: '1px solid var(--b-divider)' }}>
               <input
@@ -161,11 +161,18 @@ function MultiSelectDropdown({
                 className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-semibold hover:bg-c-raised transition-colors select-none"
               >
                 <div
-                  style={{ borderColor: 'var(--b-strong)', backgroundColor: 'var(--c-raised)' }}
-                  className="relative flex h-4 w-4 items-center justify-center rounded border transition-all"
+                  style={{
+                    borderColor: allSelected ? 'var(--selected-check)' : 'var(--b-strong)',
+                    backgroundColor: allSelected ? 'var(--selected-check)' : 'var(--c-raised)',
+                  }}
+                  className="relative flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-all"
                 >
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="peer absolute h-full w-full opacity-0 cursor-pointer" />
-                  <div style={{ backgroundColor: 'var(--selected-check)' }} className={`h-2 w-2 rounded-sm transition-transform ${allSelected ? 'scale-100' : 'scale-0'}`} />
+                  {allSelected && (
+                    <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                      <path d="M1 3.5L3.5 6L8 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
                 </div>
                 Select all
               </label>
@@ -174,22 +181,35 @@ function MultiSelectDropdown({
               {filteredOptions.length === 0 ? (
                 <div className="px-2.5 py-3 text-xs text-center" style={{ color: 'var(--t-muted)' }}>No matches found</div>
               ) : (
-                filteredOptions.map((opt) => (
-                  <label
-                    key={opt}
-                    style={{ color: 'var(--t-label)' }}
-                    className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-c-raised transition-colors select-none"
-                  >
-                    <div
-                      style={{ borderColor: 'var(--b-strong)', backgroundColor: 'var(--c-raised)' }}
-                      className="relative flex h-4 w-4 items-center justify-center rounded border transition-all"
+                filteredOptions.map((opt) => {
+                  const isChecked = selected.includes(opt)
+                  return (
+                    <label
+                      key={opt}
+                      style={{
+                        color: isChecked ? 'var(--t-primary)' : 'var(--t-label)',
+                        backgroundColor: isChecked ? 'var(--active-overlay)' : undefined,
+                      }}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-2 text-sm hover:bg-c-raised transition-colors select-none"
                     >
-                      <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} className="peer absolute h-full w-full opacity-0 cursor-pointer" />
-                      <div style={{ backgroundColor: 'var(--selected-check)' }} className={`h-2 w-2 rounded-sm transition-transform ${selected.includes(opt) ? 'scale-100' : 'scale-0'}`} />
-                    </div>
-                    {opt}
-                  </label>
-                ))
+                      <div
+                        style={{
+                          borderColor: isChecked ? 'var(--selected-check)' : 'var(--b-strong)',
+                          backgroundColor: isChecked ? 'var(--selected-check)' : 'var(--c-raised)',
+                        }}
+                        className="relative flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-all"
+                      >
+                        <input type="checkbox" checked={isChecked} onChange={() => toggle(opt)} className="peer absolute h-full w-full opacity-0 cursor-pointer" />
+                        {isChecked && (
+                          <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                            <path d="M1 3.5L3.5 6L8 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
+                      {opt}
+                    </label>
+                  )
+                })
               )}
             </div>
           </motion.div>
@@ -624,7 +644,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const token = useAuthStore((s) => s.token)
   const [dialerUrl, setDialerUrl] = useState('https://resva.readymode.com/')
   const [identifier, setIdentifier] = useState(mode === 'agent' ? 'All users' : '')
-  const [maxCalls, setMaxCalls] = useState(50)
+  const [maxCalls, setMaxCalls] = useState(500)
   const [startDate, setStartDate] = useState(todayISO())
   const [endDate, setEndDate] = useState(todayISO())
   const [dispositions, setDispositions] = useState<string[]>([])

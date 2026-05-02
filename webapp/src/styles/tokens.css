@@ -70,6 +70,8 @@
   --active-overlay: rgba(0, 0, 0, 0.06);
   --selected-bg:    var(--accent-muted);
   --selected-text:  var(--accent-text);
+  --selected-check: var(--accent);
+  --c-dropdown:     #ffffff;
 
   /* ── Buttons ── */
   --btn-primary-bg:     var(--accent);
@@ -118,6 +120,7 @@
   --c-deep:    #f4f6f9;
   --c-float:   #ffffff;
   --c-raised:  #f0f2f5;
+  --c-calendar: #ffffff;
 
   --surface-strong: #e8ebf0;
 
@@ -181,6 +184,8 @@
   --active-overlay: rgba(255, 255, 255, 0.08);
   --selected-bg:    rgba(255, 255, 255, 0.08);
   --selected-text:  #ededed;
+  --selected-check: var(--accent);
+  --c-dropdown:     #1e1e1e;
 
   --btn-primary-bg:     var(--accent);
   --btn-primary-text:   #ffffff;
@@ -228,6 +233,7 @@
   --c-deep:    #0a0a0a;
   --c-float:   #161616;
   --c-raised:  #1a1a1a;
+  --c-calendar: #1c1c1c;
 
   --surface-strong: #1a1a1a;
 }

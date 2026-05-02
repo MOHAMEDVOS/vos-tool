@@ -1,8 +1,8 @@
-import React, { forwardRef } from 'react'
-import { motion } from 'framer-motion'
+import React, { forwardRef, useState } from 'react'
+import { motion, useAnimationControls } from 'framer-motion'
 
 interface Props extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'action'
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'action' | 'destroy'
   size?: 'sm' | 'md'
 }
 
@@ -48,6 +48,12 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
         'bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)] ' +
         'font-black uppercase tracking-[0.2em] ' +
         'hover:bg-[var(--btn-heavy-hover)] shadow-xl',
+
+      destroy:
+        'bg-[#c0392b] text-white ' +
+        'font-black uppercase tracking-[0.2em] rounded-full ' +
+        'hover:bg-[#e74c3c] shadow-[0_4px_20px_rgba(192,57,43,0.45)] ' +
+        'hover:shadow-[0_4px_28px_rgba(231,76,60,0.6)] transition-shadow',
     }
 
     const sizes = {
@@ -79,3 +85,56 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
   },
 )
 Button.displayName = 'Button'
+
+/* Animated delete button — shakes on hover, explodes on click */
+interface DestroyButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  size?: 'sm' | 'md'
+}
+
+export function DestroyButton({ children, onClick, disabled, size = 'md', className = '', ...rest }: DestroyButtonProps) {
+  const controls = useAnimationControls()
+  const [clicking, setClicking] = useState(false)
+
+  const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (disabled || clicking) return
+    setClicking(true)
+    await controls.start({
+      x: [0, -6, 6, -5, 5, -3, 3, 0],
+      transition: { duration: 0.35, ease: 'easeInOut' },
+    })
+    await controls.start({
+      scale: [1, 1.08, 0],
+      opacity: [1, 1, 0],
+      transition: { duration: 0.28, ease: 'easeIn' },
+    })
+    onClick?.(e)
+    await controls.start({ scale: 1, opacity: 1, x: 0, transition: { duration: 0 } })
+    setClicking(false)
+  }
+
+  const sizeClass = size === 'sm' ? 'px-3 py-1.5 text-[10px]' : 'px-4 py-2 text-[10px]'
+
+  return (
+    <motion.button
+      animate={controls}
+      whileHover={disabled ? undefined : { scale: 1.03 }}
+      disabled={disabled}
+      onClick={handleClick}
+      className={[
+        'inline-flex items-center justify-center gap-1.5',
+        'font-black uppercase tracking-[0.2em] rounded-full cursor-pointer select-none',
+        'bg-[#c0392b] text-white',
+        'shadow-[0_4px_20px_rgba(192,57,43,0.45)]',
+        'hover:bg-[#e74c3c] hover:shadow-[0_4px_28px_rgba(231,76,60,0.6)]',
+        'transition-colors duration-150',
+        'disabled:opacity-40 disabled:pointer-events-none',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e74c3c] focus-visible:ring-offset-2',
+        sizeClass,
+        className,
+      ].join(' ')}
+      {...(rest as any)}
+    >
+      {children}
+    </motion.button>
+  )
+}

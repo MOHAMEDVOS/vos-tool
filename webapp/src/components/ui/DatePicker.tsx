@@ -103,7 +103,7 @@ export function CustomDatePicker({ value, onChange, disabled, label, className =
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
               style={{ backgroundColor: 'var(--c-calendar)', borderColor: 'var(--b-medium)' }}
-              className="absolute z-[60] mt-2 w-[280px] rounded-[24px] border shadow-2xl p-5 backdrop-blur-2xl right-0 md:left-0"
+              className="absolute z-[60] mt-2 w-[280px] rounded-[24px] border shadow-2xl p-5 right-0 md:left-0"
             >
               {/* Header */}
               <div className="flex items-center justify-between mb-4">

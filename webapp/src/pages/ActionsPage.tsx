@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useFlaggedCalls, useAgentAudits, useLiteAudits } from '@/hooks/useDashboard'
 import { useBadgeStore } from '@/store/badgeStore'
-import { Button } from '@/components/ui/Button'
+import { Button, DestroyButton } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import type { FlaggedCall } from '@/types/api'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
@@ -247,25 +247,23 @@ export function ActionsPage() {
             <AgentDeductionsTable rows={agentDeductions} />
             <div className="flex justify-end relative mt-1">
               {!showConfirm ? (
-                <Button size="sm" variant="action" onClick={() => setShowConfirm(true)}>Clear All Data</Button>
+                <DestroyButton size="sm" onClick={() => setShowConfirm(true)}>Clear All Data</DestroyButton>
               ) : (
-                <div className="rounded-xl border border-b-strong bg-c-base p-6 max-w-lg shadow-2xl backdrop-blur-xl absolute bottom-0 right-0 z-[60] mb-12">
+                <div className="rounded-xl border border-b-strong bg-c-base p-6 max-w-lg shadow-2xl absolute bottom-0 right-0 z-[60] mb-12">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-1 h-6 bg-semantic-error rounded-full" />
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-semantic-error">Confirm Deletion</h3>
+                    <div className="w-1 h-6 bg-[#c0392b] rounded-full" />
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#e74c3c]">Confirm Deletion</h3>
                   </div>
                   <p className="mb-6 text-xs text-t-primary leading-relaxed font-medium">
-                    This action will permanently delete all your audit data (agent and lite). This cannot be undone.
+                    Permanently delete all your audit data (agent and lite). This cannot be undone.
                   </p>
                   <div className="flex justify-start gap-3">
-                    <Button 
-                      variant="action"
-                      className="text-semantic-error"
-                      onClick={() => clearData.mutate()} 
+                    <DestroyButton
+                      onClick={() => clearData.mutate()}
                       disabled={clearData.isPending}
                     >
                       {clearData.isPending ? 'Clearing...' : 'Permanently Delete'}
-                    </Button>
+                    </DestroyButton>
                     <Button variant="action" onClick={() => setShowConfirm(false)}>
                       Cancel
                     </Button>
