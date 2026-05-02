@@ -303,11 +303,13 @@ def create_campaign_doc(
     # Re-fetch doc to get actual table cell indices
     doc = docs.documents().get(documentId=doc_id).execute()
 
-    # Find the table element
+    # Find the table element — startIndex lives on the content elem, not elem["table"]
     table_elem = None
+    table_start_index = None
     for elem in doc.get("body", {}).get("content", []):
         if "table" in elem:
             table_elem = elem["table"]
+            table_start_index = elem["startIndex"]
             break
 
     if not table_elem:
@@ -331,7 +333,7 @@ def create_campaign_doc(
             "updateTableCellStyle": {
                 "tableRange": {
                     "tableCellLocation": {
-                        "tableStartLocation": {"index": table_elem["startIndex"]},
+                        "tableStartLocation": {"index": table_start_index},
                         "rowIndex": r_idx,
                         "columnIndex": c_idx,
                     },
