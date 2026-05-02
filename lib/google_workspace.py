@@ -188,6 +188,27 @@ def create_spreadsheet(
                 }
             })
 
+    # 4. Clip text (no wrap) for all data cells so transcription doesn't expand rows
+    fmt_requests.append({
+        "repeatCell": {
+            "range": {"sheetId": 0, "startRowIndex": 1,
+                      "startColumnIndex": 0, "endColumnIndex": len(columns)},
+            "cell": {"userEnteredFormat": {"wrapStrategy": "CLIP"}},
+            "fields": "userEnteredFormat.wrapStrategy",
+        }
+    })
+
+    # 5. Set Transcription column width to 200px, others to auto-fit via pixelSize
+    transcription_col = col_index["Transcription"]
+    fmt_requests.append({
+        "updateDimensionProperties": {
+            "range": {"sheetId": 0, "dimension": "COLUMNS",
+                      "startIndex": transcription_col, "endIndex": transcription_col + 1},
+            "properties": {"pixelSize": 200},
+            "fields": "pixelSize",
+        }
+    })
+
     if fmt_requests:
         sheets.spreadsheets().batchUpdate(
             spreadsheetId=sheet_id,
