@@ -75,11 +75,12 @@ def generate_campaign_report(
     rows = []
     for r in raw_rows:
         audit_type = r.get('Audit Type') or r.get('audit_type')
-        if audit_type in ('Lite Audit', 'Lite'):
+        if audit_type in ('Heavy Audit', 'Heavy', 'Agent Audit'):
+            rows.append(r)
+        else:
+            # Lite Audit, unknown, or missing type → only include if flagged
             if is_flagged(r):
                 rows.append(r)
-        else:
-            rows.append(r)
 
     if not rows:
         raise ValueError(f"No flagged audit data found for campaign '{campaign_name}'")
