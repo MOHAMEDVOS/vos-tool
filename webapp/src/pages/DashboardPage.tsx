@@ -6,6 +6,7 @@ import { Tabs } from '@/components/ui/Tabs'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { SuccessFlash } from '@/components/ui/SuccessFlash'
 import { AgentAuditDashboard } from '@/features/dashboard/AgentAuditDashboard'
 import { LiteAuditDashboard } from '@/features/dashboard/LiteAuditDashboard'
 import { CampaignAuditDashboard } from '@/features/dashboard/CampaignAuditDashboard'
@@ -100,7 +101,8 @@ export function DashboardPage() {
                     placeholder="Enter new key or leave blank to clear"
                   />
                 </div>
-                <div className="flex gap-3">
+                <div className="flex items-center gap-3">
+                  <SuccessFlash show={updateKey.isSuccess} label="Key Saved" />
                   <Button onClick={() => updateKey.mutate()} disabled={!assemblyKey.trim() || updateKey.isPending}>Save key</Button>
                   {keyStatus.data?.has_key && (
                     <Button variant="danger" onClick={() => clearKey.mutate()} disabled={clearKey.isPending}>Clear key</Button>

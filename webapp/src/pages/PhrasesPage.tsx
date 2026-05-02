@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input'
 import { Metric } from '@/components/ui/Metric'
 import { Spinner } from '@/components/ui/Spinner'
 import { Tabs } from '@/components/ui/Tabs'
+import { SuccessFlash } from '@/components/ui/SuccessFlash'
 
 type Tab = 'pending' | 'repository' | 'settings'
 
@@ -66,9 +67,12 @@ function PendingReview() {
     <div className="flex flex-col gap-4">
       <div className="flex justify-between gap-4">
         <p className="text-sm text-vos-500">{data?.length ?? 0} phrases waiting for review</p>
-        <Button size="sm" onClick={() => approveAll.mutate()} disabled={!data?.length || approveAll.isPending}>
-          <Check size={14} /> Approve All
-        </Button>
+        <div className="flex items-center gap-3">
+          <SuccessFlash show={approveAll.isSuccess} label="All Approved" />
+          <Button size="sm" onClick={() => approveAll.mutate()} disabled={!data?.length || approveAll.isPending}>
+            <Check size={14} /> Approve All
+          </Button>
+        </div>
       </div>
 
       {(data ?? []).map((phrase) => (
@@ -80,7 +84,8 @@ function PendingReview() {
                 {phrase.category} آ· quality {phrase.quality_score ?? 'n/a'} آ· seen {phrase.detection_count ?? 0}أ—
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <SuccessFlash show={approve.isSuccess} label="Approved" />
               <Button size="sm" onClick={() => approve.mutate(phrase.id)} disabled={approve.isPending}>
                 <Check size={14} /> Approve
               </Button>
@@ -126,9 +131,12 @@ function Repository() {
       <Card className="flex flex-col gap-4">
         <Input label="Category" value={category} onChange={(e) => setCategory(e.target.value)} />
         <Input label="Single Phrase" value={phrase} onChange={(e) => setPhrase(e.target.value)} />
-        <Button onClick={() => add.mutate()} disabled={!phrase.trim() || !category.trim() || add.isPending}>
-          Add Phrase
-        </Button>
+        <div className="flex items-center gap-3">
+          <SuccessFlash show={add.isSuccess} label="Added" />
+          <Button className="flex-1" onClick={() => add.mutate()} disabled={!phrase.trim() || !category.trim() || add.isPending}>
+            Add Phrase
+          </Button>
+        </div>
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium uppercase tracking-wider text-vos-500">Bulk Phrases</span>
           <textarea
@@ -194,7 +202,10 @@ function LearningSettings() {
       <Input label="Confidence Threshold" type="number" step="0.01" min="0.5" max="1" value={confidence} onChange={(e) => setConfidence(e.target.value)} />
       <Input label="Frequency Threshold" type="number" min="1" value={frequency} onChange={(e) => setFrequency(e.target.value)} />
       <Input label="Auto Approve Threshold" type="number" step="0.01" min="0.8" max="1" value={autoApprove} onChange={(e) => setAutoApprove(e.target.value)} />
-      <Button onClick={() => update.mutate()} disabled={update.isPending}>Save Settings</Button>
+      <div className="flex items-center gap-3">
+        <SuccessFlash show={update.isSuccess} label="Saved" />
+        <Button onClick={() => update.mutate()} disabled={update.isPending}>Save Settings</Button>
+      </div>
     </Card>
   )
 }

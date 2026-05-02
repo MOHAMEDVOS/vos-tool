@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/Input'
 import { Metric } from '@/components/ui/Metric'
 import { Spinner } from '@/components/ui/Spinner'
 import { CustomSelect } from '@/components/ui/Select'
+import { SuccessFlash } from '@/components/ui/SuccessFlash'
 import type { AppConfigCategory } from '@/types/api'
 import { motion, AnimatePresence } from 'framer-motion'
 
@@ -277,14 +278,15 @@ function CreateUser() {
           <Input label="READYMODE PASSWORD" type="password" value={rmPassword} onChange={(e) => setRmPassword(e.target.value)} placeholder="Enter password" autoComplete="new-password" />
         </div>
 
-        <div className="flex justify-end mt-10">
-          <Button 
+        <div className="flex justify-end items-center gap-4 mt-10">
+          <SuccessFlash show={create.isSuccess} label="User Created" />
+          <Button
             variant="action"
-            className="px-12 py-4 bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)] hover:bg-[var(--btn-heavy-hover)]" 
-            onClick={() => create.mutate()} 
+            className="px-12 py-4"
+            onClick={() => create.mutate()}
             disabled={!username || create.isPending}
           >
-            Finalize Provisioning
+            {create.isPending ? 'Creating...' : 'Finalize Provisioning'}
           </Button>
         </div>
       </Card>
@@ -383,31 +385,23 @@ function EditUser() {
                     <Input label="READYMODE USER" value={rmUsername} onChange={(e) => setRmUsername(e.target.value)} placeholder="Update username" autoComplete="off" />
                     <div className="md:col-span-2"><Input label="READYMODE SECRET" type="password" value={rmPassword} onChange={(e) => setRmPassword(e.target.value)} placeholder="Enter password" autoComplete="new-password" /></div>
                   </div>
-                  <div className="pt-6 border-t border-b-subtle flex items-center justify-between">
-                    <div className="flex-1">
-                      {update.isSuccess && (
-                        <div className="flex items-center gap-3 text-semantic-success animate-in fade-in slide-in-from-left-4 duration-500">
-                          <div className="w-5 h-5 rounded-full bg-semantic-success/10 flex items-center justify-center">
-                            <Check size={10} className="stroke-[3]" />
-                          </div>
-                          <span className="text-[9px] font-black uppercase tracking-widest">Update Successful</span>
-                        </div>
-                      )}
+                  <div className="pt-6 border-t border-b-subtle flex items-center justify-between gap-4">
+                    <div className="flex-1 flex items-center gap-3">
+                      <SuccessFlash show={update.isSuccess} label="Changes Saved" />
                       {update.isError && (
                         <div className="flex items-center gap-3 text-ship-red animate-in fade-in slide-in-from-left-4 duration-500">
-                          <div className="w-5 h-5 rounded-full bg-ship-red/10 flex items-center justify-center">
-                            <AlertCircle size={10} className="stroke-[3]" />
-                          </div>
+                          <AlertCircle size={12} className="stroke-[3]" />
                           <span className="text-[9px] font-black uppercase tracking-widest">Update Failed</span>
                         </div>
                       )}
                     </div>
-                    <Button 
-                      className="bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)] hover:bg-[var(--btn-heavy-hover)] px-8 py-4 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] transition-all" 
-                      onClick={() => update.mutate()} 
+                    <Button
+                      variant="action"
+                      className="px-8 py-4"
+                      onClick={() => update.mutate()}
                       disabled={update.isPending}
                     >
-                      {update.isPending ? "Saving..." : update.isSuccess ? "Changes Committed" : "Commit Changes"}
+                      {update.isPending ? "Saving..." : "Commit Changes"}
                     </Button>
                   </div>
                 </Card>
@@ -725,24 +719,19 @@ function QuotaSettings() {
                   </div>
                 )}
               </div>
-              <Button 
-                className={`px-10 py-4 font-black uppercase tracking-[0.2em] text-[10px] rounded-xl shadow-2xl transition-all duration-300 ${
-                  setLimits.isSuccess ? 'bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)]' : 'bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)] hover:bg-[var(--btn-heavy-hover)]'
-                }`}
-                onClick={() => setLimits.mutate()} 
-                disabled={!adminUsername || setLimits.isPending}
-              >
-                {setLimits.isPending ? (
-                  <div className="flex items-center gap-2">
-                    <Spinner size="sm" />
-                    <span>Processing...</span>
-                  </div>
-                ) : setLimits.isSuccess ? (
-                  "Pool Initialized"
-                ) : (
-                  "Apply Pool Limits"
-                )}
-              </Button>
+              <div className="flex items-center gap-4">
+                <SuccessFlash show={setLimits.isSuccess} label="Pool Initialized" />
+                <Button
+                  variant="action"
+                  className="px-10 py-4"
+                  onClick={() => setLimits.mutate()}
+                  disabled={!adminUsername || setLimits.isPending}
+                >
+                  {setLimits.isPending ? (
+                    <div className="flex items-center gap-2"><Spinner size="sm" /><span>Processing...</span></div>
+                  ) : "Apply Pool Limits"}
+                </Button>
+              </div>
             </div>
           </Card>
         </div>
@@ -1328,9 +1317,12 @@ function AdminManageUsers() {
               >
                 <Trash2 size={13} /> Delete User
               </Button>
-              <Button className="px-8 py-3 font-black uppercase" onClick={() => update.mutate()} disabled={update.isPending}>
-                Save Changes
-              </Button>
+              <div className="flex items-center gap-3">
+                <SuccessFlash show={update.isSuccess} label="Saved" />
+                <Button variant="action" className="px-8 py-3" onClick={() => update.mutate()} disabled={update.isPending}>
+                  Save Changes
+                </Button>
+              </div>
             </div>
           </Card>
         )}
@@ -1412,13 +1404,17 @@ function AppConfig() {
         )}
 
         <div className="pt-6 border-t border-b-subtle flex flex-col gap-4">
-          <Button 
-            className="w-full py-5 text-[10px] font-black uppercase tracking-[0.3em] bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)] hover:bg-[var(--btn-heavy-hover)] shadow-2xl transition-all hover:scale-[1.01]" 
-            onClick={() => save.mutate()} 
-            disabled={save.isPending}
-          >
-            {save.isPending ? 'Deploying...' : 'Deploy Configurations'}
-          </Button>
+          <div className="flex flex-col items-center gap-3">
+            <Button
+              variant="action"
+              className="w-full py-5 tracking-[0.3em]"
+              onClick={() => save.mutate()}
+              disabled={save.isPending}
+            >
+              {save.isPending ? 'Deploying...' : 'Deploy Configurations'}
+            </Button>
+            <SuccessFlash show={save.isSuccess} label="Deployed" />
+          </div>
           <div className="flex items-center justify-center gap-2 opacity-30">
             <Shield size={10} className="text-vos-500" />
             <span className="text-[8px] font-black uppercase tracking-[0.2em] text-vos-500">Atomic configuration update — Restart not required</span>

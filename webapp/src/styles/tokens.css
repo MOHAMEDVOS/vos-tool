@@ -195,11 +195,11 @@
   --btn-secondary-shadow: rgba(255,255,255,0.12) 0px 0px 0px 1px;
 
   /* ── Audit Buttons (Dark) ── */
-  --btn-heavy-bg:      var(--accent);
-  --btn-heavy-text:    #000000;
+  --btn-heavy-bg:      #ededed;
+  --btn-heavy-text:    #111111;
   --btn-heavy-hover:   #ffffff;
-  --btn-lite-bg:       var(--accent);
-  --btn-lite-text:     #000000;
+  --btn-lite-bg:       #ededed;
+  --btn-lite-text:     #111111;
   --btn-lite-border:   transparent;
   --btn-lite-hover:    #ffffff;
 
