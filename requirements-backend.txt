@@ -45,6 +45,7 @@ assemblyai>=0.48.0
 cryptography>=41.0.0
 bleach>=6.0.0
 psutil>=5.9.0
+playwright>=1.40.0
 
 # Database
 psycopg2-binary>=2.9.0
