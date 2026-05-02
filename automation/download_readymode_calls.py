@@ -11,7 +11,11 @@ import re
 import logging
 from pathlib import Path
 from uuid import uuid4
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+try:
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+except ImportError:
+    sync_playwright = None
+    PlaywrightTimeout = Exception
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
