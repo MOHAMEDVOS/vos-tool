@@ -998,6 +998,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     raise KeyboardInterrupt("Download cancelled by user")
                 
                 print(f"\\nPAGE Page {page_number} (Collected: {len(download_tasks)}/{max_samples})")
+                if update_callback:
+                    update_callback(len(download_tasks), max_samples)
                 
                 # Wait for MP3 links to be present
                 try:

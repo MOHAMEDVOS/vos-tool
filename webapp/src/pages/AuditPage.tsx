@@ -491,7 +491,7 @@ function AuditProgressBar({
               </span>
               <span style={{ color: 'var(--t-muted)' }}> / {phase === 'analyzing' ? analysisProgress?.total : progress?.total}</span>
               <span className="ml-1.5 text-[10px] uppercase tracking-wider" style={{ color: 'var(--t-muted)' }}>
-                {phase === 'analyzing' ? 'analyzed' : 'downloaded'}
+                {phase === 'analyzing' ? 'analyzed' : logs.some(l => l.stage === 'DOWNLOAD') ? 'downloaded' : 'collected'}
               </span>
             </span>
           )}
