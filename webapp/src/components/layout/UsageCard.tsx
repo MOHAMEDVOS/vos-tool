@@ -113,7 +113,7 @@ export function UsageCard() {
         ].map(({ label, value }) => (
           <div key={label} className="flex items-center justify-between">
             <span className="mono-label">{label}</span>
-            <span className={`text-[12px] font-semibold tabular-nums text-t-primary ${value === 'UNLIMITED' ? 'text-accent-primary' : ''}`}>{value}</span>
+            <span className={`text-[12px] font-semibold tabular-nums text-t-primary ${value === 'UNLIMITED' ? 'text-accent' : ''}`}>{value}</span>
           </div>
         ))}
       </div>

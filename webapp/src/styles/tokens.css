@@ -21,11 +21,12 @@
   --accent-border:   rgba(15, 17, 23, 0.18);
   --accent-text:     #0f1117;
 
-  /* ── Canvas — warm off-white so cards lift off it ── */
-  --surface-page:   #f5f5f5;
-  --surface-card:   #ffffff;
-  --surface-input:  #ffffff;
-  --surface-soft:   #f0f2f5;
+  /* ── Canvas — refined Geist-style separation ── */
+  --surface-page:    #fafafa;
+  --surface-sidebar: #ffffff;
+  --surface-card:    #ffffff;
+  --surface-input:   #ffffff;
+  --surface-soft:    #f0f2f5;
 
   /* ── Glass surfaces (login card, modals) ── */
   --glass-card-bg:     rgba(255, 255, 255, 0.72);
@@ -40,11 +41,11 @@
   --t-on-dark:      #ffffff;
   --t-on-primary:   #ffffff;
 
-  /* ── Borders ── */
-  --b-subtle:   rgba(0, 0, 0, 0.06);
-  --b-medium:   rgba(0, 0, 0, 0.09);
-  --b-strong:   #e2e6ec;
-  --b-divider:  #e8ebf0;
+  /* ── Borders — high-contrast light mode ── */
+  --b-subtle:   rgba(0, 0, 0, 0.08);
+  --b-medium:   rgba(0, 0, 0, 0.12);
+  --b-strong:   rgba(0, 0, 0, 0.20);
+  --b-divider:  rgba(0, 0, 0, 0.10);
   --b-focus:    var(--accent);
 
   /* ── Shadow stack tokens ── */
@@ -78,6 +79,15 @@
   --btn-secondary-text: var(--t-primary);
   --btn-secondary-shadow: rgb(226,230,236) 0px 0px 0px 1px;
 
+  /* ── Audit Buttons (Light) ── */
+  --btn-heavy-bg:      var(--accent);
+  --btn-heavy-text:    #ffffff;
+  --btn-heavy-hover:   #000000;
+  --btn-lite-bg:       var(--accent);
+  --btn-lite-text:     #ffffff;
+  --btn-lite-border:   transparent;
+  --btn-lite-hover:    #000000;
+
   /* ── Workflow accents ── */
   --ship-red:     #ff5b4f;
   --preview-pink: #de1d8d;
@@ -92,6 +102,9 @@
   --semantic-success: #16a34a;
   --semantic-error:   #dc2626;
   --semantic-warning: #d97706;
+  --semantic-success-bg: rgba(22, 163, 74, 0.15);
+  --semantic-error-bg:   rgba(220, 38, 38, 0.15);
+  --semantic-warning-bg: rgba(217, 119, 6, 0.15);
 
   /* ── Legacy aliases ── */
   --vos-black: #0f1117;
@@ -136,10 +149,11 @@
   --glass-card-border: rgba(255, 255, 255, 0.08);
   --glass-blur:        blur(20px) saturate(160%);
 
-  --surface-page:   #0a0a0a;
-  --surface-card:   #111111;
-  --surface-input:  #111111;
-  --surface-soft:   #1a1a1a;
+  --surface-page:    #0a0a0a;
+  --surface-sidebar: #0a0a0a;
+  --surface-card:    #111111;
+  --surface-input:   #111111;
+  --surface-soft:    #1a1a1a;
 
   --t-primary:      #ededed;
   --t-secondary:    #a1a1a1;
@@ -150,8 +164,8 @@
 
   --b-subtle:   rgba(255, 255, 255, 0.06);
   --b-medium:   rgba(255, 255, 255, 0.09);
-  --b-strong:   #2e2e2e;
-  --b-divider:  #2e2e2e;
+  --b-strong:   rgba(255, 255, 255, 0.14);
+  --b-divider:  rgba(255, 255, 255, 0.08);
   --b-focus:    hsla(212, 100%, 60%, 1);
 
   --shadow-border: rgba(255,255,255,0.08) 0px 0px 0px 1px;
@@ -175,6 +189,15 @@
   --btn-secondary-text: #ededed;
   --btn-secondary-shadow: rgba(255,255,255,0.12) 0px 0px 0px 1px;
 
+  /* ── Audit Buttons (Dark) ── */
+  --btn-heavy-bg:      var(--accent);
+  --btn-heavy-text:    #000000;
+  --btn-heavy-hover:   #ffffff;
+  --btn-lite-bg:       var(--accent);
+  --btn-lite-text:     #000000;
+  --btn-lite-border:   transparent;
+  --btn-lite-hover:    #ffffff;
+
   --shadow-glass:  0px 0px 0px 1px rgba(255,255,255,0.06),
                    0px 4px 24px rgba(0,0,0,0.50),
                    0px 20px 60px rgba(0,0,0,0.40);
@@ -190,6 +213,9 @@
   --semantic-success: #4ade80;
   --semantic-error:   #f87171;
   --semantic-warning: #fbbf24;
+  --semantic-success-bg: rgba(74, 222, 128, 0.15);
+  --semantic-error-bg:   rgba(248, 113, 113, 0.15);
+  --semantic-warning-bg: rgba(251, 191, 36, 0.15);
 
   --vos-black: #ededed;
   --vos-600:   #a1a1a1;

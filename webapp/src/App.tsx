@@ -39,8 +39,15 @@ function InnerApp() {
 
   useEffect(() => {
     const html = document.documentElement
-    html.classList.add('light')
-    html.classList.remove('dark')
+    if (theme === 'dark') {
+      html.classList.add('dark')
+      html.classList.remove('light')
+      html.setAttribute('data-theme', 'dark')
+    } else {
+      html.classList.add('light')
+      html.classList.remove('dark')
+      html.setAttribute('data-theme', 'light')
+    }
   }, [theme])
 
   useEffect(() => {

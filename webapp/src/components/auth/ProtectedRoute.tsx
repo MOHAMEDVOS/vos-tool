@@ -1,5 +1,5 @@
+import React, { useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
-import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/authStore'
 import { authApi } from '@/api/auth'

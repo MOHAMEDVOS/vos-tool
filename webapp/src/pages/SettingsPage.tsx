@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { 
   RefreshCw, Trash2, Shield, UserPlus, Users, Activity, 
@@ -191,7 +191,7 @@ function UserSessions() {
             <Activity size={14} className="text-vos-500" />
             <h2 className="text-[10px] font-black uppercase tracking-[0.3em] text-vos-600">Session Registry</h2>
           </div>
-          <Button size="sm" variant="secondary" className="h-8 px-4 text-[9px] font-black bg-vos-50" onClick={() => sessions.refetch()}>
+          <Button size="sm" variant="secondary" className="h-8 bg-vos-50" onClick={() => sessions.refetch()}>
             <RefreshCw size={12} className="mr-2" /> REFRESH
           </Button>
         </div>
@@ -213,13 +213,14 @@ function UserSessions() {
                   <td className="px-6 py-4 text-vos-600">{s.last_activity ?? '-'}</td>
                   <td className="px-6 py-4 text-right">
                     {s.username && (
-                      <button 
+                      <Button 
+                        variant="action"
+                        size="sm"
                         onClick={() => { if(confirm(`Invalidate session for ${s.username}?`)) invalidate.mutate(String(s.username)) }}
                         disabled={invalidate.isPending}
-                        className="px-4 py-1.5 rounded-lg border border-b-medium text-[9px] font-black uppercase text-vos-500 hover:border-ship-red hover:text-ship-red transition-all"
                       >
                         Kick
-                      </button>
+                      </Button>
                     )}
                   </td>
                 </tr>
@@ -277,7 +278,12 @@ function CreateUser() {
         </div>
 
         <div className="flex justify-end mt-10">
-          <Button className="px-12 py-4 text-[10px] font-black uppercase tracking-widest bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)] hover:bg-[var(--btn-heavy-hover)]" onClick={() => create.mutate()} disabled={!username || create.isPending}>
+          <Button 
+            variant="action"
+            className="px-12 py-4 bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)] hover:bg-[var(--btn-heavy-hover)]" 
+            onClick={() => create.mutate()} 
+            disabled={!username || create.isPending}
+          >
             Finalize Provisioning
           </Button>
         </div>
@@ -500,7 +506,7 @@ function ManageUsers() {
                     <Badge role={u.role}>{u.role}</Badge>
                   </td>
                   <td className="px-6 py-4">
-                    <span className="text-t-primary font-mono text-[10px]">{u.daily_limit?.toLocaleString() ?? '5,000'}</span>
+                    <span className="text-t-primary font-mono text-[10px]">{u.daily_limit >= 999999 ? '∞' : u.daily_limit?.toLocaleString() ?? '5,000'}</span>
                   </td>
                   <td className="px-6 py-4 text-right">
                     {u.role === 'Owner' ? (
@@ -509,14 +515,16 @@ function ManageUsers() {
                         <span className="text-[8px] font-black uppercase tracking-widest text-vos-700">Protected</span>
                       </div>
                     ) : (role === 'Owner' || (role === 'Admin' && u.role === 'Auditor')) && u.username !== myUsername ? (
-                      <button 
+                      <Button 
+                        variant="danger"
+                        size="sm"
                         onClick={() => { if(confirm(`Confirm permanent deletion of ${u.username}?`)) remove.mutate(u.username) }} 
                         disabled={remove.isPending}
-                        className="group/btn relative flex items-center gap-2 ml-auto px-4 py-2 rounded-lg bg-ship-red/10 border border-ship-red/20 text-ship-red hover:bg-ship-red hover:text-t-primary transition-all duration-300"
+                        className="ml-auto"
                       >
-                        <Trash2 size={12} className="relative z-10" />
-                        <span className="text-[9px] font-black uppercase tracking-[0.1em] relative z-10">Terminate</span>
-                      </button>
+                        <Trash2 size={12} />
+                        <span>Terminate</span>
+                      </Button>
                     ) : null}
                   </td>
                 </tr>
@@ -905,7 +913,7 @@ function SharingManage() {
           <span className="text-xs font-bold text-t-primary">Sync User Statuses</span>
           <span className="text-[10px] text-vos-600">Force-sync dashboard modes from current group definitions</span>
         </div>
-        <Button variant="secondary" className="text-xs" onClick={() => sync.mutate()} disabled={sync.isPending}>
+        <Button variant="secondary" onClick={() => sync.mutate()} disabled={sync.isPending}>
           <RefreshCw size={13} className="mr-2" />
           {sync.isPending ? 'Syncing…' : sync.isSuccess ? `Done` : 'Sync'}
         </Button>
@@ -939,7 +947,7 @@ function SharingManage() {
                   </label>
                 ))}
               </div>
-              <Button className="text-xs mt-auto" onClick={() => addMembers.mutate()} disabled={toAdd.length === 0 || addMembers.isPending}>
+              <Button className="mt-auto" onClick={() => addMembers.mutate()} disabled={toAdd.length === 0 || addMembers.isPending}>
                 Add Selected Users
               </Button>
             </Card>
@@ -962,7 +970,7 @@ function SharingManage() {
                   </label>
                 ))}
               </div>
-              <Button variant="secondary" className="text-xs mt-auto border-ship-red/20 text-ship-red hover:bg-ship-red hover:text-t-primary" onClick={() => removeMembers.mutate()} disabled={toRemove.length === 0 || removeMembers.isPending}>
+              <Button variant="secondary" className="mt-auto border-ship-red/20 text-ship-red hover:bg-ship-red hover:text-t-primary" onClick={() => removeMembers.mutate()} disabled={toRemove.length === 0 || removeMembers.isPending}>
                 Remove Selected Users
               </Button>
             </Card>
@@ -972,7 +980,7 @@ function SharingManage() {
           <div className="flex justify-end border-t border-b-subtle pt-6">
             <Button
               variant="secondary"
-              className="text-xs border-ship-red/30 text-ship-red hover:bg-ship-red hover:text-t-primary"
+              className="border-ship-red/30 text-ship-red hover:bg-ship-red hover:text-t-primary"
               onClick={() => { if (confirm(`Delete group "${selectedGroup}"?`)) deleteGroup.mutate() }}
               disabled={deleteGroup.isPending}
             >
@@ -1043,7 +1051,7 @@ function SharingCreate({ onCreated }: { onCreated: () => void }) {
 
         {error && <p className="text-xs text-ship-red font-bold">{error}</p>}
 
-        <Button className="text-xs py-4 font-black uppercase tracking-widest" onClick={handleCreate} disabled={create.isPending}>
+        <Button className="py-4 font-black uppercase tracking-widest" onClick={handleCreate} disabled={create.isPending}>
           {create.isPending ? 'Creating…' : 'Create Group'}
         </Button>
       </div>
@@ -1078,7 +1086,7 @@ function SystemHealth() {
           <h2 className="text-3xl font-black text-t-primary tracking-tighter uppercase">System Health</h2>
           <p className="text-vos-500 text-xs">Monitor CPU, memory, and disk usage in real time.</p>
         </div>
-        <Button variant="secondary" className="text-xs" onClick={() => refetch()} disabled={isFetching}>
+        <Button variant="secondary" onClick={() => refetch()} disabled={isFetching}>
           <RefreshCw size={13} className={`mr-2 ${isFetching ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
@@ -1312,14 +1320,15 @@ function AdminManageUsers() {
               </div>
             </div>
             <div className="flex items-center justify-between pt-4 border-t border-b-subtle">
-              <button
+              <Button
+                variant="danger"
+                className="text-ship-red/60 hover:text-t-primary flex items-center gap-2"
                 onClick={() => { if (confirm(`Delete user ${selectedUser}?`)) remove.mutate(selectedUser) }}
                 disabled={remove.isPending}
-                className="text-xs font-black uppercase tracking-wider text-ship-red/60 hover:text-ship-red transition-colors flex items-center gap-2"
               >
                 <Trash2 size={13} /> Delete User
-              </button>
-              <Button className="text-xs px-8 py-3 font-black uppercase" onClick={() => update.mutate()} disabled={update.isPending}>
+              </Button>
+              <Button className="px-8 py-3 font-black uppercase" onClick={() => update.mutate()} disabled={update.isPending}>
                 Save Changes
               </Button>
             </div>
@@ -1442,10 +1451,11 @@ function Badge({ role, children }: { role: string; children: React.ReactNode }) 
 }
 
 function ProfileField({ label, value, active = false }: { label: string; value: string | number | undefined; active?: boolean }) {
+  const displayValue = value === 999999 || value === '999999' ? '∞' : value
   return (
     <div className={`flex items-center justify-between px-4 py-3 rounded-xl border border-b-subtle bg-c-raised/30 ${active ? 'border-ship-red/20' : ''}`}>
       <span className="text-[8px] font-black uppercase tracking-widest text-vos-700">{label}</span>
-      <span className={`text-[10px] font-bold ${active ? 'text-ship-red' : 'text-t-primary'}`}>{value}</span>
+      <span className={`text-[10px] font-bold ${active ? 'text-ship-red' : 'text-t-primary'} ${displayValue === '∞' ? 'text-[14px]' : ''}`}>{displayValue}</span>
     </div>
   )
 }

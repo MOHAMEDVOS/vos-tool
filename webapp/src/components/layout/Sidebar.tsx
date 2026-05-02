@@ -8,6 +8,8 @@ import {
   ChevronLeft, ChevronRight, Sun, Moon,
 } from 'lucide-react'
 import { UsageCard } from './UsageCard'
+import { useAuditStore } from '@/store/auditStore'
+import { inferPhase } from '@/hooks/useAuditStream'
 
 interface NavItem { id: NavTab; label: string; icon: React.ReactElement; roles?: string[] }
 
@@ -27,20 +29,34 @@ const navContainer = {
 }
 const navItemVariant = {
   hidden: { opacity: 0, x: -6 },
-  show:   { opacity: 1, x: 0, transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] } },
+  show:   { opacity: 1, x: 0, transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] as any } },
 }
 
 export function Sidebar() {
   const { role, username, name, picture, clearAuth } = useAuthStore()
   const { activeTab, setActiveTab, sidebarCollapsed, setSidebarCollapsed, theme, toggleTheme } = useUiStore()
   const unreadCount = useUnreadCount()
+  const { status, progress, analysisProgress, logs } = useAuditStore()
+  const isAuditRunning = status === 'running'
+  const auditPhase = inferPhase(logs)
+
+  const auditPct = React.useMemo(() => {
+    if (!isAuditRunning) return 0
+    if (auditPhase === 'analyzing' && analysisProgress && analysisProgress.total > 0) {
+      return Math.round((analysisProgress.completed / analysisProgress.total) * 100)
+    }
+    if (progress && progress.total > 0) {
+      return Math.round((progress.downloaded / progress.total) * 100)
+    }
+    return 0
+  }, [isAuditRunning, auditPhase, analysisProgress, progress])
 
   const items = ALL_ITEMS.filter((i) => !i.roles || (role && i.roles.includes(role)))
 
   return (
     <aside
       className={[
-        'flex h-screen flex-col bg-surface-page border-r border-[var(--b-divider)]',
+        'flex h-screen flex-col bg-[var(--surface-sidebar)] border-r border-[var(--b-strong)]',
         'shrink-0 transition-[width] duration-200',
         sidebarCollapsed ? 'w-[60px]' : 'w-[220px]',
       ].join(' ')}
@@ -136,7 +152,7 @@ export function Sidebar() {
                     whileHover={{ scale: 1.18, rotate: isActive ? 0 : 8 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 18 }}
                   >
-                    {React.cloneElement(item.icon, { size: 15 })}
+                    {React.cloneElement(item.icon as any, { size: 15 })}
                   </motion.span>
 
                   {!sidebarCollapsed && (
@@ -158,6 +174,66 @@ export function Sidebar() {
             )
           })}
         </motion.div>
+        
+        {/* Audit Progress in Sidebar */}
+        <AnimatePresence>
+          {isAuditRunning && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="mt-6 mx-2 p-3 rounded-lg bg-surface-card border border-b-subtle shadow-sm overflow-hidden"
+            >
+              {!sidebarCollapsed ? (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-accent">
+                      {auditPhase === 'analyzing' ? 'Analyzing' : 'Downloading'}
+                    </span>
+                    <span className="text-[10px] font-bold tabular-nums text-t-muted">
+                      {auditPct}%
+                    </span>
+                  </div>
+                  <div className="h-1 w-full bg-surface-soft rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-accent"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${auditPct}%` }}
+                      transition={{ duration: 0.5 }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-center">
+                  <div className="relative h-6 w-6">
+                    <svg className="h-full w-full" viewBox="0 0 24 24">
+                      <circle
+                        className="text-surface-soft stroke-current"
+                        strokeWidth="3"
+                        fill="transparent"
+                        r="10"
+                        cx="12"
+                        cy="12"
+                      />
+                      <motion.circle
+                        className="text-accent stroke-current"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        fill="transparent"
+                        r="10"
+                        cx="12"
+                        cy="12"
+                        initial={{ strokeDasharray: "62.83", strokeDashoffset: "62.83" }}
+                        animate={{ strokeDashoffset: 62.83 - (62.83 * auditPct) / 100 }}
+                        transition={{ duration: 0.5 }}
+                      />
+                    </svg>
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </nav>
 
       {/* ── Bottom ── */}

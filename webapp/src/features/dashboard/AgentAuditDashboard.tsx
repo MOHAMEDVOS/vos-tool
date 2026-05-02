@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAgentAudits } from '@/hooks/useDashboard'
 import { AuditTable } from '@/components/tables/AuditTable'
 import { Metric } from '@/components/ui/Metric'
@@ -50,7 +50,7 @@ export function AgentAuditDashboard() {
       const name = String(r['Agent Name'] ?? 'Unknown')
       if (isRowFlagged(r)) counts[name] = (counts[name] ?? 0) + 1
     }
-    return Object.entries(counts).filter(([, c]) => c > FLAG_THRESHOLD)
+    return Object.entries(counts).filter(([, c]) => c >= FLAG_THRESHOLD)
   }, [rows])
 
   const problematicAgentNames = useMemo(() => new Set(problematicAgents.map(([n]) => n)), [problematicAgents])
@@ -63,7 +63,7 @@ export function AgentAuditDashboard() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-black uppercase tracking-tight text-t-primary">Agent Audit</h2>
-        <Button size="sm" variant="secondary" onClick={() => qc.invalidateQueries({ queryKey: ['agent-audits'] })}>
+        <Button size="sm" variant="action" onClick={() => qc.invalidateQueries({ queryKey: ['agent-audits'] })}>
           <RefreshCw size={14} /> Refresh
         </Button>
       </div>
@@ -92,29 +92,37 @@ export function AgentAuditDashboard() {
       <AuditTable
         rows={rows}
         getRowClassName={(r) => problematicAgentNames.has(String(r['Agent Name'] || '')) ? 'border-l-2 border-l-ship-red' : ''}
-      />
-
-      <div className="mt-2 flex flex-col items-start gap-3">
-        {!showConfirm ? (
-          <Button variant="danger" onClick={() => setShowConfirm(true)}>
-            Clear Agent Audit Data
-          </Button>
-        ) : (
-          <div className="rounded-xl border border-ship-red/30 bg-ship-red/10 p-4 max-w-lg shadow-2xl">
-            <p className="mb-4 text-sm text-t-primary">
-              <strong className="text-ship-red uppercase tracking-widest font-black mr-2">Warning:</strong> Permanently deletes all agent audit data. Cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <Button variant="danger" onClick={() => clearData.mutate()} disabled={clearData.isPending}>
-                {clearData.isPending ? 'Clearing...' : 'Confirm Delete'}
-              </Button>
-              <Button variant="secondary" onClick={() => setShowConfirm(false)} disabled={clearData.isPending}>
-                Cancel
-              </Button>
+        leftActions={
+          !showConfirm ? (
+            <Button variant="action" onClick={() => setShowConfirm(true)}>
+              Clear Agent Audit Data
+            </Button>
+          ) : (
+            <div className="rounded-xl border border-b-strong bg-c-base p-6 max-w-lg shadow-2xl backdrop-blur-xl absolute bottom-0 left-0 z-[60] mb-12">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-1 h-6 bg-semantic-error rounded-full" />
+                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-semantic-error">Confirm Deletion</h3>
+              </div>
+              <p className="mb-6 text-xs text-t-primary leading-relaxed font-medium">
+                This action will permanently delete all agent audit data. This cannot be undone.
+              </p>
+              <div className="flex justify-start gap-3">
+                <Button 
+                  variant="action"
+                  className="text-semantic-error"
+                  onClick={() => clearData.mutate()} 
+                  disabled={clearData.isPending}
+                >
+                  {clearData.isPending ? 'Clearing...' : 'Permanently Delete'}
+                </Button>
+                <Button variant="action" onClick={() => setShowConfirm(false)}>
+                  Cancel
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          )
+        }
+      />
     </div>
   )
 }

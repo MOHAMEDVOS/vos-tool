@@ -2816,23 +2816,33 @@ class DashboardManager:
         if self._db_manager:
             try:
                 shared_users = self.get_shared_users(username)
-                placeholders = ','.join(['%s'] * len(shared_users))
-                query = f"DELETE FROM lite_audit_results WHERE username IN ({placeholders})"
-                self._db_manager.execute_query(query, tuple(shared_users), fetch=False)
-                logger.info(f"Cleared lite audit data from database for users: {shared_users}")
+                # Use LOWER() for case-insensitive matching
+                query = f"DELETE FROM lite_audit_results WHERE LOWER(username) IN ({','.join(['LOWER(%s)'] * len(shared_users))})"
+                count = self._db_manager.execute_query(query, tuple(shared_users), fetch=False)
+                logger.info(f"Cleared {count} lite audit records from database for users: {shared_users}")
             except Exception as e:
                 logger.error(f"Error clearing lite audit data from database: {e}")
                 # Continue to JSON fallback
         
         # Clear the user's individual lite audit file
-        self.lite_audit_file = self.lite_audit_dir / f"lite_audits_{username}.json"
+        lite_file = self.lite_audit_dir / f"lite_audits_{username}.json"
+        if lite_file.exists():
+            try:
+                lite_file.unlink()
+                logger.info(f"Deleted legacy lite audit file: {lite_file}")
+            except Exception as e:
+                logger.error(f"Error deleting lite audit file {lite_file}: {e}")
         
-        # Clear the file by resetting to initial state
-        initial_data = {
-            'login_timestamp': datetime.now().isoformat(),
-            'audit_results': []
-        }
-        # Legacy JSON storage is deprecated
+        # Also clear any shared files if in a group
+        shared_users = self.get_shared_users(username)
+        for user in shared_users:
+            if user != username:
+                user_file = self.lite_audit_dir / f"lite_audits_{user}.json"
+                if user_file.exists():
+                    try:
+                        user_file.unlink()
+                    except:
+                        pass
         pass
     
     def get_daily_download_count(self, username: str) -> int:
@@ -3019,24 +3029,33 @@ class DashboardManager:
         if self._db_manager:
             try:
                 shared_users = self.get_shared_users(username)
-                placeholders = ','.join(['%s'] * len(shared_users))
-                query = f"DELETE FROM agent_audit_results WHERE username IN ({placeholders})"
-                self._db_manager.execute_query(query, tuple(shared_users), fetch=False)
-                logger.info(f"Cleared agent audit data from database for users: {shared_users}")
-                logger.info(f"Cleared agent audit data from database for user {username}")
+                # Use LOWER() for case-insensitive matching
+                query = f"DELETE FROM agent_audit_results WHERE LOWER(username) IN ({','.join(['LOWER(%s)'] * len(shared_users))})"
+                count = self._db_manager.execute_query(query, tuple(shared_users), fetch=False)
+                logger.info(f"Cleared {count} agent audit records from database for users: {shared_users}")
             except Exception as e:
                 logger.error(f"Error clearing agent audit data from database: {e}")
                 # Continue to JSON fallback
         
         # Clear the user's individual audit file
-        self.agent_audit_file = self.agent_audit_dir / f"agent_audits_{username}.json"
+        audit_file = self.agent_audit_dir / f"agent_audits_{username}.json"
+        if audit_file.exists():
+            try:
+                audit_file.unlink()
+                logger.info(f"Deleted legacy agent audit file: {audit_file}")
+            except Exception as e:
+                logger.error(f"Error deleting agent audit file {audit_file}: {e}")
         
-        # Clear the file by resetting to initial state
-        initial_data = {
-            'login_timestamp': datetime.now().isoformat(),
-            'audit_results': []
-        }
-        # Legacy JSON storage is deprecated
+        # Also clear any shared files if in a group
+        shared_users = self.get_shared_users(username)
+        for user in shared_users:
+            if user != username:
+                user_file = self.agent_audit_dir / f"agent_audits_{user}.json"
+                if user_file.exists():
+                    try:
+                        user_file.unlink()
+                    except:
+                        pass
         pass
     
     def get_agent_data_time_remaining(self) -> str:
@@ -4022,16 +4041,19 @@ class DashboardManager:
         # Clear from database first (if available)
         if self._db_manager:
             try:
+                shared_users = self.get_shared_users(username)
+                placeholders = ','.join(['%s'] * len(shared_users))
                 if campaign_name:
-                    # Clear specific campaign
-                    query = "DELETE FROM campaign_audit_results WHERE username = %s AND campaign_name = %s"
-                    self._db_manager.execute_query(query, (username, campaign_name), fetch=False)
-                    logger.info(f"Cleared campaign audit data from database for user {username}, campaign {campaign_name}")
+                    # Clear specific campaign for all shared users
+                    query = f"DELETE FROM campaign_audit_results WHERE LOWER(username) IN ({','.join(['LOWER(%s)'] * len(shared_users))}) AND LOWER(campaign_name) = LOWER(%s)"
+                    params = tuple(shared_users) + (campaign_name,)
+                    count = self._db_manager.execute_query(query, params, fetch=False)
+                    logger.info(f"Cleared {count} records for campaign {campaign_name} from database for users: {shared_users}")
                 else:
-                    # Clear all campaigns for user
-                    query = "DELETE FROM campaign_audit_results WHERE username = %s"
-                    self._db_manager.execute_query(query, (username,), fetch=False)
-                    logger.info(f"Cleared all campaign audit data from database for user {username}")
+                    # Clear all campaigns for all shared users
+                    query = f"DELETE FROM campaign_audit_results WHERE LOWER(username) IN ({','.join(['LOWER(%s)'] * len(shared_users))})"
+                    count = self._db_manager.execute_query(query, tuple(shared_users), fetch=False)
+                    logger.info(f"Cleared all {count} campaign audit records from database for users: {shared_users}")
             except Exception as e:
                 logger.error(f"Error clearing campaign audit data from database: {e}")
                 # Continue to file fallback

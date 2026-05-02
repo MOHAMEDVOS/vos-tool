@@ -1,10 +1,12 @@
-﻿import { useMemo, useState, useEffect } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import type { AgentAuditRow } from '@/types/api'
 import { Badge } from '@/components/ui/Badge'
 
 import { AGENT_AUDIT_COLUMN_ORDER, HIDDEN_COLUMNS, normalizeRow, DETECTION_COLS, detectionVariant } from '@/utils/audit'
 import { ArrowUp, ArrowDown, Copy, Check, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Button } from '@/components/ui/Button'
+import { CountUp } from '@/components/ui/Metric'
 
 interface Props {
   rows: AgentAuditRow[]
@@ -125,7 +127,7 @@ export function AuditTable({ rows, leftActions }: Props) {
                     let textColor = 'text-t-primary'
                     if (isDetection && val != null && val !== '') {
                       if (variant === 'danger') {
-                        cellBg = 'bg-semantic-error/10 text-semantic-error'
+                        cellBg = 'bg-[var(--semantic-error-bg)] text-semantic-error'
                         textColor = 'text-t-primary font-black'
                       }
                     }
@@ -141,7 +143,7 @@ export function AuditTable({ rows, leftActions }: Props) {
                         <div className="flex items-start justify-between gap-2 h-full">
                           {isDetection ? (
                             <span className={`text-[10px] font-black uppercase tracking-widest ${textColor}`}>
-                              {val == null || val === '' ? '—' : String(val)}
+                              {val == null || val === '' ? '—' : (typeof val === 'number' ? <CountUp value={val} /> : String(val))}
                             </span>
                           ) : (
                             <span 
@@ -153,7 +155,7 @@ export function AuditTable({ rows, leftActions }: Props) {
                                 overflow: 'hidden'
                               } : {}}
                             >
-                              {val != null ? String(val) : '—'}
+                              {val == null ? '—' : (typeof val === 'number' && !String(val).includes('.') ? <CountUp value={val} /> : String(val))}
                             </span>
                           )}
                           
@@ -204,13 +206,13 @@ export function AuditTable({ rows, leftActions }: Props) {
               </motion.span>
             )}
           </AnimatePresence>
-          <button
+          <Button
+            variant="action"
             onClick={handleCopyRows}
-            className="group relative px-6 py-2.5 rounded-full bg-transparent hover:bg-c-raised border border-b-strong text-t-primary text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300 active:scale-95 flex items-center gap-3 overflow-hidden"
           >
-            {isTableCopied ? <Check size={14} className="text-semantic-success" /> : <Copy size={14} className="text-t-primary transition-colors" />}
-            <span className="relative z-10">Copy {rowData.length} rows (no header)</span>
-          </button>
+            {isTableCopied ? <Check size={14} className="text-semantic-success" /> : <Copy size={14} className="text-t-primary" />}
+            <span>Copy {rowData.length} rows (no header)</span>
+          </Button>
         </div>
       </div>
 

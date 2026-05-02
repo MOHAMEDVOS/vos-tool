@@ -1,8 +1,8 @@
-import { forwardRef } from 'react'
+import React, { forwardRef } from 'react'
 import { motion } from 'framer-motion'
 
 interface Props extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'action'
   size?: 'sm' | 'md'
 }
 
@@ -10,18 +10,19 @@ interface Props extends React.ButtonHTMLAttributes<HTMLButtonElement> {
    primary   = dark fill (#171717 light / #ededed dark), 6px radius
    secondary = white/dark fill + shadow-as-border ring
    ghost     = transparent, text only, subtle hover bg
-   danger    = workflow red tint                              */
+   danger    = workflow red tint
+   action    = pill-shaped, uppercase, heavy tracking (dashboard buttons) */
 
 export const Button = forwardRef<HTMLButtonElement, Props>(
   ({ variant = 'primary', size = 'md', className = '', children, disabled, ...rest }, ref) => {
     const base = [
       'inline-flex items-center justify-center gap-1.5 font-medium',
-      'transition-colors duration-150 cursor-pointer select-none',
+      'transition-all duration-150 cursor-pointer select-none',
       'focus-visible:outline-none focus-visible:ring-2',
       'focus-visible:ring-[var(--b-focus)] focus-visible:ring-offset-2',
       'focus-visible:ring-offset-[var(--surface-page)]',
       'disabled:opacity-40 disabled:pointer-events-none',
-      'rounded-md',
+      variant === 'action' ? 'rounded-full' : 'rounded-md',
     ]
 
     const variants = {
@@ -40,15 +41,27 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
         'hover:bg-[var(--hover-overlay)] hover:text-t-primary',
 
       danger:
-        'bg-[var(--semantic-error)]/10 text-[var(--semantic-error)] ' +
-        'shadow-[inset_0_0_0_1px_var(--semantic-error)] ' +
-        'hover:bg-[var(--semantic-error)]/15',
+        'bg-[var(--semantic-error)] text-white ' +
+        'hover:opacity-90 shadow-lg',
+
+      action:
+        'bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)] ' +
+        'font-black uppercase tracking-[0.2em] ' +
+        'hover:bg-[var(--btn-heavy-hover)] shadow-xl',
     }
 
     const sizes = {
-      sm: 'px-3 py-1.5 text-[13px] leading-none',
-      md: 'px-4 py-2 text-[14px] leading-[1.43]',
+      sm: 'px-3 py-1.5 leading-none',
+      md: 'px-4 py-2 leading-[1.43]',
     }
+
+    const textSizes = {
+      action: 'text-[10px]',
+      sm: 'text-[10px]',
+      md: 'text-[10px]',
+    }
+
+    const currentTextSize = variant === 'action' ? textSizes.action : textSizes[size]
 
     return (
       <motion.button
@@ -57,7 +70,7 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
         whileTap={disabled  ? undefined : { scale: 0.96 }}
         transition={{ type: 'spring', stiffness: 500, damping: 22 }}
         disabled={disabled}
-        className={[...base, variants[variant], sizes[size], className].join(' ')}
+        className={[...base, variants[variant], sizes[size], currentTextSize, className].join(' ')}
         {...(rest as any)}
       >
         {children}

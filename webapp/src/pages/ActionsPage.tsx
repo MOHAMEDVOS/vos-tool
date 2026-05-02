@@ -1,4 +1,4 @@
-﻿import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useFlaggedCalls, useAgentAudits, useLiteAudits } from '@/hooks/useDashboard'
 import { useBadgeStore } from '@/store/badgeStore'
 import { Button } from '@/components/ui/Button'
@@ -9,12 +9,14 @@ import { dashboardApi } from '@/api/dashboard'
 import { RefreshCw, Search, ChevronDown, Check, Copy } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/Select'
 import { motion, AnimatePresence } from 'framer-motion'
+import { CountUp, Metric } from '@/components/ui/Metric'
 
 interface AgentDeductionRow {
   agentName: string; totalCalls: number; flaggedCalls: number
   releasing: number; lateHello: number; noRebuttals: number
   dialerNames: string[]; deduction: boolean
 }
+
 
 function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -51,9 +53,17 @@ function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
           </thead>
         <tbody className="divide-y divide-b-subtle">
           {rows.map((row, idx) => {
-            const flagBg = row.flaggedCalls >= 5 ? 'bg-semantic-error/10 text-semantic-error' : row.flaggedCalls === 4 ? 'bg-amber-950/50' : ''
-            const deductionBg = row.deduction ? 'bg-semantic-error/10 text-semantic-error' : 'bg-semantic-success/10 text-semantic-success'
-            const flagText = row.flaggedCalls >= 4 ? 'text-t-primary font-black' : 'text-t-primary'
+            const flagBg = row.flaggedCalls >= 5 
+              ? 'bg-[var(--semantic-error-bg)] text-semantic-error' 
+              : row.flaggedCalls === 4 
+                ? 'bg-[var(--semantic-warning-bg)] text-semantic-warning' 
+                : ''
+            const deductionBg = row.flaggedCalls >= 5 
+              ? 'bg-[var(--semantic-error-bg)] text-semantic-error' 
+              : row.flaggedCalls === 4
+                ? 'bg-[var(--semantic-warning-bg)] text-semantic-warning'
+                : 'bg-[var(--semantic-success-bg)] text-semantic-success'
+            const flagText = 'font-black'
             const deductionText = 'text-t-primary font-black'
             const copyId = `action-${idx}`
             
@@ -80,11 +90,21 @@ function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
                     </button>
                   </div>
                 </td>
-                <td className="min-w-[100px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">{row.totalCalls}</td>
-                <td className={`min-w-[110px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right tabular-nums font-bold ${flagBg} ${flagText}`}>{row.flaggedCalls}</td>
-                <td className="min-w-[90px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">{row.releasing}</td>
-                <td className="min-w-[100px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">{row.lateHello}</td>
-                <td className="min-w-[110px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">{row.noRebuttals}</td>
+                <td className="min-w-[100px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                  <CountUp value={row.totalCalls} />
+                </td>
+                <td className={`min-w-[110px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right tabular-nums font-bold ${flagBg} ${flagText}`}>
+                  <CountUp value={row.flaggedCalls} />
+                </td>
+                <td className="min-w-[90px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                  <CountUp value={row.releasing} />
+                </td>
+                <td className="min-w-[100px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                  <CountUp value={row.lateHello} />
+                </td>
+                <td className="min-w-[110px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                  <CountUp value={row.noRebuttals} />
+                </td>
                 <td className="min-w-[150px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-t-primary font-medium">
                   <span className="block whitespace-nowrap">{row.dialerNames.length ? row.dialerNames.join(' & ') : '—'}</span>
                 </td>
@@ -98,6 +118,7 @@ function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
     </div>
   )
 }
+
 
 export function ActionsPage() {
   const qc = useQueryClient()
@@ -180,11 +201,18 @@ export function ActionsPage() {
   useEffect(() => { if (!selectedAgent && agentDeductions.length > 0) setSelectedAgent(agentDeductions[0].agentName) }, [agentDeductions, selectedAgent])
 
   const clearData = useMutation({
-    mutationFn: async () => { await dashboardApi.clearAgentAudits(); await dashboardApi.clearLiteAudits() },
+    mutationFn: async () => { 
+      await dashboardApi.clearAgentAudits()
+      await dashboardApi.clearLiteAudits()
+      await dashboardApi.clearCampaignAudits() // Clear all campaigns too
+    },
     onSuccess: () => {
       setShowConfirm(false)
-      qc.invalidateQueries({ queryKey: ['flagged-calls'] }); qc.invalidateQueries({ queryKey: ['agent-audits'] })
-      qc.invalidateQueries({ queryKey: ['lite-audits'] }); qc.invalidateQueries({ queryKey: ['badge-count'] })
+      qc.invalidateQueries({ queryKey: ['flagged-calls'] })
+      qc.invalidateQueries({ queryKey: ['agent-audits'] })
+      qc.invalidateQueries({ queryKey: ['lite-audits'] })
+      qc.invalidateQueries({ queryKey: ['campaign-audits'] })
+      qc.invalidateQueries({ queryKey: ['badge-count'] })
     },
   })
 
@@ -198,21 +226,55 @@ export function ActionsPage() {
           <h1 className="text-2xl font-bold text-t-primary tracking-tight">Actions</h1>
           <p className="text-vos-500 text-sm">Flagged calls requiring attention.</p>
         </div>
-        <Button size="sm" variant="secondary" className="bg-vos-50 border-b-medium text-t-primary hover:bg-c-raised" onClick={() => { qc.invalidateQueries({ queryKey: ['flagged-calls'] }); qc.invalidateQueries({ queryKey: ['agent-audits'] }) }}>
+        <Button size="sm" variant="action" onClick={() => { qc.invalidateQueries({ queryKey: ['flagged-calls'] }); qc.invalidateQueries({ queryKey: ['agent-audits'] }) }}>
           <RefreshCw size={14} className="mr-2" /> Refresh
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <SummaryMetric label="Total Action Items" value={summary.total} />
-        <SummaryMetric label="Releasing Issues" value={summary.releasing} />
-        <SummaryMetric label="Late Hello Issues" value={summary.lateHello} />
-        <SummaryMetric label="Rebuttal Issues" value={summary.noRebuttal} />
+      <div className="grid grid-cols-2 gap-8 sm:grid-cols-4 lg:flex lg:gap-32 py-10 border-b border-b-subtle mb-4 pb-12">
+        <Metric label="Total Action Items" value={summary.total} />
+        <Metric label="Releasing Issues" value={summary.releasing} />
+        <Metric label="Late Hello Issues" value={summary.lateHello} />
+        <Metric label="Rebuttal Issues" value={summary.noRebuttal} />
       </div>
 
-      <div>
-        <h2 className="mb-3 text-[10px] font-black uppercase tracking-widest text-vos-500 ml-1">Agent Deductions</h2>
-        {agentDeductions.length === 0 ? <p className="py-4 text-sm text-vos-500">No flagged calls found.</p> : <AgentDeductionsTable rows={agentDeductions} />}
+      <div className="flex flex-col gap-3">
+        <h2 className="text-[10px] font-black uppercase tracking-widest text-vos-500 ml-1">Agent Deductions</h2>
+        {agentDeductions.length === 0 ? (
+          <p className="py-4 text-sm text-vos-500">No flagged calls found.</p>
+        ) : (
+          <>
+            <AgentDeductionsTable rows={agentDeductions} />
+            <div className="flex justify-end relative mt-1">
+              {!showConfirm ? (
+                <Button size="sm" variant="action" onClick={() => setShowConfirm(true)}>Clear All Data</Button>
+              ) : (
+                <div className="rounded-xl border border-b-strong bg-c-base p-6 max-w-lg shadow-2xl backdrop-blur-xl absolute bottom-0 right-0 z-[60] mb-12">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-1 h-6 bg-semantic-error rounded-full" />
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-semantic-error">Confirm Deletion</h3>
+                  </div>
+                  <p className="mb-6 text-xs text-t-primary leading-relaxed font-medium">
+                    This action will permanently delete all your audit data (agent and lite). This cannot be undone.
+                  </p>
+                  <div className="flex justify-start gap-3">
+                    <Button 
+                      variant="action"
+                      className="text-semantic-error"
+                      onClick={() => clearData.mutate()} 
+                      disabled={clearData.isPending}
+                    >
+                      {clearData.isPending ? 'Clearing...' : 'Permanently Delete'}
+                    </Button>
+                    <Button variant="action" onClick={() => setShowConfirm(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
@@ -235,12 +297,14 @@ export function ActionsPage() {
               <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Detailed flagged calls — {selectedAgent}</h3>
             </div>
             
-            <div className="rounded-2xl bg-surface-card border border-b-subtle shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl">
+            <div className="rounded-2xl bg-surface-card border border-b-strong shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl">
               {/* Copy-all header */}
               {selectedAgentCalls.length > 0 && (
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-b-subtle bg-c-raised/50">
                   <span className="text-[10px] font-black uppercase tracking-widest text-vos-500">{selectedAgentCalls.length} calls</span>
-                  <button
+                  <Button
+                    variant="action"
+                    size="sm"
                     onClick={() => {
                       const text = selectedAgentCalls.map(c => {
                         const issues = []
@@ -251,7 +315,6 @@ export function ActionsPage() {
                       }).join('\n')
                       copyToClipboard(text, 'all')
                     }}
-                    className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-vos-500 hover:text-t-primary transition-colors"
                   >
                     <AnimatePresence mode="wait">
                       {copiedId === 'all'
@@ -259,7 +322,7 @@ export function ActionsPage() {
                         : <Copy size={12} />}
                     </AnimatePresence>
                     Copy All
-                  </button>
+                  </Button>
                 </div>
               )}
 
@@ -295,7 +358,7 @@ export function ActionsPage() {
               <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Audited Dialers</h3>
             </div>
             
-            <div className="rounded-2xl bg-surface-card border border-b-subtle shadow-2xl overflow-hidden backdrop-blur-xl">
+            <div className="rounded-2xl bg-surface-card border border-b-strong shadow-2xl overflow-hidden backdrop-blur-xl">
               <table className="w-full text-sm text-left border-collapse">
                 <thead className="bg-c-base border-b border-b-subtle">
                   <tr>
@@ -314,7 +377,9 @@ export function ActionsPage() {
                           <span className="text-xs font-bold text-t-primary group-hover:text-dev-blue transition-colors">{d.dialer}</span>
                         </div>
                       </td>
-                      <td className="px-5 py-3.5 text-right tabular-nums text-sm font-black text-t-primary">{d.count}</td>
+                      <td className="px-5 py-3.5 text-right tabular-nums text-sm font-black text-t-primary">
+                        <CountUp value={d.count} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -324,28 +389,6 @@ export function ActionsPage() {
         </div>
       )}
 
-      <div className="mt-4 flex flex-col items-start gap-3">
-        {!showConfirm ? (
-          <Button variant="danger" onClick={() => setShowConfirm(true)}>Clear All Data</Button>
-        ) : (
-          <div className="rounded-lg border border-ship-red/30 bg-ship-red/10 p-4 max-w-lg">
-            <p className="mb-3 text-sm text-vos-black"><strong>Warning:</strong> This permanently deletes all your audit data (agent and lite). This cannot be undone.</p>
-            <div className="flex gap-3">
-              <Button variant="danger" onClick={() => clearData.mutate()} disabled={clearData.isPending}>{clearData.isPending ? 'Clearing...' : 'Confirm Delete'}</Button>
-              <Button variant="secondary" onClick={() => setShowConfirm(false)} disabled={clearData.isPending}>Cancel</Button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function SummaryMetric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-lg bg-c-base border border-b-subtle shadow-card p-5 group hover:border-ship-red/30 transition-colors">
-      <p className="text-[10px] font-black uppercase tracking-widest text-vos-500 mb-1">{label}</p>
-      <p className="text-3xl font-black text-t-primary tabular-nums leading-none group-hover:text-ship-red transition-colors">{value}</p>
     </div>
   )
 }

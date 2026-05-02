@@ -1,14 +1,25 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { readymodeApi, DISPOSITIONS, DURATION_FILTERS, type DownloadRequest } from '@/api/readymode'
+import { Info, Link2, Copy, Check, X } from 'lucide-react'
+import { LiveCountUp } from '@/components/ui/LiveCountUp'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuthStore } from '@/store/authStore'
-import { ChevronDown, Settings2, Info, Link2, X, Square } from 'lucide-react'
+import { ChevronDown, Settings2, Square } from 'lucide-react'
 import { CustomDatePicker } from '@/components/ui/DatePicker'
 import { CustomSelect } from '@/components/ui/Select'
-import { useAuditStream, inferPhase } from '@/hooks/useAuditStream'
+import { Button } from '@/components/ui/Button'
+import { useAuditStore } from '@/store/auditStore'
 import { useQuotaStore } from '@/store/quotaStore'
+import { 
+  inferPhase, 
+  type StreamStatus, 
+  type ProgressState, 
+  type AnalysisProgress, 
+  type DoneResult, 
+  type LogLine 
+} from '@/hooks/useAuditStream'
 
 type AuditSection = 'agent' | 'campaign'
 function todayISO() {
@@ -380,6 +391,7 @@ function useRotatingMessage(phase: keyof typeof PHASE_MESSAGES, isRunning: boole
 function AuditProgressBar({
   status,
   progress,
+  analysisProgress,
   result,
   error,
   logs,
@@ -387,11 +399,12 @@ function AuditProgressBar({
   onCancel,
   onReset,
 }: {
-  status: import('@/hooks/useAuditStream').StreamStatus
-  progress: import('@/hooks/useAuditStream').ProgressState | null
-  result: import('@/hooks/useAuditStream').DoneResult | null
+  status: StreamStatus
+  progress: ProgressState | null
+  analysisProgress: AnalysisProgress | null
+  result: DoneResult | null
   error: string | null
-  logs: import('@/hooks/useAuditStream').LogLine[]
+  logs: LogLine[]
   maxCalls: number
   onCancel: () => void
   onReset: () => void
@@ -407,10 +420,15 @@ function AuditProgressBar({
   // Progress percentage — real if we have progress data, animated if not
   const pct = useMemo(() => {
     if (isDone) return 100
+    if (phase === 'analyzing') {
+      if (!analysisProgress) return 0 // Reset to 0 when analysis starts
+      if (analysisProgress.total === 0) return 0
+      return Math.min(100, Math.round((analysisProgress.completed / analysisProgress.total) * 100))
+    }
     if (!progress) return isRunning ? null : 0  // null = indeterminate
     if (progress.total === 0) return 0
     return Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
-  }, [progress, isDone, isRunning])
+  }, [progress, analysisProgress, phase, isDone, isRunning])
 
   const phaseLabel: Record<typeof phase, string> = {
     idle: 'Initializing',
@@ -462,11 +480,19 @@ function AuditProgressBar({
           </div>
 
           {/* X / Total counter */}
-          {(isRunning || isDone) && progress && (
+          {(isRunning || isDone) && (phase === 'analyzing' ? analysisProgress : progress) && (
             <span className="text-xs font-bold tabular-nums" style={{ color: 'var(--t-label)' }}>
-              <span style={{ color: accentColor }}>{isDone ? progress.total : progress.downloaded}</span>
-              <span style={{ color: 'var(--t-muted)' }}> / {progress.total}</span>
-              <span className="ml-1.5 text-[10px] uppercase tracking-wider" style={{ color: 'var(--t-muted)' }}>calls</span>
+              <span style={{ color: accentColor }}>
+                <LiveCountUp value={
+                  isDone 
+                    ? (phase === 'analyzing' ? analysisProgress?.total ?? 0 : progress?.total ?? 0) 
+                    : (phase === 'analyzing' ? analysisProgress?.completed ?? 0 : progress?.downloaded ?? 0)
+                } />
+              </span>
+              <span style={{ color: 'var(--t-muted)' }}> / {phase === 'analyzing' ? analysisProgress?.total : progress?.total}</span>
+              <span className="ml-1.5 text-[10px] uppercase tracking-wider" style={{ color: 'var(--t-muted)' }}>
+                {phase === 'analyzing' ? 'analyzed' : 'downloaded'}
+              </span>
             </span>
           )}
           {isRunning && !progress && (
@@ -595,6 +621,7 @@ function AuditProgressBar({
 
 /* ────────────────────────────────────────────────────────────────────────────── */
 function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
+  const token = useAuthStore((s) => s.token)
   const [dialerUrl, setDialerUrl] = useState('https://resva.readymode.com/')
   const [identifier, setIdentifier] = useState(mode === 'agent' ? 'All users' : '')
   const [maxCalls, setMaxCalls] = useState(50)
@@ -611,7 +638,10 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
     retry: false,
   })
 
-  const { status, logs, result, error, progress, start, cancel, reset } = useAuditStream()
+  const { 
+    status, logs, result, error, progress, analysisProgress, 
+    start, cancel, reset 
+  } = useAuditStore()
   const isRunning = status === 'running'
   const fetchUsage = useQuotaStore((s) => s.fetchUsage)
 
@@ -775,25 +805,23 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                   <NumberStepper value={maxCalls} onChange={setMaxCalls} min={1} max={2000} disabled={isRunning} />
                 </div>
                 <div className="flex items-center justify-between w-full mt-2 gap-3 flex-wrap">
-                  <motion.button
-                    whileTap={{ scale: 0.98 }}
+                  <Button
+                    variant="action"
                     onClick={() => { reset(); start(buildBody('heavy')) }}
                     disabled={disabled}
-                    style={{ backgroundColor: 'var(--btn-heavy-bg)', color: 'var(--btn-heavy-text)' }}
-                    className="relative flex h-11 items-center justify-center gap-2 rounded-md px-10 text-sm font-black uppercase tracking-widest shadow-lg disabled:opacity-50 transition-all hover:opacity-90"
+                    className="flex-1 h-11"
                   >
                     HEAVY AUDIT
-                  </motion.button>
+                  </Button>
 
-                  <motion.button
-                    whileTap={{ scale: 0.98 }}
+                  <Button
+                    variant="action"
                     onClick={() => { reset(); start(buildBody('lite')) }}
                     disabled={disabled}
-                    style={{ backgroundColor: 'var(--btn-lite-bg)', border: '1px solid var(--btn-lite-border)', color: 'var(--btn-lite-text)' }}
-                    className="relative flex h-11 items-center justify-center gap-2 rounded-md px-10 text-sm font-black uppercase tracking-widest shadow-lg disabled:opacity-50 transition-all hover:opacity-90"
+                    className="flex-1 h-11"
                   >
                     LITE AUDIT
-                  </motion.button>
+                  </Button>
                 </div>
               </div>
                 </motion.section>
@@ -809,6 +837,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                   <AuditProgressBar
                     status={status}
                     progress={progress}
+                    analysisProgress={analysisProgress}
                     result={result}
                     error={error}
                     logs={logs}

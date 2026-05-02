@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { useFlaggedCalls } from '@/hooks/useDashboard'
 import { Spinner } from '@/components/ui/Spinner'
@@ -71,13 +71,13 @@ function CustomAudioPlayer({ src, isLateHello, audioRef }: AudioPlayerProps) {
     audioRef.current.currentTime = percent * duration
   }
 
-  const bars = Array.from({ length: 80 }).map((_, i) => {
+  const bars = Array.from({ length: 60 }).map((_, i) => {
     const h = Math.sin(i * 0.4) * 5 + 10
     return Math.max(3, h)
   })
 
   return (
-    <div className="flex items-center gap-4 w-full max-w-2xl bg-c-base rounded-full p-2 pr-5 border border-b-subtle shadow-2xl">
+    <div className="flex items-center gap-4 w-full max-w-md bg-c-base rounded-full p-2 pr-5 border border-b-subtle shadow-2xl">
       <audio
         ref={audioRef}
         src={src}

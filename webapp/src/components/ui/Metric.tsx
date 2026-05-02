@@ -41,6 +41,13 @@ function useCountUp(target: number | string, inView: boolean) {
   return display
 }
 
+export function CountUp({ value }: { value: number | string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const inView = useInView(ref, { once: true, margin: '0px 0px -40px 0px' })
+  const display = useCountUp(value, inView)
+  return <span ref={ref}>{display}</span>
+}
+
 export function Metric({ label, value, sub }: Props) {
   const ref    = useRef<HTMLDivElement>(null)
   const inView = useInView(ref, { once: true, margin: '0px 0px -40px 0px' })

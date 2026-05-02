@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { readymodeApi, type DownloadRequest } from '@/api/readymode'
 import { useAuthStore } from '@/store/authStore'
 
@@ -20,6 +20,11 @@ export interface DoneResult {
 
 export interface ProgressState {
   downloaded: number
+  total: number
+}
+
+export interface AnalysisProgress {
+  completed: number
   total: number
 }
 
@@ -66,6 +71,7 @@ export function useAuditStream() {
   const [result, setResult] = useState<DoneResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState<ProgressState | null>(null)
+  const [analysisProgress, setAnalysisProgress] = useState<AnalysisProgress | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   const start = useCallback(async (body: DownloadRequest) => {
@@ -76,6 +82,7 @@ export function useAuditStream() {
     setResult(null)
     setError(null)
     setProgress(null)
+    setAnalysisProgress(null)
     setStatus('running')
 
     try {
@@ -86,6 +93,16 @@ export function useAuditStream() {
           if (event === 'log') {
             const { stage, text } = parseStage(data)
             setLogs((prev) => [...prev, { id: _idCounter++, stage, text }])
+
+            // Parse analysis progress from logs
+            // Formats: "Async Progress: 10/100 files processed (10%)" or "Lite Progress: 10/100 files processed (10%)"
+            const analysisMatch = text.match(/(?:Async|Lite) Progress: (\d+)\/(\d+)/)
+            if (analysisMatch) {
+              setAnalysisProgress({
+                completed: parseInt(analysisMatch[1], 10),
+                total: parseInt(analysisMatch[2], 10)
+              })
+            }
           } else if (event === 'progress') {
             try {
               const p = JSON.parse(data)
@@ -131,7 +148,8 @@ export function useAuditStream() {
     setResult(null)
     setError(null)
     setProgress(null)
+    setAnalysisProgress(null)
   }, [])
 
-  return { status, logs, result, error, progress, start, cancel, reset }
+  return { status, logs, result, error, progress, analysisProgress, start, cancel, reset }
 }

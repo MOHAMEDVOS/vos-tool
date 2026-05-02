@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useCampaignAudits, useCampaigns } from '@/hooks/useDashboard'
 import { dashboardApi } from '@/api/dashboard'
 import { AuditTable } from '@/components/tables/AuditTable'
@@ -89,7 +89,7 @@ export function CampaignAuditDashboard() {
         />
 
         <div className="pb-0.5">
-          <Button size="md" variant="secondary" onClick={() => qc.invalidateQueries({ queryKey: ['campaign-audits'] })}>
+          <Button size="md" variant="action" onClick={() => qc.invalidateQueries({ queryKey: ['campaign-audits'] })}>
             <RefreshCw size={14} /> Refresh
           </Button>
         </div>
@@ -114,37 +114,37 @@ export function CampaignAuditDashboard() {
             rows={displayRows} 
             leftActions={
               !showConfirm ? (
-                <button
+                <Button
+                  variant="action"
                   onClick={() => setShowConfirm(true)}
                   disabled={!effectiveCampaign}
-                  className="group relative px-6 py-2.5 rounded-xl bg-ship-red/10 hover:bg-ship-red/20 border border-ship-red/30 hover:border-ship-red/60 text-ship-red text-[10px] font-black uppercase tracking-[0.2em] transition-all duration-300 shadow-xl active:scale-95 flex items-center gap-3 backdrop-blur-md overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <div className="absolute inset-0 bg-gradient-to-r from-ship-red/0 via-ship-red/20 to-ship-red/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
-                  <span className="relative z-10">Clear Selected Campaign Data</span>
-                </button>
+                  Clear Selected Campaign Data
+                </Button>
               ) : (
-                <div className="rounded-xl border border-ship-red/30 bg-c-base p-6 max-w-lg shadow-2xl backdrop-blur-xl absolute bottom-0 left-0 z-[60] mb-12">
+                <div className="rounded-xl border border-b-strong bg-c-base p-6 max-w-lg shadow-2xl backdrop-blur-xl absolute bottom-0 left-0 z-[60] mb-12">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-1 h-6 bg-ship-red rounded-full" />
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-ship-red">Confirm Deletion</h3>
+                    <div className="w-1 h-6 bg-semantic-error rounded-full" />
+                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-semantic-error">Confirm Deletion</h3>
                   </div>
                   <p className="mb-6 text-xs text-t-primary leading-relaxed font-medium">
-                    This action will permanently delete all audit data for campaign <span className="text-t-primary font-black underline decoration-ship-red/50">'{effectiveCampaign}'</span>. This cannot be undone.
+                    This action will permanently delete all audit data for campaign <span className="text-t-primary font-black underline decoration-semantic-error/50">'{effectiveCampaign}'</span>. This cannot be undone.
                   </p>
                   <div className="flex justify-start gap-3">
-                    <button 
+                    <Button 
+                      variant="action"
+                      className="text-semantic-error"
                       onClick={() => clearData.mutate()} 
                       disabled={clearData.isPending}
-                      className="px-5 py-2 rounded-lg bg-ship-red hover:bg-ship-red/80 text-t-primary text-[10px] font-black uppercase tracking-widest transition-all shadow-lg shadow-ship-red/20"
                     >
                       {clearData.isPending ? 'Processing...' : 'Permanently Delete'}
-                    </button>
-                    <button 
+                    </Button>
+                    <Button 
+                      variant="action"
                       onClick={() => setShowConfirm(false)}
-                      className="px-5 py-2 rounded-lg bg-c-raised hover:bg-vos-50 text-t-muted hover:text-t-primary text-[10px] font-black uppercase tracking-widest transition-all"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )
