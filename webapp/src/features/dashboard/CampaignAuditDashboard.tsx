@@ -119,7 +119,7 @@ export function CampaignAuditDashboard() {
           <div className="flex flex-wrap items-center gap-4">
             <Button
               size="md"
-              variant="primary"
+              variant="action"
               disabled={!effectiveCampaign || generateReport.isPending}
               onClick={async () => {
                 setReportLinks(null)
