@@ -4,6 +4,7 @@ import type { WordTimestamp } from '@/types/api'
 interface Props {
   words: WordTimestamp[]
   audioRef: React.RefObject<HTMLAudioElement | null>
+  audioEl?: HTMLAudioElement | null
   fallbackText?: string
 }
 
@@ -66,7 +67,7 @@ function speakerColor(sp: string | null): string {
   return SPEAKER_COLORS[sp] ?? 'text-vos-400'
 }
 
-export function KaraokeTranscript({ words, audioRef, fallbackText }: Props) {
+export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Props) {
   const [activeIdx, setActiveIdx] = useState(-1)
   const rafRef = useRef<number>(0)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -93,7 +94,7 @@ export function KaraokeTranscript({ words, audioRef, fallbackText }: Props) {
   }, [])
 
   const tick = useCallback(() => {
-    const audio = audioRef.current
+    const audio = audioEl ?? audioRef.current
     if (!audio) return
     const t = audio.currentTime
     const idx = findActiveIndex(words, t)
@@ -126,10 +127,10 @@ export function KaraokeTranscript({ words, audioRef, fallbackText }: Props) {
     }
 
     rafRef.current = requestAnimationFrame(tick)
-  }, [words, audioRef])
+  }, [words, audioRef, audioEl])
 
   useEffect(() => {
-    const audio = audioRef.current
+    const audio = audioEl ?? audioRef.current
     if (!audio || !words.length) return
 
     const start = () => { rafRef.current = requestAnimationFrame(tick) }
@@ -151,11 +152,11 @@ export function KaraokeTranscript({ words, audioRef, fallbackText }: Props) {
       audio.removeEventListener('pause',  stop)
       audio.removeEventListener('ended',  reset)
     }
-  }, [words, audioRef, tick])
+  }, [words, audioRef, audioEl, tick])
 
   // Click a word → seek audio to its start time
   const handleWordClick = useCallback((start: number) => {
-    const audio = audioRef.current
+    const audio = audioEl ?? audioRef.current
     if (!audio) return
     audio.currentTime = start
     if (audio.paused) audio.play()

@@ -14,9 +14,10 @@ interface AudioPlayerProps {
   src: string
   isLateHello?: boolean
   audioRef: React.RefObject<HTMLAudioElement | null>
+  onAudioMounted?: (el: HTMLAudioElement) => void
 }
 
-function CustomAudioPlayer({ src, isLateHello, audioRef }: AudioPlayerProps) {
+function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted }: AudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
@@ -79,7 +80,10 @@ function CustomAudioPlayer({ src, isLateHello, audioRef }: AudioPlayerProps) {
   return (
     <div className="flex items-center gap-4 w-full max-w-md bg-c-base rounded-full p-2 pr-5 border border-b-subtle shadow-2xl">
       <audio
-        ref={audioRef}
+        ref={el => {
+          (audioRef as React.MutableRefObject<HTMLAudioElement | null>).current = el
+          if (el) onAudioMounted?.(el)
+        }}
         src={src}
         onLoadedMetadata={onLoadedMetadata}
         onEnded={onEnded}
@@ -246,6 +250,8 @@ function CallCard({ call }: { call: FlaggedCall }) {
 
   // Shared audioRef passed to both the player and the karaoke transcript
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  // State version so KaraokeTranscript re-renders when the audio element mounts
+  const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null)
 
   // Word timestamps — fetched on mount, independent of audio loading
   const [words, setWords] = useState<WordTimestamp[]>([])
@@ -281,6 +287,7 @@ function CallCard({ call }: { call: FlaggedCall }) {
               src={audioSrc}
               isLateHello={call['Late Hello Detection'] === 'Yes'}
               audioRef={audioRef}
+              onAudioMounted={setAudioEl}
             />
           ) : (
             <p className="text-sm text-ship-red">Audio not available{'—'}no file path, filename, or phone number.</p>
@@ -313,6 +320,7 @@ function CallCard({ call }: { call: FlaggedCall }) {
           <KaraokeTranscript
             words={words}
             audioRef={audioRef}
+            audioEl={audioEl}
             fallbackText={transcription}
           />
         )}
@@ -326,9 +334,10 @@ interface AuthenticatedAudioProps {
   src: string
   isLateHello?: boolean
   audioRef: React.RefObject<HTMLAudioElement | null>
+  onAudioMounted?: (el: HTMLAudioElement) => void
 }
 
-function AuthenticatedAudio({ src, isLateHello, audioRef }: AuthenticatedAudioProps) {
+function AuthenticatedAudio({ src, isLateHello, audioRef, onAudioMounted }: AuthenticatedAudioProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -362,5 +371,5 @@ function AuthenticatedAudio({ src, isLateHello, audioRef }: AuthenticatedAudioPr
       <Spinner size="sm" /> Loading audio...
     </div>
   )
-  return <CustomAudioPlayer src={blobUrl} isLateHello={isLateHello} audioRef={audioRef} />
+  return <CustomAudioPlayer src={blobUrl} isLateHello={isLateHello} audioRef={audioRef} onAudioMounted={onAudioMounted} />
 }

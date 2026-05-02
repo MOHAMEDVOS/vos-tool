@@ -8,11 +8,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 from pydub import AudioSegment
-from concurrent.futures import ThreadPoolExecutor
-import tempfile
-
 from audio_pipeline.detections import releasing_detection, late_hello_detection
-from lib.agent_only_detector import AgentOnlyTranscriptionEngine
 from audio_pipeline.audio_processor import _shared_executor
 
 logger = logging.getLogger(__name__)
@@ -22,15 +18,8 @@ class FastAudioProcessor:
     """Optimized audio processor for fast transcription-only processing."""
     
     def __init__(self):
-        """Initialize fast audio processor."""
-        self.transcription_engine = None
-        
-    def _get_transcription_engine(self, user_api_key: Optional[str] = None):
-        """Get or create transcription engine."""
-        if self.transcription_engine is None:
-            self.transcription_engine = AgentOnlyTranscriptionEngine(user_api_key=user_api_key)
-        return self.transcription_engine
-    
+        pass
+
     def _check_audio_duration(self, audio: AudioSegment, min_seconds: int = 3) -> bool:
         """Check if audio meets minimum duration requirement."""
         duration_ms = len(audio)
@@ -167,8 +156,8 @@ class FastAudioProcessor:
             }
     
     def _process_fast_parallel(
-        self, 
-        agent_audio: AudioSegment, 
+        self,
+        agent_audio: AudioSegment,
         file_path: Path,
         agent_name: str,
         phone_number: str,
@@ -178,96 +167,37 @@ class FastAudioProcessor:
         user_api_key: Optional[str],
         start_time: float
     ) -> Dict[str, Any]:
-        """Process with fast parallel execution."""
-        
-        # Create temp file for transcription
-        temp_file = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                agent_audio.export(tmp.name, format="wav", parameters=["-ac", "1", "-ar", "16000"])
-                temp_file = tmp.name
-        except Exception as e:
-            logger.error(f"Failed to create temp file: {e}")
-            temp_file = None
-        
-        # Parallel execution with SHARED _shared_executor
-        # Submit all tasks
+        """Process with fast parallel execution — audio signal only, no transcription."""
+
         future_releasing = _shared_executor.submit(releasing_detection, agent_audio)
         future_late_hello = _shared_executor.submit(late_hello_detection, agent_audio, file_path.name)
-        
-        # Transcription task (if temp file available)
-        future_transcription = None
-        if temp_file:
-            transcription_engine = self._get_transcription_engine(user_api_key)
-            future_transcription = _shared_executor.submit(
-                transcription_engine.transcribe_agent_only, 
-                temp_file
-            )
-            
-            # Collect results
-            result = {
-                'agent_name': agent_name,
-                'phone_number': phone_number,
-                'timestamp': timestamp,
-                'disposition': disposition,
-                'file_path': str(file_path),
-                'processing_time': time.time() - start_time,
-                'classification_success': True,
-                'transcription_status': 'completed',
-                'transcription_error': None
-            }
-            
-            # Basic detections (fast)
-            try:
-                result['releasing_detection'] = future_releasing.result(timeout=5)
-            except Exception as e:
-                logger.error(f"Releasing detection failed: {e}")
-                result['releasing_detection'] = 'Error'
-            
-            try:
-                result['late_hello_detection'] = future_late_hello.result(timeout=5)
-            except Exception as e:
-                logger.error(f"Late hello detection failed: {e}")
-                result['late_hello_detection'] = 'Error'
-            
-            # Transcription (slower, but we have timeout)
-            transcript = ""
-            transcription_status = "failed"
-            transcription_error = None
-            
-            if future_transcription:
-                try:
-                    transcription_result = future_transcription.result(timeout=120)  # 2 minute timeout
-                    transcript = transcription_result.get("transcript", "")
-                    transcription_status = transcription_result.get("transcription_status", "completed")
-                    transcription_error = transcription_result.get("transcription_error")
-                    
-                    logger.info(f"Transcription completed: {len(transcript)} chars, status: {transcription_status}")
-                    
-                except Exception as e:
-                    logger.error(f"Transcription failed: {e}")
-                    transcription_status = "timeout" if "timeout" in str(e).lower() else "failed"
-                    transcription_error = str(e)
-            
-            result['transcript'] = transcript
-            result['transcription_status'] = transcription_status
-            result['transcription_error'] = transcription_error
-            
-            # Skip rebuttal detection for speed (can be added later if needed)
-            result['rebuttal_detection'] = {
-                'result': 'Skipped',
-                'transcript': transcript,
-                'reason': 'fast_processing_mode'
-            }
-            
-            # Clean up temp file
-            if temp_file and Path(temp_file).exists():
-                try:
-                    Path(temp_file).unlink()
-                except Exception:
-                    pass
-            
-            return result
+
+        result = {
+            'agent_name': agent_name,
+            'phone_number': phone_number,
+            'timestamp': timestamp,
+            'disposition': disposition,
+            'file_path': str(file_path),
+            'processing_time': time.time() - start_time,
+            'classification_success': True,
+            'transcription_status': 'skipped',
+            'transcription_error': None,
+            'transcript': '',
+        }
+
+        try:
+            result['releasing_detection'] = future_releasing.result(timeout=5)
+        except Exception as e:
+            logger.error(f"Releasing detection failed: {e}")
+            result['releasing_detection'] = 'Error'
+
+        try:
+            result['late_hello_detection'] = future_late_hello.result(timeout=5)
+        except Exception as e:
+            logger.error(f"Late hello detection failed: {e}")
+            result['late_hello_detection'] = 'Error'
+
+        return result
     
     def _is_valid_audio_file(self, file_path: Path) -> bool:
         """Check if file is a valid audio file."""
