@@ -20,7 +20,6 @@ import os
 import tempfile
 import time
 import contextlib
-from lib.ai_campaign_report import generate_ai_campaign_summary, generate_ai_issue_notes
 
 # File locking imports (cross-platform)
 try:
@@ -3911,23 +3910,6 @@ class DashboardManager:
             "date_range": date_range_label,
         }
 
-        try:
-            ai_summary = generate_ai_campaign_summary(campaign_metrics)
-        except Exception as e:
-            logger.warning(f"AI summary generation failed: {e}")
-            ai_summary = None
-
-        # Let AI refine per-issue notes where feedback is Yes; keep fallbacks otherwise
-        try:
-            ai_issue_notes = generate_ai_issue_notes(campaign_metrics, issue_table)
-            if isinstance(ai_issue_notes, dict) and ai_issue_notes:
-                for key, note in ai_issue_notes.items():
-                    if key in issue_table and str(issue_table[key].get('feedback', '')).strip() == "Yes":
-                        if note and isinstance(note, str):
-                            issue_table[key]['notes'] = note.strip()
-        except Exception as e:
-            logger.warning(f"AI issue notes generation failed: {e}")
-
         return {
             'agents_audited': unique_agents,
             'total_calls': total_calls,
@@ -3937,7 +3919,6 @@ class DashboardManager:
             'observations': observations,
             'recommendations': recommendations,
             'issue_table': issue_table,
-            'ai_summary': ai_summary,
         }
 
     def _generate_ai_insights(self, df: pd.DataFrame, disposition_counts: dict, behavioral_ratios: dict) -> list:

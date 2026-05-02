@@ -225,11 +225,3 @@ export interface SharingConfig {
   user_dashboard_mode?: Record<string, string>
   [key: string]: unknown
 }
-
-export interface CampaignReportResponse {
-  success: boolean
-  campaign: string
-  report?: string
-  message?: string
-  row_count: number
-}

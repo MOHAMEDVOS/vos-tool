@@ -394,8 +394,23 @@ def create_tables_if_needed(db):
             pass
         logger.info("✓ Whitelist table created/verified")
 
+        # Create user_google_tokens table for OAuth refresh token storage
+        create_google_tokens_table = """
+        CREATE TABLE IF NOT EXISTS user_google_tokens (
+            username TEXT PRIMARY KEY,
+            access_token TEXT,
+            refresh_token_encrypted TEXT NOT NULL,
+            expires_at TIMESTAMP WITH TIME ZONE,
+            scopes TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+        db.execute_query(create_google_tokens_table, fetch=False)
+        logger.info("✓ User Google tokens table created/verified")
+
         _apply_full_schema(db)
-        
+
         logger.info("✅ Database tables initialized successfully")
         
     except Exception as e:

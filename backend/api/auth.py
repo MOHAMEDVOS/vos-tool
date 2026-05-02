@@ -3,6 +3,7 @@ Authentication API endpoints.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer
 from typing import Optional
 import sys
@@ -18,7 +19,8 @@ from lib.dashboard_manager import session_manager, user_manager
 from lib.quota_manager import quota_manager
 from backend.core.whitelist import get_user_from_whitelist
 from google.oauth2 import id_token
-from google.auth.transport import requests
+from google.auth.transport import requests as google_requests
+from google_auth_oauthlib.flow import Flow
 import logging
 
 logger = logging.getLogger(__name__)
@@ -40,7 +42,7 @@ async def google_login(request: dict):
         client_id = settings.GOOGLE_CLIENT_ID
         try:
             # Use 10s clock skew to handle 'Token used too early' errors (server/client clock mismatch)
-            idinfo = id_token.verify_oauth2_token(credential, requests.Request(), client_id, clock_skew_in_seconds=10)
+            idinfo = id_token.verify_oauth2_token(credential, google_requests.Request(), client_id, clock_skew_in_seconds=10)
             email = idinfo['email']
             name = idinfo.get('name', '')
             picture = idinfo.get('picture', '')
@@ -175,3 +177,92 @@ async def check_session(current_user: dict = Depends(get_current_user)):
         "valid": True,
         "username": current_user["username"],
     }
+
+
+_WORKSPACE_SCOPES = [
+    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/spreadsheets",
+]
+
+
+def _build_workspace_flow(redirect_uri: str) -> Flow:
+    from backend.core.config import settings
+    return Flow.from_client_config(
+        {
+            "web": {
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        },
+        scopes=_WORKSPACE_SCOPES,
+        redirect_uri=redirect_uri,
+    )
+
+
+@router.get("/google/workspace/connect")
+async def google_workspace_connect(current_user: dict = Depends(get_current_user)):
+    """Start the Google Workspace OAuth flow for Sheets/Docs/Drive access."""
+    from backend.core.config import settings
+    flow = _build_workspace_flow(settings.GOOGLE_OAUTH_REDIRECT_URI)
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        prompt="consent",
+        state=current_user["username"],
+    )
+    return {"auth_url": auth_url}
+
+
+@router.get("/google/workspace/callback")
+async def google_workspace_callback(code: str, state: str):
+    """Handle OAuth callback, persist refresh token."""
+    from backend.core.config import settings
+    from lib.database import get_db_manager
+    from lib.security_utils import SecurityManager
+
+    flow = _build_workspace_flow(settings.GOOGLE_OAUTH_REDIRECT_URI)
+    flow.fetch_token(code=code)
+    creds = flow.credentials
+
+    db = get_db_manager()
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    sec = SecurityManager()
+    encrypted_refresh = sec.encrypt_string(creds.refresh_token) if creds.refresh_token else ""
+
+    db.execute_query(
+        """
+        INSERT INTO user_google_tokens (username, access_token, refresh_token_encrypted, expires_at, scopes, updated_at)
+        VALUES (%s, %s, %s, %s, %s, NOW())
+        ON CONFLICT (username) DO UPDATE
+            SET access_token = EXCLUDED.access_token,
+                refresh_token_encrypted = EXCLUDED.refresh_token_encrypted,
+                expires_at = EXCLUDED.expires_at,
+                scopes = EXCLUDED.scopes,
+                updated_at = NOW()
+        """,
+        (state, creds.token, encrypted_refresh, creds.expiry, " ".join(_WORKSPACE_SCOPES)),
+        fetch=False,
+    )
+
+    # Close popup and notify the opener
+    return RedirectResponse(url="/auth-success")
+
+
+@router.get("/google/workspace/status")
+async def google_workspace_status(current_user: dict = Depends(get_current_user)):
+    """Return whether the current user has connected Google Workspace."""
+    from lib.database import get_db_manager
+    db = get_db_manager()
+    if db is None:
+        return {"connected": False}
+    row = db.execute_query(
+        "SELECT username FROM user_google_tokens WHERE username = %s",
+        (current_user["username"],),
+        fetchone=True,
+    )
+    return {"connected": bool(row)}

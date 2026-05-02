@@ -122,6 +122,11 @@ _COMMON_SETTINGS = {
     # Google OAuth
     "GOOGLE_CLIENT_ID": os.getenv("GOOGLE_CLIENT_ID", ""),
     "GOOGLE_CLIENT_SECRET": os.getenv("GOOGLE_CLIENT_SECRET", ""),
+
+    # Google Report Export
+    "GOOGLE_REPORT_DRIVE_FOLDER_ID": os.getenv("GOOGLE_REPORT_DRIVE_FOLDER_ID", ""),
+    "GOOGLE_DOC_TEMPLATE_ID": os.getenv("GOOGLE_DOC_TEMPLATE_ID", "1NL-0xCpFY1FzwlM-_t5WBA_U_vh6gJF7fKXXXTWIMrk"),
+    "GOOGLE_OAUTH_REDIRECT_URI": os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/api/auth/google/workspace/callback"),
 }
 
 
@@ -167,7 +172,10 @@ if PYDANTIC_V2:
         SESSION_SECRET: Optional[str] = _COMMON_SETTINGS["SESSION_SECRET"]
         GOOGLE_CLIENT_ID: str = _COMMON_SETTINGS["GOOGLE_CLIENT_ID"]
         GOOGLE_CLIENT_SECRET: str = _COMMON_SETTINGS["GOOGLE_CLIENT_SECRET"]
-        
+        GOOGLE_REPORT_DRIVE_FOLDER_ID: str = _COMMON_SETTINGS["GOOGLE_REPORT_DRIVE_FOLDER_ID"]
+        GOOGLE_DOC_TEMPLATE_ID: str = _COMMON_SETTINGS["GOOGLE_DOC_TEMPLATE_ID"]
+        GOOGLE_OAUTH_REDIRECT_URI: str = _COMMON_SETTINGS["GOOGLE_OAUTH_REDIRECT_URI"]
+
         @field_validator('CORS_ORIGINS', mode='before')
         @classmethod
         def parse_cors_origins(cls, v):
@@ -240,7 +248,10 @@ else:
         SESSION_SECRET: Optional[str] = _COMMON_SETTINGS["SESSION_SECRET"]
         GOOGLE_CLIENT_ID: str = _COMMON_SETTINGS["GOOGLE_CLIENT_ID"]
         GOOGLE_CLIENT_SECRET: str = _COMMON_SETTINGS["GOOGLE_CLIENT_SECRET"]
-        
+        GOOGLE_REPORT_DRIVE_FOLDER_ID: str = _COMMON_SETTINGS["GOOGLE_REPORT_DRIVE_FOLDER_ID"]
+        GOOGLE_DOC_TEMPLATE_ID: str = _COMMON_SETTINGS["GOOGLE_DOC_TEMPLATE_ID"]
+        GOOGLE_OAUTH_REDIRECT_URI: str = _COMMON_SETTINGS["GOOGLE_OAUTH_REDIRECT_URI"]
+
         @validator('CORS_ORIGINS', pre=True)
         @classmethod
         def parse_cors_origins(cls, v):

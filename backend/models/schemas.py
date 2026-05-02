@@ -211,20 +211,6 @@ class GenericActionResponse(BaseModel):
     message: Optional[str] = None
 
 
-# Campaign AI report schemas (G2)
-class CampaignReportRequest(BaseModel):
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-
-
-class CampaignReportResponse(BaseModel):
-    success: bool
-    campaign: str
-    report: Optional[str] = None
-    message: Optional[str] = None
-    row_count: int = 0
-
-
 # Quota schemas (G3, G4)
 class QuotaAllocations(BaseModel):
     allocations: Dict[str, int]

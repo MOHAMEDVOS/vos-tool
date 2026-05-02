@@ -5,20 +5,27 @@ import { AuditTable } from '@/components/tables/AuditTable'
 import { Metric } from '@/components/ui/Metric'
 import { Button, DestroyButton } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
+import { SuccessFlash } from '@/components/ui/SuccessFlash'
 import { isRowFlagged } from '@/utils/audit'
 import type { AgentAuditRow } from '@/types/api'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, FileText } from 'lucide-react'
 import { CustomDatePicker } from '@/components/ui/DatePicker'
 import { CustomSelect } from '@/components/ui/Select'
+import { useGenerateCampaignReport, isGoogleNotConnectedError } from '@/hooks/useReports'
+import { reportsApi } from '@/api/reports'
 
 export function CampaignAuditDashboard() {
   const qc = useQueryClient()
   const [showConfirm, setShowConfirm] = useState(false)
+  const [reportLinks, setReportLinks] = useState<{ sheet_url: string; doc_url: string } | null>(null)
+  const [reportError, setReportError] = useState<string | null>(null)
   const { data: campaigns, isLoading: loadingCampaigns } = useCampaigns()
   const [selected, setSelected] = useState<string>('')
   const [startDate, setStartDate] = useState<string>('')
   const [endDate, setEndDate] = useState<string>('')
+
+  const generateReport = useGenerateCampaignReport()
 
   const effectiveCampaign = selected || campaigns?.[0] || ''
   const { data, isLoading, isError } = useCampaignAudits(
@@ -108,6 +115,68 @@ export function CampaignAuditDashboard() {
             <Metric label="Late Hello"    value={summary.lateHello} />
             <Metric label="No Rebuttal"   value={summary.noRebuttal} />
             <Metric label="Campaign"      value={effectiveCampaign} />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <Button
+              size="md"
+              variant="primary"
+              disabled={!effectiveCampaign || generateReport.isPending}
+              onClick={async () => {
+                setReportLinks(null)
+                setReportError(null)
+                try {
+                  const result = await generateReport.mutateAsync({
+                    campaign: effectiveCampaign,
+                    start_date: startDate || undefined,
+                    end_date: endDate || undefined,
+                  })
+                  setReportLinks(result)
+                  window.open(result.doc_url, '_blank')
+                } catch (err) {
+                  if (isGoogleNotConnectedError(err)) {
+                    try {
+                      const { auth_url } = await reportsApi.workspaceConnect()
+                      window.open(auth_url, '_blank', 'width=600,height=700')
+                    } catch {
+                      setReportError('Failed to start Google auth. Check console.')
+                    }
+                  } else {
+                    setReportError(err instanceof Error ? err.message : 'Report generation failed')
+                  }
+                }
+              }}
+            >
+              <FileText size={14} />
+              {generateReport.isPending ? 'Generating…' : 'Generate Campaign Report'}
+            </Button>
+
+            <SuccessFlash show={generateReport.isSuccess} label="Report ready" />
+
+            {reportLinks && (
+              <div className="flex gap-3 text-xs">
+                <a
+                  href={reportLinks.doc_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                >
+                  Open Doc
+                </a>
+                <a
+                  href={reportLinks.sheet_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+                >
+                  Open Sheet
+                </a>
+              </div>
+            )}
+
+            {reportError && (
+              <p className="text-xs text-ship-red">{reportError}</p>
+            )}
           </div>
 
           <AuditTable 
