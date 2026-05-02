@@ -11,7 +11,23 @@ This is your memory. Use it to understand what was done before, what's in progre
 ---
 
 > **This file contains permanent instructions for how to work on VOS with Claude.**  
-> Updated: 2026-04-01 | Owner: Mohamed Ibrahim Abdo
+> Updated: 2026-05-02 | Owner: Mohamed Ibrahim Abdo
+
+---
+
+## Git Remote — CRITICAL
+
+This project has **two remotes**. Always push to `vos-tool`, never `origin`:
+
+```
+origin    → https://github.com/MOHAMEDVOS/vos-tool-2.0-version-.git  ← WRONG REPO
+vos-tool  → https://github.com/MOHAMEDVOS/vos-tool.git               ← CORRECT REPO
+```
+
+**Always use:** `git push vos-tool <branch>`  
+**Never use:** `git push origin <branch>`
+
+Current working branch: `fix/railway-session-auth`
 
 ---
 
