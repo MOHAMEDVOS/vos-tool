@@ -201,17 +201,15 @@ export function ActionsPage() {
   useEffect(() => { if (!selectedAgent && agentDeductions.length > 0) setSelectedAgent(agentDeductions[0].agentName) }, [agentDeductions, selectedAgent])
 
   const clearData = useMutation({
-    mutationFn: async () => { 
+    mutationFn: async () => {
       await dashboardApi.clearAgentAudits()
       await dashboardApi.clearLiteAudits()
-      await dashboardApi.clearCampaignAudits() // Clear all campaigns too
     },
     onSuccess: () => {
       setShowConfirm(false)
       qc.invalidateQueries({ queryKey: ['flagged-calls'] })
       qc.invalidateQueries({ queryKey: ['agent-audits'] })
       qc.invalidateQueries({ queryKey: ['lite-audits'] })
-      qc.invalidateQueries({ queryKey: ['campaign-audits'] })
       qc.invalidateQueries({ queryKey: ['badge-count'] })
     },
   })
@@ -255,7 +253,7 @@ export function ActionsPage() {
                     <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#e74c3c]">Confirm Deletion</h3>
                   </div>
                   <p className="mb-6 text-xs text-t-primary leading-relaxed font-medium">
-                    Permanently delete all your audit data (agent and lite). This cannot be undone.
+                    Permanently delete all agent and lite audit data. Campaign data is not affected. This cannot be undone.
                   </p>
                   <div className="flex justify-start gap-3">
                     <DestroyButton
