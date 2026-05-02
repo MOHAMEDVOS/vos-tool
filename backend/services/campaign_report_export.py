@@ -62,7 +62,27 @@ def generate_campaign_report(
     if df is None or df.empty:
         raise ValueError(f"No audit data found for campaign '{campaign_name}'")
 
-    rows = df.to_dict("records")
+    raw_rows = df.to_dict("records")
+    
+    # Filter rows to match dashboard logic: only keep Lite Audits if they are flagged
+    def is_flagged(r):
+        return (
+            r.get('Releasing Detection') == 'Yes' or
+            r.get('Late Hello Detection') == 'Yes' or
+            r.get('Rebuttal Detection') == 'No'
+        )
+
+    rows = []
+    for r in raw_rows:
+        audit_type = r.get('Audit Type') or r.get('audit_type')
+        if audit_type in ('Lite Audit', 'Lite'):
+            if is_flagged(r):
+                rows.append(r)
+        else:
+            rows.append(r)
+
+    if not rows:
+        raise ValueError(f"No flagged audit data found for campaign '{campaign_name}'")
 
     # --- Create Sheet ---
     logger.info(f"Creating Sheet for campaign '{campaign_name}' ({len(rows)} rows)")
