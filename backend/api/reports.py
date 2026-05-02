@@ -47,10 +47,7 @@ async def generate_report(
         )
         return result
     except ValueError as e:
-        msg = str(e)
-        if msg == "google_not_connected":
-            raise HTTPException(status_code=401, detail="google_not_connected")
-        raise HTTPException(status_code=400, detail=msg)
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Report generation failed for {username}/{body.campaign}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Report generation failed")

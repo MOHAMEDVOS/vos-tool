@@ -1,73 +1,71 @@
 """
-Thin Google Workspace API helpers.
-Handles credential loading/refresh and provides simple wrappers around
-Drive, Sheets, and Docs API operations needed for campaign report export.
+Google Workspace API helpers using service account credentials.
+Service account creates files, then shares them with the logged-in user.
 """
 
 import os
 import json
 import logging
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Tuple
 
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 logger = logging.getLogger(__name__)
 
 SCOPES = [
-    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
 
-def credentials_from_token_row(row: Dict[str, Any]) -> Credentials:
-    """Build a Credentials object from a user_google_tokens DB row."""
-    creds = Credentials(
-        token=row.get("access_token"),
-        refresh_token=row.get("refresh_token"),
-        token_uri="https://oauth2.googleapis.com/token",
-        client_id=os.environ["GOOGLE_OAUTH_CLIENT_ID"],
-        client_secret=os.environ["GOOGLE_OAUTH_CLIENT_SECRET"],
-        scopes=SCOPES,
-    )
-    if not creds.valid and creds.refresh_token:
-        creds.refresh(Request())
-    return creds
+def get_service_account_credentials() -> service_account.Credentials:
+    """Load service account credentials from GOOGLE_SERVICE_ACCOUNT_JSON env var."""
+    sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if not sa_json:
+        raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON environment variable not set")
+    sa_info = json.loads(sa_json)
+    return service_account.Credentials.from_service_account_info(sa_info, scopes=SCOPES)
 
 
-def build_drive(creds: Credentials):
+def build_drive(creds):
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
-def build_sheets(creds: Credentials):
+def build_sheets(creds):
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
 
-def build_docs(creds: Credentials):
+def build_docs(creds):
     return build("docs", "v1", credentials=creds, cache_discovery=False)
 
 
-def copy_template_doc(drive, template_id: str, new_name: str, folder_id: str) -> str:
-    """Copy the template Doc, rename it, move it to folder. Returns new doc_id."""
-    body = {"name": new_name, "parents": [folder_id]}
+def share_file_with_user(drive, file_id: str, email: str) -> None:
+    """Share a file with a user as Editor."""
+    drive.permissions().create(
+        fileId=file_id,
+        body={"type": "user", "role": "writer", "emailAddress": email},
+        sendNotificationEmail=False,
+    ).execute()
+
+
+def copy_template_doc(drive, template_id: str, new_name: str) -> str:
+    """Copy the template Doc and rename it. Returns new doc_id."""
+    body = {"name": new_name}
     result = drive.files().copy(fileId=template_id, body=body).execute()
     return result["id"]
 
 
 def create_spreadsheet(
-    drive,
     sheets,
     name: str,
-    folder_id: str,
     rows: List[Dict[str, Any]],
 ) -> Tuple[str, str]:
     """
-    Create a new Google Sheet, write header + data rows, move to folder.
+    Create a new Google Sheet and write header + data rows.
     Returns (sheet_id, sheet_url).
     """
-    # Define columns (matching the screenshot header)
     columns = [
         "Agent Name", "Phone Number", "Disposition",
         "Releasing Detection", "Late Hello Detection", "Rebuttal Detection",
@@ -75,11 +73,8 @@ def create_spreadsheet(
         "Reason For Calling", "Intro Score", "Status",
     ]
 
-    # Build values matrix: header + data rows
     header = [columns]
-    data = []
-    for r in rows:
-        data.append([str(r.get(col, "")) for col in columns])
+    data = [[str(r.get(col, "")) for col in columns] for r in rows]
 
     body = {
         "properties": {"title": f"{name} – audit data"},
@@ -89,23 +84,11 @@ def create_spreadsheet(
     sheet_id = spreadsheet["spreadsheetId"]
     sheet_name = spreadsheet["sheets"][0]["properties"]["title"]
 
-    # Write data
-    range_name = f"'{sheet_name}'!A1"
     sheets.spreadsheets().values().update(
         spreadsheetId=sheet_id,
-        range=range_name,
+        range=f"'{sheet_name}'!A1",
         valueInputOption="RAW",
         body={"values": header + data},
-    ).execute()
-
-    # Move to target folder
-    file = drive.files().get(fileId=sheet_id, fields="parents").execute()
-    previous_parents = ",".join(file.get("parents", []))
-    drive.files().update(
-        fileId=sheet_id,
-        addParents=folder_id,
-        removeParents=previous_parents,
-        fields="id, parents",
     ).execute()
 
     sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
@@ -113,19 +96,16 @@ def create_spreadsheet(
 
 
 def replace_doc_placeholders(docs, doc_id: str, mapping: Dict[str, str]) -> None:
-    """
-    Replace all {{placeholder}} strings in the Doc with computed values
-    using the Docs batchUpdate replaceAllText API.
-    """
-    requests = []
-    for placeholder, value in mapping.items():
-        requests.append({
+    """Replace {{placeholder}} strings in the Doc via batchUpdate replaceAllText."""
+    requests = [
+        {
             "replaceAllText": {
                 "containsText": {"text": placeholder, "matchCase": True},
                 "replaceText": value or "",
             }
-        })
-
+        }
+        for placeholder, value in mapping.items()
+    ]
     if requests:
         docs.documents().batchUpdate(
             documentId=doc_id,

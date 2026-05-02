@@ -12,8 +12,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, FileText } from 'lucide-react'
 import { CustomDatePicker } from '@/components/ui/DatePicker'
 import { CustomSelect } from '@/components/ui/Select'
-import { useGenerateCampaignReport, isGoogleNotConnectedError } from '@/hooks/useReports'
-import { reportsApi } from '@/api/reports'
+import { useGenerateCampaignReport } from '@/hooks/useReports'
 
 export function CampaignAuditDashboard() {
   const qc = useQueryClient()
@@ -134,16 +133,7 @@ export function CampaignAuditDashboard() {
                   setReportLinks(result)
                   window.open(result.doc_url, '_blank')
                 } catch (err) {
-                  if (isGoogleNotConnectedError(err)) {
-                    try {
-                      const { auth_url } = await reportsApi.workspaceConnect()
-                      window.open(auth_url, '_blank', 'width=600,height=700')
-                    } catch {
-                      setReportError('Failed to start Google auth. Check console.')
-                    }
-                  } else {
-                    setReportError(err instanceof Error ? err.message : 'Report generation failed')
-                  }
+                  setReportError(err instanceof Error ? err.message : 'Report generation failed')
                 }
               }}
             >

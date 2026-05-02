@@ -1,5 +1,6 @@
 """
 Orchestrates campaign report export: Google Sheet + Google Doc creation.
+Uses service account credentials. Files are shared with the logged-in user.
 """
 
 import sys
@@ -13,29 +14,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from lib.dashboard_manager import dashboard_manager
 from lib.campaign_metrics import build_doc_field_mapping
 from lib.google_workspace import (
-    credentials_from_token_row,
+    get_service_account_credentials,
     build_drive,
     build_sheets,
     build_docs,
     copy_template_doc,
     create_spreadsheet,
     replace_doc_placeholders,
+    share_file_with_user,
 )
-from lib.security_utils import SecurityManager
 
 logger = logging.getLogger(__name__)
-
-
-def _load_google_tokens(username: str) -> Optional[Dict[str, Any]]:
-    from lib.database import get_db_manager
-    db = get_db_manager()
-    if db is None:
-        return None
-    return db.execute_query(
-        "SELECT access_token, refresh_token_encrypted, expires_at FROM user_google_tokens WHERE username = %s",
-        (username,),
-        fetchone=True,
-    )
 
 
 def generate_campaign_report(
@@ -49,33 +38,20 @@ def generate_campaign_report(
     1. Fetch audit rows for the campaign.
     2. Build a Google Sheet with the raw data.
     3. Copy the Doc template, fill placeholders with computed metrics.
-    4. Return { sheet_url, doc_url }.
-    Raises ValueError if Google tokens are missing (frontend shows re-auth prompt).
+    4. Share both files with the logged-in user.
+    5. Return { sheet_url, doc_url }.
     """
     from backend.core.config import settings
 
-    # --- Load credentials ---
-    token_row = _load_google_tokens(username)
-    if not token_row or not token_row.get("refresh_token_encrypted"):
-        raise ValueError("google_not_connected")
+    template_id = settings.GOOGLE_DOC_TEMPLATE_ID
+    if not template_id:
+        raise ValueError("GOOGLE_DOC_TEMPLATE_ID is not configured")
 
-    sec = SecurityManager()
-    decrypted_refresh = sec.decrypt_string(token_row["refresh_token_encrypted"])
-    token_row = dict(token_row)
-    token_row["refresh_token"] = decrypted_refresh
-
-    creds = credentials_from_token_row(token_row)
+    # --- Load service account credentials ---
+    creds = get_service_account_credentials()
     drive = build_drive(creds)
     sheets_svc = build_sheets(creds)
     docs_svc = build_docs(creds)
-
-    folder_id = settings.GOOGLE_REPORT_DRIVE_FOLDER_ID
-    template_id = settings.GOOGLE_DOC_TEMPLATE_ID
-
-    if not folder_id:
-        raise ValueError("GOOGLE_REPORT_DRIVE_FOLDER_ID is not configured")
-    if not template_id:
-        raise ValueError("GOOGLE_DOC_TEMPLATE_ID is not configured")
 
     # --- Fetch audit data ---
     df = dashboard_manager.load_campaign_audit_data(campaign_name, start_date, end_date, username)
@@ -86,12 +62,7 @@ def generate_campaign_report(
 
     # --- Create Sheet ---
     logger.info(f"Creating Sheet for campaign '{campaign_name}' ({len(rows)} rows)")
-    _, sheet_url = create_spreadsheet(
-        drive, sheets_svc,
-        name=campaign_name,
-        folder_id=folder_id,
-        rows=rows,
-    )
+    sheet_id, sheet_url = create_spreadsheet(sheets_svc, name=campaign_name, rows=rows)
 
     # --- Build placeholder mapping ---
     mapping = build_doc_field_mapping(
@@ -105,8 +76,13 @@ def generate_campaign_report(
     # --- Copy & fill Doc ---
     logger.info(f"Copying Doc template for campaign '{campaign_name}'")
     doc_name = f"{campaign_name} – performance report"
-    doc_id = copy_template_doc(drive, template_id, doc_name, folder_id)
+    doc_id = copy_template_doc(drive, template_id, doc_name)
     replace_doc_placeholders(docs_svc, doc_id, mapping)
+
+    # --- Share both files with the logged-in user ---
+    logger.info(f"Sharing files with {username}")
+    share_file_with_user(drive, sheet_id, username)
+    share_file_with_user(drive, doc_id, username)
 
     doc_url = f"https://docs.google.com/document/d/{doc_id}/edit"
     logger.info(f"Campaign report generated: doc={doc_url} sheet={sheet_url}")
