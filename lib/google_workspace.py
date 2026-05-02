@@ -58,13 +58,14 @@ def copy_template_doc(drive, template_id: str, new_name: str) -> str:
 
 
 def create_spreadsheet(
+    drive,
     sheets,
     name: str,
     rows: List[Dict[str, Any]],
 ) -> Tuple[str, str]:
     """
-    Create a new Google Sheet and write header + data rows.
-    Returns (sheet_id, sheet_url).
+    Create a new Google Sheet via Drive API (works with service accounts),
+    write header + data rows. Returns (sheet_id, sheet_url).
     """
     columns = [
         "Agent Name", "Phone Number", "Disposition",
@@ -76,17 +77,18 @@ def create_spreadsheet(
     header = [columns]
     data = [[str(r.get(col, "")) for col in columns] for r in rows]
 
-    body = {
-        "properties": {"title": f"{name} – audit data"},
-        "sheets": [{"properties": {"title": name}}],
+    # Create the spreadsheet file via Drive API
+    file_meta = {
+        "name": f"{name} – audit data",
+        "mimeType": "application/vnd.google-apps.spreadsheet",
     }
-    spreadsheet = sheets.spreadsheets().create(body=body).execute()
-    sheet_id = spreadsheet["spreadsheetId"]
-    sheet_name = spreadsheet["sheets"][0]["properties"]["title"]
+    sheet_file = drive.files().create(body=file_meta, fields="id").execute()
+    sheet_id = sheet_file["id"]
 
+    # Write data via Sheets API
     sheets.spreadsheets().values().update(
         spreadsheetId=sheet_id,
-        range=f"'{sheet_name}'!A1",
+        range="Sheet1!A1",
         valueInputOption="RAW",
         body={"values": header + data},
     ).execute()

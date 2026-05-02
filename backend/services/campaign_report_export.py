@@ -62,7 +62,7 @@ def generate_campaign_report(
 
     # --- Create Sheet ---
     logger.info(f"Creating Sheet for campaign '{campaign_name}' ({len(rows)} rows)")
-    sheet_id, sheet_url = create_spreadsheet(sheets_svc, name=campaign_name, rows=rows)
+    sheet_id, sheet_url = create_spreadsheet(drive, sheets_svc, name=campaign_name, rows=rows)
 
     # --- Build placeholder mapping ---
     mapping = build_doc_field_mapping(
