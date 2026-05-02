@@ -115,15 +115,6 @@ def build_doc_field_mapping(
 
     dialer = rows[0].get("Dialer Name", "") if rows else ""
 
-    summary_ratios = (
-        f"No Rebuttals / Early Hang-Ups: {ratios['no_rebuttal_count']} / {total} "
-        f"({ratios['no_rebuttal_pct']}%)\n"
-        f"Releasing Calls: {ratios['releasing_count']} / {total} "
-        f"({ratios['releasing_pct']}%)\n"
-        f"Late Hello Calls: {ratios['late_hello_count']} / {total} "
-        f"({ratios['late_hello_pct']}%)"
-    )
-
     return {
         "{{campaign_name}}": campaign_name,
         "{{dialer}}": str(dialer),
@@ -141,7 +132,6 @@ def build_doc_field_mapping(
         "{{allocation_feedback}}": "N/A",
         "{{campaign_list_issue}}": engagement["campaign_list_issue"],
         "{{campaign_list_summary}}": engagement["summary"],
-        "{{summary_ratios}}": summary_ratios,
         "{{releasing_count}}": str(ratios["releasing_count"]),
         "{{late_hello_count}}": str(ratios["late_hello_count"]),
         "{{no_rebuttal_count}}": str(ratios["no_rebuttal_count"]),

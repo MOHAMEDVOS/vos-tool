@@ -19,18 +19,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
-# ── colour constants (RGB 0-1) ──────────────────────────────────────────────
-_DARK_GREEN  = {"red": 0.133, "green": 0.302, "blue": 0.173}   # #224B2C header bg
-_MID_GREEN   = {"red": 0.416, "green": 0.537, "blue": 0.404}   # #6A8967 section rows
-_LIGHT_CREAM = {"red": 0.980, "green": 0.976, "blue": 0.933}   # #FAF9EE row bg
-_WHITE       = {"red": 1.0,   "green": 1.0,   "blue": 1.0}
-_RED_BADGE   = {"red": 0.839, "green": 0.153, "blue": 0.153}   # Yes-bad
-_GREEN_BADGE = {"red": 0.204, "green": 0.596, "blue": 0.231}   # No-good / Yes-good
-_ORANGE      = {"red": 0.976, "green": 0.686, "blue": 0.184}   # Medium
-_YELLOW      = {"red": 1.0,   "green": 0.949, "blue": 0.6}     # coaching Yes
-
 
 def get_service_account_credentials() -> service_account.Credentials:
+    """Load service account credentials from GOOGLE_SERVICE_ACCOUNT_JSON env var."""
     sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not sa_json:
         raise ValueError("GOOGLE_SERVICE_ACCOUNT_JSON environment variable not set")
@@ -51,6 +42,7 @@ def build_docs(creds):
 
 
 def share_file_with_user(drive, file_id: str, email: str) -> None:
+    """Share a file with a user as Editor."""
     drive.permissions().create(
         fileId=file_id,
         body={"type": "user", "role": "writer", "emailAddress": email},
@@ -60,54 +52,24 @@ def share_file_with_user(drive, file_id: str, email: str) -> None:
 
 
 def copy_template_doc(drive, template_id: str, new_name: str, folder_id: str) -> str:
+    """Copy the template Doc and rename it. Returns new doc_id."""
     body = {"name": new_name, "parents": [folder_id]}
     result = drive.files().copy(fileId=template_id, body=body, supportsAllDrives=True).execute()
     return result["id"]
 
 
-# ── Sheet helpers ────────────────────────────────────────────────────────────
-
-def _rgb(c: Dict) -> Dict:
-    return {"red": c["red"], "green": c["green"], "blue": c["blue"]}
+def _rgb(r: int, g: int, b: int) -> dict:
+    return {"red": r / 255, "green": g / 255, "blue": b / 255}
 
 
-def _cell_color_req(sheet_gid: int, row: int, col_start: int, col_end: int, bg: Dict, fg: Dict = None, bold: bool = False):
-    fmt: Dict = {"backgroundColor": _rgb(bg)}
-    if fg or bold:
-        fmt["textFormat"] = {}
-        if fg:
-            fmt["textFormat"]["foregroundColor"] = _rgb(fg)
-        if bold:
-            fmt["textFormat"]["bold"] = True
-    return {
-        "repeatCell": {
-            "range": {
-                "sheetId": sheet_gid,
-                "startRowIndex": row,
-                "endRowIndex": row + 1,
-                "startColumnIndex": col_start,
-                "endColumnIndex": col_end,
-            },
-            "cell": {"userEnteredFormat": fmt},
-            "fields": "userEnteredFormat(backgroundColor,textFormat)",
-        }
-    }
-
-
-def _detection_color_requests(sheet_gid: int, row_idx: int, col_idx: int, value: str, col_name: str) -> List[Dict]:
-    """Return a color request for a single detection cell based on value."""
-    v = str(value).strip()
-    if col_name == "Releasing Detection":
-        bg = _RED_BADGE if v == "Yes" else _GREEN_BADGE
-    elif col_name == "Late Hello Detection":
-        bg = _RED_BADGE if v == "Yes" else _GREEN_BADGE
-    elif col_name == "Rebuttal Detection":
-        bg = _GREEN_BADGE if v == "Yes" else (_RED_BADGE if v == "No" else _LIGHT_CREAM)
-    elif col_name == "Status":
-        bg = _RED_BADGE if v == "Needs Training" else _GREEN_BADGE if v == "Excellent" else _LIGHT_CREAM
-    else:
-        return []
-    return [_cell_color_req(sheet_gid, row_idx, col_idx, col_idx + 1, bg, _WHITE, bold=True)]
+# Sheet palette
+_HEADER_BG   = _rgb(32, 73, 37)   # dark green
+_HEADER_FG   = _rgb(255, 255, 255)
+_RED_BG      = _rgb(192, 0, 0)
+_GREEN_BG    = _rgb(0, 150, 57)
+_DETECT_FG   = _rgb(255, 255, 255)
+_STATUS_RED  = _rgb(192, 0, 0)
+_STATUS_FG   = _rgb(255, 255, 255)
 
 
 def create_spreadsheet(
@@ -117,7 +79,10 @@ def create_spreadsheet(
     rows: List[Dict[str, Any]],
     folder_id: str,
 ) -> Tuple[str, str]:
-    """Create a formatted Google Sheet. Returns (sheet_id, sheet_url)."""
+    """
+    Create a new Google Sheet inside the specified Shared Drive folder.
+    Returns (sheet_id, sheet_url).
+    """
     columns = [
         "Agent Name", "Phone Number", "Disposition",
         "Releasing Detection", "Late Hello Detection", "Rebuttal Detection",
@@ -131,12 +96,12 @@ def create_spreadsheet(
     body = {
         "name": f"{name} – audit data",
         "mimeType": "application/vnd.google-apps.spreadsheet",
-        "parents": [folder_id],
+        "parents": [folder_id]
     }
     spreadsheet = drive.files().create(body=body, supportsAllDrives=True).execute()
     sheet_id = spreadsheet["id"]
 
-    # Write values
+    # Write data
     sheets.spreadsheets().values().update(
         spreadsheetId=sheet_id,
         range="Sheet1!A1",
@@ -144,62 +109,94 @@ def create_spreadsheet(
         body={"values": header + data},
     ).execute()
 
-    # Get the real sheetId (tab gid) — not the spreadsheet file id
-    meta = sheets.spreadsheets().get(spreadsheetId=sheet_id).execute()
-    sheet_gid = meta["sheets"][0]["properties"]["sheetId"]
-    num_cols = len(columns)
+    # --- Formatting ---
+    num_rows = len(data)
+    col_index = {c: i for i, c in enumerate(columns)}
 
     fmt_requests = []
 
-    # Header row: dark green bg, white bold
-    fmt_requests.append(_cell_color_req(sheet_gid, 0, 0, num_cols, _DARK_GREEN, _WHITE, bold=True))
-
-    # Freeze header row
+    # 1. Header row: dark green bg, white bold text, frozen
     fmt_requests.append({
-        "updateSheetProperties": {
-            "properties": {
-                "sheetId": sheet_gid,
-                "gridProperties": {"frozenRowCount": 1},
+        "repeatCell": {
+            "range": {"sheetId": 0, "startRowIndex": 0, "endRowIndex": 1,
+                      "startColumnIndex": 0, "endColumnIndex": len(columns)},
+            "cell": {
+                "userEnteredFormat": {
+                    "backgroundColor": _HEADER_BG,
+                    "textFormat": {"foregroundColor": _HEADER_FG, "bold": True},
+                    "horizontalAlignment": "CENTER",
+                }
             },
-            "fields": "gridProperties.frozenRowCount",
+            "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
         }
     })
+    fmt_requests.append({"updateSheetProperties": {
+        "properties": {"sheetId": 0, "gridProperties": {"frozenRowCount": 1}},
+        "fields": "gridProperties.frozenRowCount",
+    }})
 
-    # Auto-resize all columns
-    fmt_requests.append({
-        "autoResizeDimensions": {
-            "dimensions": {
-                "sheetId": sheet_gid,
-                "dimension": "COLUMNS",
-                "startIndex": 0,
-                "endIndex": num_cols,
-            }
-        }
-    })
+    # 2. Detection columns: Yes=red, No=green, cell-by-cell
+    def _detection_requests(col_name: str, yes_is_bad: bool):
+        col_i = col_index[col_name]
+        reqs = []
+        for row_i, r in enumerate(rows, start=1):
+            val = str(r.get(col_name, "")).strip()
+            if val not in ("Yes", "No"):
+                continue
+            if yes_is_bad:
+                bg = _RED_BG if val == "Yes" else _GREEN_BG
+            else:
+                bg = _GREEN_BG if val == "Yes" else _RED_BG
+            reqs.append({
+                "repeatCell": {
+                    "range": {"sheetId": 0,
+                              "startRowIndex": row_i, "endRowIndex": row_i + 1,
+                              "startColumnIndex": col_i, "endColumnIndex": col_i + 1},
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": bg,
+                            "textFormat": {"foregroundColor": _DETECT_FG, "bold": True},
+                            "horizontalAlignment": "CENTER",
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+                }
+            })
+        return reqs
 
-    # Detection & Status cell colours per data row
-    detection_cols = {
-        "Releasing Detection", "Late Hello Detection", "Rebuttal Detection", "Status"
-    }
-    for row_i, row_data in enumerate(rows):
-        bg = _LIGHT_CREAM if row_i % 2 == 0 else _WHITE
-        # Alternating row bg for non-detection cells
-        fmt_requests.append(_cell_color_req(sheet_gid, row_i + 1, 0, num_cols, bg))
-        for col_j, col_name in enumerate(columns):
-            if col_name in detection_cols:
-                val = row_data.get(col_name, "")
-                fmt_requests += _detection_color_requests(sheet_gid, row_i + 1, col_j, val, col_name)
+    fmt_requests += _detection_requests("Releasing Detection", yes_is_bad=True)
+    fmt_requests += _detection_requests("Late Hello Detection", yes_is_bad=True)
+    fmt_requests += _detection_requests("Rebuttal Detection", yes_is_bad=False)
 
-    sheets.spreadsheets().batchUpdate(
-        spreadsheetId=sheet_id,
-        body={"requests": fmt_requests},
-    ).execute()
+    # 3. Status column: "Needs Training" = red bg white bold
+    status_col = col_index["Status"]
+    for row_i, r in enumerate(rows, start=1):
+        val = str(r.get("Status", "")).strip()
+        if val == "Needs Training":
+            fmt_requests.append({
+                "repeatCell": {
+                    "range": {"sheetId": 0,
+                              "startRowIndex": row_i, "endRowIndex": row_i + 1,
+                              "startColumnIndex": status_col, "endColumnIndex": status_col + 1},
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": _STATUS_RED,
+                            "textFormat": {"foregroundColor": _STATUS_FG, "bold": True},
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)",
+                }
+            })
+
+    if fmt_requests:
+        sheets.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body={"requests": fmt_requests},
+        ).execute()
 
     sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
     return sheet_id, sheet_url
 
-
-# ── Doc helpers ──────────────────────────────────────────────────────────────
 
 def replace_doc_placeholders(docs, doc_id: str, mapping: Dict[str, str]) -> None:
     """Replace {{placeholder}} strings in the Doc via batchUpdate replaceAllText."""
@@ -219,240 +216,110 @@ def replace_doc_placeholders(docs, doc_id: str, mapping: Dict[str, str]) -> None
         ).execute()
 
 
-def _pt(pt: float) -> int:
-    """Convert points to Docs API unit (1/100 pt)."""
-    return int(pt * 100)
-
-
-def _color(r: float, g: float, b: float) -> Dict:
-    return {"color": {"rgbColor": {"red": r, "green": g, "blue": b}}}
-
-
-def create_campaign_doc(
-    drive,
-    docs,
-    folder_id: str,
-    doc_name: str,
-    mapping: Dict[str, str],
-) -> str:
+def style_report_doc(docs, doc_id: str, sheet_url: str, sheet_name: str) -> None:
     """
-    Build a Campaign Performance Report Doc from scratch that matches
-    the branded template layout. Returns the new doc_id.
+    Post-process the copied Doc:
+    - Bold all paragraph text
+    - Replace raw {{sheet_url}} link text with a named hyperlink chip
+    - Style header rows (dark green bg, white bold) and data rows (cream bg)
     """
-    # Create blank doc via Drive
-    file_meta = {
-        "name": doc_name,
-        "mimeType": "application/vnd.google-apps.document",
-        "parents": [folder_id],
-    }
-    file_resp = drive.files().create(body=file_meta, supportsAllDrives=True).execute()
-    doc_id = file_resp["id"]
-
-    m = mapping  # shorthand
-
-    def _yes_no_color(val: str) -> Tuple[float, float, float]:
-        v = str(val).strip()
-        if v == "Yes":
-            return (0.839, 0.153, 0.153)
-        if v == "No":
-            return (0.204, 0.596, 0.231)
-        return (0.5, 0.5, 0.5)
-
-    def _rating_color(val: str) -> Tuple[float, float, float]:
-        v = str(val).strip()
-        if v == "High":
-            return (0.839, 0.153, 0.153)
-        if v == "Medium":
-            return (0.976, 0.686, 0.184)
-        return (0.204, 0.596, 0.231)
-
-    # We'll build the document content as a sequence of paragraphs using
-    # batchUpdate insertText + formatting. Simpler: use a table structure.
-
-    requests: List[Dict] = []
-
-    # ── 1. Title ─────────────────────────────────────────────────────────────
-    # Insert title text at end of doc (index 1 = after empty paragraph)
-    title_text = "Campaign Performance Report\n"
-    requests.append({"insertText": {"location": {"index": 1}, "text": title_text}})
-
-    # ── 2. Build the main content table (rows) ────────────────────────────────
-    # We insert a table with 4 columns, then fill + format cells.
-    # Rows: header | campaign+dialer | date | issues x4 | action points header |
-    #        coaching | allocation | campaign list | summary
-
-    table_rows = 13  # header + 2 meta + 5 issue rows + action header + 3 action rows + summary
-    table_cols = 4
-
-    # Insert table after title paragraph (index = len(title_text) + 1)
-    title_end = len(title_text) + 1
-    requests.append({
-        "insertTable": {
-            "rows": table_rows,
-            "columns": table_cols,
-            "location": {"index": title_end},
-        }
-    })
-
-    # batchUpdate to create the doc structure first, then format
-    docs.documents().batchUpdate(
-        documentId=doc_id,
-        body={"requests": requests},
-    ).execute()
-
-    # Re-fetch doc to get actual table cell indices
     doc = docs.documents().get(documentId=doc_id).execute()
+    content = doc.get("body", {}).get("content", [])
 
-    # Find the table element — startIndex lives on the content elem, not elem["table"]
-    table_elem = None
-    table_start_index = None
-    for elem in doc.get("body", {}).get("content", []):
-        if "table" in elem:
-            table_elem = elem["table"]
-            table_start_index = elem["startIndex"]
-            break
+    requests = []
 
-    if not table_elem:
-        logger.warning("Table not found in created doc — skipping formatting")
-        return doc_id
+    # Palette
+    header_bg = {"red": 32/255, "green": 73/255, "blue": 37/255}
+    header_fg = {"red": 1.0,    "green": 1.0,    "blue": 1.0}
+    cream_bg  = {"red": 255/255,"green": 255/255, "blue": 204/255}
 
-    fmt_requests: List[Dict] = []
+    # Keywords that mark a header/section row in the Doc
+    _HEADER_KEYWORDS = {
+        "auditing feedback", "issue rating", "action needed",
+        "action points", "campaign summary", "ratios",
+    }
 
-    # Helper to get cell start index
-    def cell_start(r_idx: int, c_idx: int) -> int:
-        return table_elem["tableRows"][r_idx]["tableCells"][c_idx]["content"][0]["startIndex"]
+    for element in content:
+        para = element.get("paragraph")
+        if not para:
+            continue
 
-    def set_cell_text(r_idx: int, c_idx: int, text: str) -> int:
-        idx = cell_start(r_idx, c_idx)
-        fmt_requests.append({"insertText": {"location": {"index": idx}, "text": text}})
-        return idx
+        start = element.get("startIndex", 0)
+        end   = element.get("endIndex", 0)
+        if end <= start:
+            continue
 
-    def set_cell_bg(r_idx: int, c_idx: int, r: float, g: float, b: float):
-        cell = table_elem["tableRows"][r_idx]["tableCells"][c_idx]
-        fmt_requests.append({
-            "updateTableCellStyle": {
-                "tableRange": {
-                    "tableCellLocation": {
-                        "tableStartLocation": {"index": table_start_index},
-                        "rowIndex": r_idx,
-                        "columnIndex": c_idx,
-                    },
-                    "rowSpan": 1,
-                    "columnSpan": 1,
-                },
-                "tableCellStyle": {
-                    "backgroundColor": {"color": {"rgbColor": {"red": r, "green": g, "blue": b}}}
-                },
-                "fields": "backgroundColor",
+        # Collect plain text of paragraph
+        para_text = "".join(
+            e.get("textRun", {}).get("content", "")
+            for e in para.get("elements", [])
+        ).strip().lower()
+
+        is_header = any(kw in para_text for kw in _HEADER_KEYWORDS)
+
+        # Bold entire paragraph
+        requests.append({
+            "updateTextStyle": {
+                "range": {"startIndex": start, "endIndex": end - 1},
+                "textStyle": {"bold": True, "fontSize": {"magnitude": 11, "unit": "PT"}},
+                "fields": "bold,fontSize",
             }
         })
 
-    def format_text_in_cell(r_idx: int, c_idx: int, text: str,
-                             bold: bool = False,
-                             fg_rgb: Tuple = None,
-                             bg_cell_rgb: Tuple = None,
-                             font_size: int = 10):
-        idx = cell_start(r_idx, c_idx)
-        if text:  # Docs API rejects insertText with empty string
-            fmt_requests.append({"insertText": {"location": {"index": idx}, "text": text}})
-            end_idx = idx + len(text)
-            tf: Dict = {"bold": bold, "fontSize": {"magnitude": font_size, "unit": "PT"}}
-            if fg_rgb:
-                tf["foregroundColor"] = {"color": {"rgbColor": {"red": fg_rgb[0], "green": fg_rgb[1], "blue": fg_rgb[2]}}}
-            fmt_requests.append({
+        # Color paragraph background
+        bg = header_bg if is_header else cream_bg
+        fg = header_fg if is_header else {"red": 0.0, "green": 0.0, "blue": 0.0}
+        requests.append({
+            "updateParagraphStyle": {
+                "range": {"startIndex": start, "endIndex": end - 1},
+                "paragraphStyle": {"shading": {"backgroundColor": {"color": {"rgbColor": bg}}}},
+                "fields": "shading",
+            }
+        })
+        if is_header:
+            requests.append({
                 "updateTextStyle": {
-                    "range": {"startIndex": idx, "endIndex": end_idx},
-                    "textStyle": tf,
-                    "fields": "bold,fontSize,foregroundColor",
+                    "range": {"startIndex": start, "endIndex": end - 1},
+                    "textStyle": {"foregroundColor": {"color": {"rgbColor": fg}}},
+                    "fields": "foregroundColor",
                 }
             })
-        if bg_cell_rgb:
-            set_cell_bg(r_idx, c_idx, *bg_cell_rgb)
 
-    # ── Row 0: main header ───────────────────────────────────────────────────
-    # Merge handled by text — just set content + dark green bg for cols 0-3
-    header_cells = ["Campaign Performance Report", "", "", ""]
-    for ci, txt in enumerate(header_cells):
-        format_text_in_cell(0, ci, txt, bold=True, fg_rgb=(1, 1, 1), bg_cell_rgb=(0.133, 0.302, 0.173), font_size=13)
+        # Replace raw sheet_url text with named hyperlink chip
+        for el in para.get("elements", []):
+            tr = el.get("textRun", {})
+            content_text = tr.get("content", "")
+            if sheet_url in content_text:
+                el_start = el.get("startIndex", 0)
+                el_end   = el.get("endIndex", 0)
+                # Delete raw URL text
+                requests.append({
+                    "deleteContentRange": {
+                        "range": {"startIndex": el_start, "endIndex": el_end}
+                    }
+                })
+                # Insert chip text with hyperlink at same position
+                requests.append({
+                    "insertText": {
+                        "location": {"index": el_start},
+                        "text": sheet_name,
+                    }
+                })
+                requests.append({
+                    "updateTextStyle": {
+                        "range": {"startIndex": el_start, "endIndex": el_start + len(sheet_name)},
+                        "textStyle": {
+                            "bold": True,
+                            "link": {"url": sheet_url},
+                            "foregroundColor": {"color": {"rgbColor": {"red": 0.07, "green": 0.36, "blue": 0.78}}},
+                            "fontSize": {"magnitude": 11, "unit": "PT"},
+                        },
+                        "fields": "bold,link,foregroundColor,fontSize",
+                    }
+                })
 
-    # ── Row 1: Campaign + dialer info ────────────────────────────────────────
-    campaign_label = f'Campaign: "{m.get("{{campaign_name}}", "")}"'
-    dialer_label   = f'DIALER: {m.get("{{dialer}}", "")}'
-    format_text_in_cell(1, 0, campaign_label, bold=True, bg_cell_rgb=(0.133, 0.302, 0.173), fg_rgb=(1, 1, 1))
-    format_text_in_cell(1, 1, "Auditing feedback", bold=True, bg_cell_rgb=(0.133, 0.302, 0.173), fg_rgb=(1, 1, 1))
-    format_text_in_cell(1, 2, "Issue Rating", bold=True, bg_cell_rgb=(0.133, 0.302, 0.173), fg_rgb=(1, 1, 1))
-    format_text_in_cell(1, 3, "Action needed / Notes", bold=True, bg_cell_rgb=(0.133, 0.302, 0.173), fg_rgb=(1, 1, 1))
-
-    # ── Row 2: Auditing duration date ────────────────────────────────────────
-    date_from = m.get("{{date_from}}", "")
-    date_to   = m.get("{{date_to}}", "")
-    format_text_in_cell(2, 0, "Auditing duration date", bold=True, bg_cell_rgb=(0.416, 0.537, 0.404), fg_rgb=(1, 1, 1))
-    format_text_in_cell(2, 1, f"From {date_from}  To  {date_to}", bg_cell_rgb=(0.98, 0.976, 0.933))
-    format_text_in_cell(2, 2, "", bg_cell_rgb=(0.98, 0.976, 0.933))
-    format_text_in_cell(2, 3, "", bg_cell_rgb=(0.98, 0.976, 0.933))
-
-    # ── Issue rows 3-6 ────────────────────────────────────────────────────────
-    issue_rows = [
-        ("Effort Issue from Agents",  m.get("{{effort_feedback}}", "N/A"),   "N/A"),
-        ("Rebuttals issue",           m.get("{{rebuttals_feedback}}", "N/A"), m.get("{{rebuttals_rating}}", "N/A")),
-        ("Releasing issue",           m.get("{{releasing_feedback}}", "N/A"), m.get("{{releasing_rating}}", "N/A")),
-        ("Active Tonality issue",     m.get("{{tonality_feedback}}", "N/A"),  "N/A"),
-    ]
-    for ri, (label, feedback, rating) in enumerate(issue_rows, start=3):
-        format_text_in_cell(ri, 0, label, bold=True, bg_cell_rgb=(0.416, 0.537, 0.404), fg_rgb=(1, 1, 1))
-        fb_rgb = _yes_no_color(feedback)
-        format_text_in_cell(ri, 1, feedback, bold=True, fg_rgb=fb_rgb, bg_cell_rgb=(0.98, 0.976, 0.933))
-        rt_rgb = _rating_color(rating)
-        format_text_in_cell(ri, 2, rating, bold=True, fg_rgb=rt_rgb, bg_cell_rgb=(0.98, 0.976, 0.933))
-        format_text_in_cell(ri, 3, "", bg_cell_rgb=(0.98, 0.976, 0.933))
-
-    # ── Row 7: Action Points header ───────────────────────────────────────────
-    for ci in range(4):
-        txt = "Action Points" if ci == 0 else ""
-        format_text_in_cell(7, ci, txt, bold=True, fg_rgb=(1, 1, 1), bg_cell_rgb=(0.133, 0.302, 0.173), font_size=12)
-
-    # ── Action rows 8-10 ─────────────────────────────────────────────────────
-    coaching_fb = m.get("{{coaching_feedback}}", "N/A")
-    allocation_fb = m.get("{{allocation_feedback}}", "N/A")
-    campaign_list_fb = m.get("{{campaign_list_issue}}", "N/A")
-
-    action_rows = [
-        ("Agents needs Coaching",   coaching_fb,       "N/A",  'Specific Coaching: EX "Need to focus on active listening"'),
-        ("Agents allocation issue:", allocation_fb,    "N/A",  "Action needed: Using Higher skilled agents"),
-        ("Campaign List Issue:",    campaign_list_fb,  "",     m.get("{{campaign_list_summary}}", "")),
-    ]
-    for ri, (label, feedback, rating, notes) in enumerate(action_rows, start=8):
-        format_text_in_cell(ri, 0, label, bold=True, bg_cell_rgb=(0.416, 0.537, 0.404), fg_rgb=(1, 1, 1))
-        fb_rgb = _yes_no_color(feedback)
-        format_text_in_cell(ri, 1, feedback, bold=True, fg_rgb=fb_rgb, bg_cell_rgb=(0.98, 0.976, 0.933))
-        rt_rgb = _rating_color(rating) if rating else (0.5, 0.5, 0.5)
-        format_text_in_cell(ri, 2, rating, bold=(rating != ""), fg_rgb=rt_rgb, bg_cell_rgb=(0.98, 0.976, 0.933))
-        format_text_in_cell(ri, 3, notes, bg_cell_rgb=(0.98, 0.976, 0.933))
-
-    # ── Row 11: dialer sub-row (second line under campaign) ──────────────────
-    format_text_in_cell(11, 0, dialer_label, bold=True, bg_cell_rgb=(0.133, 0.302, 0.173), fg_rgb=(1, 1, 1))
-    format_text_in_cell(11, 1, "", bg_cell_rgb=(0.133, 0.302, 0.173))
-    format_text_in_cell(11, 2, "", bg_cell_rgb=(0.133, 0.302, 0.173))
-    format_text_in_cell(11, 3, "", bg_cell_rgb=(0.133, 0.302, 0.173))
-
-    # ── Row 12: Campaign Summary ──────────────────────────────────────────────
-    summary_text = m.get("{{summary_ratios}}", "")
-    issue_rating_legend = (
-        "Issue Rating Ratio:\n"
-        "1. Low: Less than 30%\n"
-        "2. Medium: 30% to 50%\n"
-        "3. High: Greater than 50%"
-    )
-    format_text_in_cell(12, 0, "Campaign Summary", bold=True, bg_cell_rgb=(0.416, 0.537, 0.404), fg_rgb=(1, 1, 1))
-    format_text_in_cell(12, 1, f"Ratios:\n{summary_text}", bg_cell_rgb=(0.98, 0.976, 0.933))
-    format_text_in_cell(12, 2, "", bg_cell_rgb=(0.98, 0.976, 0.933))
-    format_text_in_cell(12, 3, issue_rating_legend, bg_cell_rgb=(0.98, 0.976, 0.933))
-
-    # Apply all formatting
-    if fmt_requests:
+    if requests:
         docs.documents().batchUpdate(
             documentId=doc_id,
-            body={"requests": fmt_requests},
+            body={"requests": requests},
         ).execute()
-
-    return doc_id
