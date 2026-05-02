@@ -152,16 +152,12 @@ function MultiSelectDropdown({
         {open && (
           <motion.div
             ref={ref}
-            initial={{ opacity: 0, y: 5, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 5, scale: 0.98 }}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            style={{
-              ...dropdownStyle,
-              backgroundColor: '#1e1e1e',
-              borderColor: 'var(--b-medium)',
-            }}
-            className="rounded-xl shadow-[0_8px_40px_rgba(0,0,0,0.8)] border-2 p-2 flex flex-col gap-0.5"
+            style={{ ...dropdownStyle, borderColor: 'rgba(255,255,255,0.12)', backgroundColor: '#1e1e1e' }}
+            className="rounded-xl border-2 p-2 flex flex-col gap-0.5"
           >
             <div className="px-1 pt-1 pb-2" style={{ borderBottom: '1px solid var(--b-divider)' }}>
               <input
@@ -170,8 +166,8 @@ function MultiSelectDropdown({
                 placeholder="Search..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                style={{ backgroundColor: 'var(--c-raised)', borderColor: 'var(--b-subtle)', color: 'var(--t-primary)' }}
-                className="w-full border rounded px-2 py-1.5 text-xs outline-none focus:border-b-strong transition-colors"
+                style={{ backgroundColor: '#2a2a2a', borderColor: 'rgba(255,255,255,0.1)', color: '#ededed' }}
+                className="w-full border rounded px-2 py-1.5 text-xs outline-none transition-colors"
               />
             </div>
 
