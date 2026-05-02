@@ -18,9 +18,8 @@ from lib.google_workspace import (
     build_drive,
     build_sheets,
     build_docs,
-    copy_template_doc,
     create_spreadsheet,
-    replace_doc_placeholders,
+    create_campaign_doc,
     share_file_with_user,
 )
 
@@ -36,16 +35,12 @@ def generate_campaign_report(
     """
     Full pipeline:
     1. Fetch audit rows for the campaign.
-    2. Build a Google Sheet with the raw data.
-    3. Copy the Doc template, fill placeholders with computed metrics.
+    2. Build a formatted Google Sheet with the raw data.
+    3. Build a branded Google Doc report from scratch.
     4. Share both files with the logged-in user.
     5. Return { sheet_url, doc_url }.
     """
     from backend.core.config import settings
-
-    template_id = settings.GOOGLE_DOC_TEMPLATE_ID
-    if not template_id:
-        raise ValueError("GOOGLE_DOC_TEMPLATE_ID is not configured")
 
     folder_id = settings.GOOGLE_REPORT_DRIVE_FOLDER_ID
     if not folder_id:
@@ -98,11 +93,10 @@ def generate_campaign_report(
         end_date=str(end_date) if end_date else "",
     )
 
-    # --- Copy & fill Doc ---
-    logger.info(f"Copying Doc template for campaign '{campaign_name}'")
+    # --- Build Doc ---
+    logger.info(f"Building Doc for campaign '{campaign_name}'")
     doc_name = f"{campaign_name} – performance report"
-    doc_id = copy_template_doc(drive, template_id, doc_name, folder_id=folder_id)
-    replace_doc_placeholders(docs_svc, doc_id, mapping)
+    doc_id = create_campaign_doc(drive, docs_svc, folder_id, doc_name, mapping)
 
     # --- Share both files with the logged-in user ---
     logger.info(f"Sharing files with {username}")
