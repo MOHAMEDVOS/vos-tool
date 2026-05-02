@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useGoogleLogin } from '@/hooks/useAuth'
 import { useAuthStore } from '@/store/authStore'
 import { LoginCanvasBackground } from '@/components/ui/LoginCanvasBackground'
-import { Footer } from '@/components/layout/Footer'
 
 /**
  * LoginPage - Vercel/Geist Pitch Black
@@ -190,8 +189,8 @@ export function LoginPage() {
                     Systems Ready
                   </span>
                 </div>
-                <a href="#" className="text-[10px] font-medium text-[#444] hover:text-white transition-colors uppercase tracking-widest">
-                  Support
+                <a href="https://t.me/Mohmed_abdo" target="_blank" rel="noopener noreferrer" className="text-[10px] font-medium text-[#444] hover:text-white transition-colors uppercase tracking-widest">
+                  Mohamed Abdo
                 </a>
               </div>
             </div>
@@ -199,9 +198,6 @@ export function LoginPage() {
         </motion.div>
       </div>
 
-      <div className="w-full max-w-7xl px-8 pb-4 relative z-10">
-        <Footer />
-      </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;900&family=JetBrains+Mono:wght@400;500&display=swap');
