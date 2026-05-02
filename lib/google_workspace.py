@@ -287,27 +287,40 @@ def style_report_doc(docs, doc_id: str, sheet_url: str, sheet_name: str) -> None
                 }
             })
 
-        # Replace raw sheet_url text with named hyperlink chip
+    if requests:
+        docs.documents().batchUpdate(
+            documentId=doc_id,
+            body={"requests": requests},
+        ).execute()
+
+    # --- Chip replacement: separate pass so index shifts don't corrupt the batch ---
+    # Re-fetch doc to get post-styling indices
+    doc2 = docs.documents().get(documentId=doc_id).execute()
+    content2 = doc2.get("body", {}).get("content", [])
+
+    chip_requests = []
+    for element in content2:
+        para = element.get("paragraph")
+        if not para:
+            continue
         for el in para.get("elements", []):
             tr = el.get("textRun", {})
             content_text = tr.get("content", "")
             if sheet_url in content_text:
                 el_start = el.get("startIndex", 0)
                 el_end   = el.get("endIndex", 0)
-                # Delete raw URL text
-                requests.append({
+                chip_requests.append({
                     "deleteContentRange": {
                         "range": {"startIndex": el_start, "endIndex": el_end}
                     }
                 })
-                # Insert chip text with hyperlink at same position
-                requests.append({
+                chip_requests.append({
                     "insertText": {
                         "location": {"index": el_start},
                         "text": sheet_name,
                     }
                 })
-                requests.append({
+                chip_requests.append({
                     "updateTextStyle": {
                         "range": {"startIndex": el_start, "endIndex": el_start + len(sheet_name)},
                         "textStyle": {
@@ -319,9 +332,12 @@ def style_report_doc(docs, doc_id: str, sheet_url: str, sheet_name: str) -> None
                         "fields": "bold,link,foregroundColor,fontSize",
                     }
                 })
+                break  # only one URL per doc
+        if chip_requests:
+            break
 
-    if requests:
+    if chip_requests:
         docs.documents().batchUpdate(
             documentId=doc_id,
-            body={"requests": requests},
+            body={"requests": chip_requests},
         ).execute()

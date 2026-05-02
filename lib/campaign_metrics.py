@@ -136,4 +136,5 @@ def build_doc_field_mapping(
         "{{late_hello_count}}": str(ratios["late_hello_count"]),
         "{{no_rebuttal_count}}": str(ratios["no_rebuttal_count"]),
         "{{sheet_url}}": sheet_url,
+        "{{summary_ratios}}": "",
     }
