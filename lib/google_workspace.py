@@ -83,21 +83,23 @@ _ISSUE_COLS = [
 ]
 
 
-def _build_agent_issues_summary(rows: List[Dict[str, Any]]) -> List[Tuple[str, str, int]]:
+def _build_agent_issues_summary(rows: List[Dict[str, Any]]) -> List[Tuple[str, str, int, int]]:
     """
     Count flagged answers per agent per issue column.
     For Agent Intro / Owner Name / Reason For Calling: count rows where value == "No".
     For Late Hello Detection / Releasing Detection: count rows where value == "Yes".
-    Returns list of (agent_name, issue_label, count) sorted by agent then issue,
-    only where count > 0.
+    Returns list of (agent_name, issue_label, issue_count, agent_total_calls)
+    sorted by agent then issue, only where issue_count >= 10.
     """
     from collections import defaultdict
     counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    totals: Dict[str, int] = defaultdict(int)
 
     for r in rows:
         agent = str(r.get("Agent Name", "")).strip()
         if not agent:
             continue
+        totals[agent] += 1
         for col_key, label, count_no in _ISSUE_COLS:
             val = str(r.get(col_key, "")).strip()
             if count_no and val == "No":
@@ -110,7 +112,7 @@ def _build_agent_issues_summary(rows: List[Dict[str, Any]]) -> List[Tuple[str, s
         for _, label, _ in _ISSUE_COLS:
             c = counts[agent].get(label, 0)
             if c >= 10:
-                result.append((agent, label, c))
+                result.append((agent, label, c, totals[agent]))
     return result
 
 
@@ -266,7 +268,7 @@ def create_spreadsheet(
     return sheet_id, sheet_url
 
 
-def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str, str, int]]) -> None:
+def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str, str, int, int]]) -> None:
     """Add a second sheet tab 'Agent Issues Summary' with a grouped issue table."""
 
     # 1. Create the new sheet tab
@@ -280,13 +282,13 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
     header = [["Agent Name", "Issue Type", "Total Samples with Issue"]]
     values = []
     current_agent = None
-    for agent, label, count in summary_rows:
+    for agent, label, count, total in summary_rows:
+        count_str = f"{count} out of {total}"
         if agent != current_agent:
-            # Show agent name only on first issue row for that agent
-            values.append([agent, label, count])
+            values.append([agent, label, count_str])
             current_agent = agent
         else:
-            values.append(["", label, count])
+            values.append(["", label, count_str])
 
     sheets.spreadsheets().values().update(
         spreadsheetId=spreadsheet_id,
@@ -321,10 +323,9 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
 
     # Data rows: colour agent-name cells mid-green + count column centre-aligned
     current_agent = None
-    for row_i, (agent, label, count) in enumerate(summary_rows, start=1):
+    for row_i, (agent, label, count, total) in enumerate(summary_rows, start=1):
         if agent != current_agent:
             current_agent = agent
-            # Agent name cell — mid-green bg, white bold
             fmt.append({
                 "repeatCell": {
                     "range": {"sheetId": summary_gid,
@@ -340,15 +341,16 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
                 }
             })
 
-        # Count cell — red bg if count >= 10, orange if 5-9, else default; always bold+centre
-        if count >= 10:
+        # Count cell colour based on ratio (count / total)
+        ratio = count / total if total else 0
+        if ratio >= 0.5:
             count_bg = _RED_BG
             count_fg = _HEADER_FG
-        elif count >= 5:
+        elif ratio >= 0.25:
             count_bg = _rgb(230, 120, 0)
             count_fg = _HEADER_FG
         else:
-            count_bg = _rgb(255, 255, 255)
+            count_bg = _rgb(255, 214, 102)  # yellow-ish — still visible issue
             count_fg = _rgb(0, 0, 0)
 
         fmt.append({
@@ -372,37 +374,6 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
         "autoResizeDimensions": {
             "dimensions": {"sheetId": summary_gid, "dimension": "COLUMNS",
                            "startIndex": 0, "endIndex": 3}
-        }
-    })
-
-    # Color scale on count column (C): light green → yellow → dark red
-    # Matches sheet theme: green = low concern, red = high concern
-    fmt.append({
-        "addConditionalFormatRule": {
-            "rule": {
-                "ranges": [{
-                    "sheetId": summary_gid,
-                    "startRowIndex": 1,
-                    "startColumnIndex": 2,
-                    "endColumnIndex": 3,
-                }],
-                "gradientRule": {
-                    "minpoint": {
-                        "color": _rgb(0, 150, 57),   # green (low)
-                        "type": "MIN",
-                    },
-                    "midpoint": {
-                        "color": _rgb(255, 214, 102),  # yellow (mid)
-                        "type": "PERCENTILE",
-                        "value": "50",
-                    },
-                    "maxpoint": {
-                        "color": _rgb(192, 0, 0),    # dark red (high)
-                        "type": "MAX",
-                    },
-                },
-            },
-            "index": 0,
         }
     })
 
