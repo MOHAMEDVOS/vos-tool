@@ -91,6 +91,9 @@ export function Sidebar() {
       })
     }
 
+    // Swap theme at 60% of the 600ms animation = 360ms
+    setTimeout(() => toggleTheme(), 360)
+
     animate(overlay, {
       clipPath: [
         { to: `circle(0% at ${cx}px ${cy}px)` },
@@ -98,12 +101,6 @@ export function Sidebar() {
       ],
       duration: 600,
       ease: 'cubicBezier(0.4, 0, 0.2, 1)',
-      onUpdate: (anim: { progress: number }) => {
-        if (!overlay.dataset.swapped && anim.progress >= 60) {
-          overlay.dataset.swapped = '1'
-          toggleTheme()
-        }
-      },
       onComplete: () => {
         animate(overlay, {
           opacity: [1, 0],
