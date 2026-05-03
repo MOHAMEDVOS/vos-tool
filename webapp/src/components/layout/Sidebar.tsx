@@ -263,19 +263,18 @@ export function Sidebar() {
                   className={[
                     'group relative flex w-full items-center gap-2.5 rounded-md px-2.5 py-2',
                     'text-[13px] font-medium transition-colors duration-150',
-                    isActive
-                      ? ''
-                      : 'text-t-muted hover:bg-[var(--hover-overlay)] hover:text-t-primary',
+                    isActive ? '' : 'hover:bg-[var(--hover-overlay)]',
                     sidebarCollapsed ? 'justify-center' : '',
                   ].join(' ')}
                   style={isActive ? {
                     backgroundColor: 'var(--accent-muted)',
                     color:           'var(--accent-text)',
-                    /* Glow — light mode: ink shadow, dark mode: white glow */
                     boxShadow:       theme === 'dark'
                       ? '0 0 0 1px rgba(237,237,237,0.08), 0 2px 12px rgba(180,160,255,0.12)'
                       : '0 0 0 1px rgba(15,17,23,0.08), 0 2px 8px rgba(0,0,0,0.06)',
-                  } : {}}
+                  } : {
+                    color: theme === 'dark' ? '#ffffff' : '#0f1117',
+                  }}
                 >
                   {/* Active left-bar indicator */}
                   {isActive && (
@@ -408,7 +407,8 @@ export function Sidebar() {
                 whileHover={{ x: 2 }}
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-t-muted hover:text-t-primary hover:bg-[var(--hover-overlay)] transition-colors"
+                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium hover:bg-[var(--hover-overlay)] transition-colors"
+                style={{ color: theme === 'dark' ? '#ffffff' : '#0f1117' }}
               >
                 <motion.span
                   whileHover={{ rotate: 20, scale: 1.15 }}
@@ -426,7 +426,8 @@ export function Sidebar() {
                 whileHover={{ x: 2 }}
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium text-t-muted hover:text-[var(--semantic-error)] hover:bg-[var(--semantic-error)]/5 transition-colors"
+                className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium hover:text-[var(--semantic-error)] hover:bg-[var(--semantic-error)]/5 transition-colors"
+                style={{ color: theme === 'dark' ? '#ffffff' : '#0f1117' }}
               >
                 <motion.span
                   whileHover={{ x: -3, scale: 1.1 }}
@@ -454,7 +455,8 @@ export function Sidebar() {
                 whileTap={{ scale: 0.92 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 15 }}
                 title={theme === 'light' ? 'Dark mode' : 'Light mode'}
-                className="p-1.5 rounded text-t-muted hover:text-t-primary hover:bg-[var(--hover-overlay)] transition-colors"
+                className="p-1.5 rounded hover:bg-[var(--hover-overlay)] transition-colors"
+                style={{ color: theme === 'dark' ? '#ffffff' : '#0f1117' }}
               >
                 {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
               </motion.button>
@@ -465,7 +467,8 @@ export function Sidebar() {
                 whileTap={{ scale: 0.92 }}
                 transition={{ type: 'spring', stiffness: 500, damping: 18 }}
                 title="Sign out"
-                className="p-1.5 rounded text-t-muted hover:text-[var(--semantic-error)] hover:bg-[var(--semantic-error)]/5 transition-colors"
+                className="p-1.5 rounded hover:text-[var(--semantic-error)] hover:bg-[var(--semantic-error)]/5 transition-colors"
+                style={{ color: theme === 'dark' ? '#ffffff' : '#0f1117' }}
               >
                 <LogOut size={14} />
               </motion.button>
