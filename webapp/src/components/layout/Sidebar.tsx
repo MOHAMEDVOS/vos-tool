@@ -185,8 +185,10 @@ export function Sidebar() {
           ref={logoRef}
           className="w-[26px] h-[26px] rounded-[4px] flex items-center justify-center shrink-0 select-none relative overflow-hidden"
           style={{
-            background: theme === 'dark' ? '#1a1a1a' : '#2a2a2a',
-            boxShadow: '0 0 0 1px rgba(255,255,255,0.12)',
+            background: theme === 'dark' ? '#1a1a1a' : '#ffffff',
+            boxShadow: theme === 'dark'
+              ? '0 0 0 1px rgba(255,255,255,0.12)'
+              : '0 0 0 1px rgba(0,0,0,0.20)',
           }}
         >
           {/* Water fill — rises from bottom */}
@@ -196,12 +198,12 @@ export function Sidebar() {
             style={{
               background: theme === 'dark'
                 ? 'linear-gradient(to top, #ededed 0%, #ffffff 100%)'
-                : 'linear-gradient(to top, #e0e0e0 0%, #ffffff 100%)',
+                : 'linear-gradient(to top, #1a1a1a 0%, #000000 100%)',
               transform: 'translateY(100%)',
               willChange: 'transform',
             }}
           />
-          {/* V letter — sits above the water */}
+          {/* V letter — mixBlendMode:difference keeps it visible over any fill color */}
           <span
             className="text-[13px] font-black leading-none relative z-10"
             style={{ color: '#ffffff', letterSpacing: '-0.5px', mixBlendMode: 'difference' }}
