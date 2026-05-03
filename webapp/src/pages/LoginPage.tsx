@@ -94,9 +94,11 @@ export function LoginPage() {
       })
     }
 
-    runCycle()
+    // Wait for entrance animation to finish (~1.8s) before starting fill
+    const startTimer = setTimeout(runCycle, 1800)
     return () => {
       stopped = true
+      clearTimeout(startTimer)
       clearTimeout(holdTimer)
       clearTimeout(cycleTimer)
     }
