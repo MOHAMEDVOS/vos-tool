@@ -266,7 +266,7 @@ function NumberStepper({
   return (
     <div
       style={{ backgroundColor: 'var(--c-base)', borderColor: 'var(--b-subtle)' }}
-      className="flex h-[38px] w-48 items-center rounded-md border overflow-hidden shadow-inner transition-all focus-within:border-b-strong"
+      className="inline-flex h-[38px] items-center rounded-md border overflow-hidden shadow-inner transition-all focus-within:border-b-strong"
     >
       <input
         type="text"
@@ -276,8 +276,8 @@ function NumberStepper({
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') commit(raw) }}
         disabled={disabled}
-        style={{ color: 'var(--t-primary)', backgroundColor: 'transparent' }}
-        className="flex-1 px-3 py-1.5 text-sm font-medium outline-none disabled:opacity-50"
+        style={{ color: 'var(--t-primary)', backgroundColor: 'transparent', width: '72px' }}
+        className="px-3 py-1.5 text-sm font-medium outline-none disabled:opacity-50 shrink-0"
       />
       <div style={{ borderLeft: '1px solid var(--b-subtle)', backgroundColor: 'var(--c-raised)' }} className="flex h-full">
         <button
