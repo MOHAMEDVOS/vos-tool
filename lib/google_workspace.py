@@ -109,7 +109,7 @@ def _build_agent_issues_summary(rows: List[Dict[str, Any]]) -> List[Tuple[str, s
     for agent in sorted(counts.keys()):
         for _, label, _ in _ISSUE_COLS:
             c = counts[agent].get(label, 0)
-            if c > 0:
+            if c >= 10:
                 result.append((agent, label, c))
     return result
 
