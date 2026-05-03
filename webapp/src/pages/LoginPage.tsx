@@ -119,35 +119,10 @@ export function LoginPage() {
     })
   }, [])
 
-  /* ── Magnetic card tilt ── */
-  useEffect(() => {
-    const card   = cardRef.current
-    const parent = card?.parentElement
-    if (!card || !parent) return
-
-    const onMove = (e: MouseEvent) => {
-      const rect  = card.getBoundingClientRect()
-      const dx    = (e.clientX - rect.left - rect.width  / 2) / (rect.width  / 2)
-      const dy    = (e.clientY - rect.top  - rect.height / 2) / (rect.height / 2)
-      animate(card, { rotateX: -dy * 5, rotateY: dx * 5, duration: 300, ease: 'cubicBezier(0.16, 1, 0.3, 1)' })
-    }
-
-    const onLeave = () => {
-      animate(card, { rotateX: 0, rotateY: 0, duration: 600, ease: 'spring(1, 80, 10, 0)' })
-    }
-
-    parent.addEventListener('mousemove',  onMove)
-    parent.addEventListener('mouseleave', onLeave)
-    return () => {
-      parent.removeEventListener('mousemove',  onMove)
-      parent.removeEventListener('mouseleave', onLeave)
-    }
-  }, [])
 
   return (
     <div
       className="relative flex flex-col min-h-screen items-center justify-center bg-[#000] selection:bg-white selection:text-black overflow-hidden"
-      style={{ perspective: '1000px' }}
     >
       <LoginCanvasBackground />
 
