@@ -9,7 +9,6 @@ import { useFlaggedBadge } from '@/hooks/useDashboard'
 import { useBadgeStore } from '@/store/badgeStore'
 
 import { TopLoadingBar } from '@/components/ui/TopLoadingBar'
-import { ShockwaveOverlay } from '@/components/ui/ShockwaveOverlay'
 import { LoginPage }      from '@/pages/LoginPage'
 import { DashboardPage }  from '@/pages/DashboardPage'
 import { ActionsPage }    from '@/pages/ActionsPage'
@@ -80,7 +79,6 @@ function InnerApp() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ShockwaveOverlay />
       <TopLoadingBar />
       <BrowserRouter>
         <Routes>
