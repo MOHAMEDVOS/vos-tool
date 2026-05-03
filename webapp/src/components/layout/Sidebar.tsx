@@ -56,51 +56,56 @@ export function Sidebar() {
   const rippleRef      = useRef<HTMLDivElement | null>(null)
   const isRippling     = useRef(false)
   const logoRef        = useRef<HTMLDivElement>(null)
-  const scanRef        = useRef<HTMLDivElement>(null)
+  const waterRef       = useRef<HTMLDivElement>(null)
 
   const items = ALL_ITEMS.filter((i) => !i.roles || (role && i.roles.includes(role)))
 
-  /* ── Charging scan loop on V logo ── */
+  /* ── Water fill loop on V logo ── */
   React.useEffect(() => {
-    const logo = logoRef.current
-    const scan = scanRef.current
-    if (!logo || !scan) return
+    const water = waterRef.current
+    if (!water) return
 
     let stopped = false
+    let holdTimer: ReturnType<typeof setTimeout>
+    let cycleTimer: ReturnType<typeof setTimeout>
 
     const runCycle = () => {
       if (stopped) return
 
-      // 1 — scan line sweeps top → bottom
-      animate(scan, {
-        translateY: [-28, 28],
-        opacity: [0, 0.85, 0],
-        duration: 520,
-        ease: 'cubicBezier(0.4, 0, 0.2, 1)',
-      })
+      // Start empty at bottom
+      water.style.transform = 'translateY(100%)'
+      water.style.opacity   = '1'
 
-      // 2 — logo briefly brightens (glow pulse)
-      animate(logo, {
-        boxShadow: [
-          { to: '0 0 0 1px rgba(0,0,0,0.08), 0 0 0px 0px rgba(255,255,255,0)' },
-          { to: '0 0 0 1px rgba(0,0,0,0.08), 0 0 10px 3px rgba(255,255,255,0.35)' },
-          { to: '0 0 0 1px rgba(0,0,0,0.08), 0 0 0px 0px rgba(255,255,255,0)' },
-        ],
-        duration: 520,
-        ease: 'cubicBezier(0.4, 0, 0.2, 1)',
+      // Rise slowly: bottom → top (2s)
+      animate(water, {
+        translateY: ['100%', '0%'],
+        duration: 2000,
+        ease: 'cubicBezier(0.2, 0.8, 0.4, 1)',
         onComplete: () => {
-          // Wait 5s then repeat
-          setTimeout(() => { if (!stopped) runCycle() }, 5000)
+          // Hold full for 5 minutes, then drain
+          holdTimer = setTimeout(() => {
+            if (stopped) return
+            // Drain fast: top → bottom (0.6s)
+            animate(water, {
+              translateY: ['0%', '100%'],
+              duration: 600,
+              ease: 'cubicBezier(0.4, 0, 0.8, 1)',
+              onComplete: () => {
+                // Brief pause then repeat
+                cycleTimer = setTimeout(() => { if (!stopped) runCycle() }, 400)
+              },
+            })
+          }, 5 * 60 * 1000)
         },
       })
     }
 
-    // First scan after 2s so it doesn't fire on mount
-    const init = setTimeout(runCycle, 2000)
+    runCycle()
 
     return () => {
       stopped = true
-      clearTimeout(init)
+      clearTimeout(holdTimer)
+      clearTimeout(cycleTimer)
     }
   }, [])
 
@@ -175,29 +180,32 @@ export function Sidebar() {
         'flex h-14 shrink-0 items-center border-b border-[var(--b-divider)]',
         sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-4',
       ].join(' ')}>
-        {/* V logo mark — always visible, with scan animation */}
+        {/* V logo mark — water fill animation */}
         <div
           ref={logoRef}
           className="w-[26px] h-[26px] rounded-[4px] flex items-center justify-center shrink-0 select-none relative overflow-hidden"
-          style={{ background: 'var(--accent)', boxShadow: '0 0 0 1px rgba(0,0,0,0.08)', willChange: 'box-shadow' }}
+          style={{
+            background: theme === 'dark' ? '#1a1a1a' : '#2a2a2a',
+            boxShadow: '0 0 0 1px rgba(255,255,255,0.12)',
+          }}
         >
-          <span
-            className="text-[13px] font-black leading-none relative z-10"
-            style={{ color: theme === 'dark' ? '#000' : '#fff', letterSpacing: '-0.5px' }}
-          >V</span>
-          {/* Scan line — sweeps top to bottom */}
+          {/* Water fill — rises from bottom */}
           <div
-            ref={scanRef}
-            className="absolute inset-x-0 h-[2px] z-20 pointer-events-none"
+            ref={waterRef}
+            className="absolute inset-0 z-0 pointer-events-none"
             style={{
-              top: '50%',
               background: theme === 'dark'
-                ? 'linear-gradient(90deg, transparent, rgba(0,0,0,0.7), transparent)'
-                : 'linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent)',
-              opacity: 0,
-              willChange: 'transform, opacity',
+                ? 'linear-gradient(to top, #ededed 0%, #ffffff 100%)'
+                : 'linear-gradient(to top, #e0e0e0 0%, #ffffff 100%)',
+              transform: 'translateY(100%)',
+              willChange: 'transform',
             }}
           />
+          {/* V letter — sits above the water */}
+          <span
+            className="text-[13px] font-black leading-none relative z-10"
+            style={{ color: '#ffffff', letterSpacing: '-0.5px', mixBlendMode: 'difference' }}
+          >V</span>
         </div>
 
         <AnimatePresence mode="wait">
