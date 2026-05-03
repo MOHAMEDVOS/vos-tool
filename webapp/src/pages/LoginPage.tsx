@@ -16,6 +16,7 @@ export function LoginPage() {
 
   const cardRef        = useRef<HTMLDivElement>(null)
   const logoMarkRef    = useRef<HTMLDivElement>(null)
+  const loginWaterRef  = useRef<HTMLDivElement>(null)
   const titleRef       = useRef<HTMLHeadingElement>(null)
   const subtitleRef    = useRef<HTMLHeadingElement>(null)
   const taglineRef     = useRef<HTMLParagraphElement>(null)
@@ -72,6 +73,46 @@ export function LoginPage() {
         loop:     true,
         ease:     'cubicBezier(0.45, 0, 0.55, 1)',
       })
+    }
+  }, [])
+
+  /* ── Water fill loop on login V logo ── */
+  useEffect(() => {
+    const water = loginWaterRef.current
+    if (!water) return
+
+    let stopped = false
+    let holdTimer: ReturnType<typeof setTimeout>
+    let cycleTimer: ReturnType<typeof setTimeout>
+
+    const runCycle = () => {
+      if (stopped) return
+      water.style.transform = 'translateY(100%)'
+      animate(water, {
+        translateY: ['100%', '0%'],
+        duration: 2000,
+        ease: 'cubicBezier(0.2, 0.8, 0.4, 1)',
+        onComplete: () => {
+          holdTimer = setTimeout(() => {
+            if (stopped) return
+            animate(water, {
+              translateY: ['0%', '100%'],
+              duration: 600,
+              ease: 'cubicBezier(0.4, 0, 0.8, 1)',
+              onComplete: () => {
+                cycleTimer = setTimeout(() => { if (!stopped) runCycle() }, 400)
+              },
+            })
+          }, 5 * 60 * 1000)
+        },
+      })
+    }
+
+    runCycle()
+    return () => {
+      stopped = true
+      clearTimeout(holdTimer)
+      clearTimeout(cycleTimer)
     }
   }, [])
 
@@ -167,10 +208,22 @@ export function LoginPage() {
                 <div className="flex items-center justify-center md:justify-start gap-2 mb-10">
                   <div
                     ref={logoMarkRef}
-                    className="w-7 h-7 bg-white rounded-[3px] flex items-center justify-center"
+                    className="w-7 h-7 bg-white rounded-[3px] flex items-center justify-center relative overflow-hidden"
                     style={{ transform: 'scale(0)', opacity: 0, willChange: 'transform, box-shadow' }}
                   >
-                    <span className="text-black text-[11px] font-black tracking-tight select-none">V</span>
+                    <div
+                      ref={loginWaterRef}
+                      className="absolute inset-0 z-0 pointer-events-none"
+                      style={{
+                        background: 'linear-gradient(to top, #1a1a1a 0%, #000000 100%)',
+                        transform: 'translateY(100%)',
+                        willChange: 'transform',
+                      }}
+                    />
+                    <span
+                      className="text-[11px] font-black tracking-tight select-none relative z-10"
+                      style={{ color: '#ffffff', mixBlendMode: 'difference' }}
+                    >V</span>
                   </div>
                 </div>
 
