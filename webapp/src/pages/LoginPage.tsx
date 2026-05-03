@@ -5,12 +5,14 @@ import { GoogleLogin } from '@react-oauth/google'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useGoogleLogin } from '@/hooks/useAuth'
 import { useAuthStore } from '@/store/authStore'
+import { useUiStore } from '@/store/uiStore'
 import { LoginCanvasBackground } from '@/components/ui/LoginCanvasBackground'
 import { createTimeline, animate, stagger } from 'animejs'
 
 export function LoginPage() {
   const navigate  = useNavigate()
   const token     = useAuthStore((s) => s.token)
+  const setLoginAnimating = useUiStore((s) => s.setLoginAnimating)
   const { mutate: loginWithGoogle, isPending, error } = useGoogleLogin()
 
   const cardRef        = useRef<HTMLDivElement>(null)
@@ -26,8 +28,11 @@ export function LoginPage() {
   const dotsRef        = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (token) navigate('/', { replace: true })
-  }, [token, navigate])
+    if (token) {
+      setLoginAnimating(true)
+      navigate('/', { replace: true })
+    }
+  }, [token, navigate, setLoginAnimating])
 
   /* ── Master entrance timeline ── */
   useEffect(() => {
