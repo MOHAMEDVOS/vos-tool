@@ -55,8 +55,54 @@ export function Sidebar() {
   const themeButtonRef = useRef<HTMLButtonElement>(null)
   const rippleRef      = useRef<HTMLDivElement | null>(null)
   const isRippling     = useRef(false)
+  const logoRef        = useRef<HTMLDivElement>(null)
+  const scanRef        = useRef<HTMLDivElement>(null)
 
   const items = ALL_ITEMS.filter((i) => !i.roles || (role && i.roles.includes(role)))
+
+  /* ── Charging scan loop on V logo ── */
+  React.useEffect(() => {
+    const logo = logoRef.current
+    const scan = scanRef.current
+    if (!logo || !scan) return
+
+    let stopped = false
+
+    const runCycle = () => {
+      if (stopped) return
+
+      // 1 — scan line sweeps top → bottom
+      animate(scan, {
+        translateY: [-28, 28],
+        opacity: [0, 0.85, 0],
+        duration: 520,
+        ease: 'cubicBezier(0.4, 0, 0.2, 1)',
+      })
+
+      // 2 — logo briefly brightens (glow pulse)
+      animate(logo, {
+        boxShadow: [
+          { to: '0 0 0 1px rgba(0,0,0,0.08), 0 0 0px 0px rgba(255,255,255,0)' },
+          { to: '0 0 0 1px rgba(0,0,0,0.08), 0 0 10px 3px rgba(255,255,255,0.35)' },
+          { to: '0 0 0 1px rgba(0,0,0,0.08), 0 0 0px 0px rgba(255,255,255,0)' },
+        ],
+        duration: 520,
+        ease: 'cubicBezier(0.4, 0, 0.2, 1)',
+        onComplete: () => {
+          // Wait 5s then repeat
+          setTimeout(() => { if (!stopped) runCycle() }, 5000)
+        },
+      })
+    }
+
+    // First scan after 2s so it doesn't fire on mount
+    const init = setTimeout(runCycle, 2000)
+
+    return () => {
+      stopped = true
+      clearTimeout(init)
+    }
+  }, [])
 
   const handleThemeToggle = () => {
     if (isRippling.current) return
@@ -129,15 +175,29 @@ export function Sidebar() {
         'flex h-14 shrink-0 items-center border-b border-[var(--b-divider)]',
         sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-4',
       ].join(' ')}>
-        {/* V logo mark — always visible */}
+        {/* V logo mark — always visible, with scan animation */}
         <div
-          className="w-[26px] h-[26px] rounded-[4px] flex items-center justify-center shrink-0 select-none"
-          style={{ background: 'var(--accent)', boxShadow: '0 0 0 1px rgba(0,0,0,0.08)' }}
+          ref={logoRef}
+          className="w-[26px] h-[26px] rounded-[4px] flex items-center justify-center shrink-0 select-none relative overflow-hidden"
+          style={{ background: 'var(--accent)', boxShadow: '0 0 0 1px rgba(0,0,0,0.08)', willChange: 'box-shadow' }}
         >
           <span
-            className="text-[13px] font-black leading-none"
+            className="text-[13px] font-black leading-none relative z-10"
             style={{ color: theme === 'dark' ? '#000' : '#fff', letterSpacing: '-0.5px' }}
           >V</span>
+          {/* Scan line — sweeps top to bottom */}
+          <div
+            ref={scanRef}
+            className="absolute inset-x-0 h-[2px] z-20 pointer-events-none"
+            style={{
+              top: '50%',
+              background: theme === 'dark'
+                ? 'linear-gradient(90deg, transparent, rgba(0,0,0,0.7), transparent)'
+                : 'linear-gradient(90deg, transparent, rgba(255,255,255,0.9), transparent)',
+              opacity: 0,
+              willChange: 'transform, opacity',
+            }}
+          />
         </div>
 
         <AnimatePresence mode="wait">
