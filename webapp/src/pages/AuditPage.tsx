@@ -252,20 +252,32 @@ function NumberStepper({
   max?: number
   disabled?: boolean
 }) {
+  const [raw, setRaw] = React.useState(String(value))
+
+  // Keep raw in sync when value changes externally (e.g. stepper buttons)
+  React.useEffect(() => { setRaw(String(value)) }, [value])
+
+  const commit = (str: string) => {
+    const n = parseInt(str, 10)
+    if (!isNaN(n)) onChange(Math.min(max, Math.max(min, n)))
+    else setRaw(String(value)) // restore if empty/invalid on blur
+  }
+
   return (
     <div
       style={{ backgroundColor: 'var(--c-base)', borderColor: 'var(--b-subtle)' }}
       className="flex h-[38px] w-48 items-center rounded-md border overflow-hidden shadow-inner transition-all focus-within:border-b-strong"
     >
       <input
-        type="number"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(Math.min(max, Math.max(min, Number(e.target.value))))}
+        type="text"
+        inputMode="numeric"
+        value={raw}
+        onChange={(e) => setRaw(e.target.value)}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(raw) }}
         disabled={disabled}
         style={{ color: 'var(--t-primary)', backgroundColor: 'transparent' }}
-        className="flex-1 px-3 py-1.5 text-sm font-medium outline-none disabled:opacity-50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        className="flex-1 px-3 py-1.5 text-sm font-medium outline-none disabled:opacity-50"
       />
       <div style={{ borderLeft: '1px solid var(--b-subtle)', backgroundColor: 'var(--c-raised)' }} className="flex h-full">
         <button
