@@ -8,10 +8,12 @@ interface UiState {
   activeTab: NavTab
   sidebarCollapsed: boolean
   theme: Theme
+  loginAnimating: boolean
   setActiveTab: (tab: NavTab) => void
   setSidebarCollapsed: (v: boolean) => void
   setTheme: (t: Theme) => void
   toggleTheme: () => void
+  setLoginAnimating: (v: boolean) => void
 }
 
 function applyTheme(theme: Theme) {
@@ -24,6 +26,7 @@ export const useUiStore = create<UiState>()(
       activeTab: 'Dashboard',
       sidebarCollapsed: false,
       theme: 'light',
+      loginAnimating: false,
       setActiveTab: (tab) => set({ activeTab: tab }),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
       setTheme: (t) => {
@@ -35,6 +38,7 @@ export const useUiStore = create<UiState>()(
         applyTheme(next)
         set({ theme: next })
       },
+      setLoginAnimating: (v) => set({ loginAnimating: v }),
     }),
     {
       name: 'vos-ui',
