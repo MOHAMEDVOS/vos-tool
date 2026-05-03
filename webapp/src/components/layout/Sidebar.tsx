@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { useUiStore, type NavTab } from '@/store/uiStore'
 import { useUnreadCount } from '@/store/badgeStore'
@@ -10,6 +10,7 @@ import {
 import { UsageCard } from './UsageCard'
 import { useAuditStore } from '@/store/auditStore'
 import { inferPhase } from '@/hooks/useAuditStream'
+import { animate } from 'animejs'
 
 interface NavItem { id: NavTab; label: string; icon: React.ReactElement; roles?: string[] }
 
@@ -51,7 +52,72 @@ export function Sidebar() {
     return 0
   }, [isAuditRunning, auditPhase, analysisProgress, progress])
 
+  const themeButtonRef = useRef<HTMLButtonElement>(null)
+  const rippleRef      = useRef<HTMLDivElement | null>(null)
+  const isRippling     = useRef(false)
+
   const items = ALL_ITEMS.filter((i) => !i.roles || (role && i.roles.includes(role)))
+
+  const handleThemeToggle = () => {
+    if (isRippling.current) return
+    isRippling.current = true
+
+    const btn    = themeButtonRef.current
+    const rect   = btn?.getBoundingClientRect()
+    const cx     = rect ? rect.left + rect.width  / 2 : window.innerWidth  / 2
+    const cy     = rect ? rect.top  + rect.height / 2 : window.innerHeight / 2
+
+    const nextTheme   = theme === 'light' ? 'dark' : 'light'
+    const rippleColor = nextTheme === 'dark' ? '#0a0a0a' : '#f5f5f5'
+
+    const overlay = document.createElement('div')
+    overlay.style.cssText = `
+      position: fixed;
+      inset: 0;
+      z-index: 9998;
+      pointer-events: none;
+      background: ${rippleColor};
+      clip-path: circle(0% at ${cx}px ${cy}px);
+      will-change: clip-path;
+    `
+    document.body.appendChild(overlay)
+    rippleRef.current = overlay
+
+    if (btn) {
+      animate(btn, {
+        rotateY: [0, 360],
+        duration: 600,
+        ease: 'cubicBezier(0.4, 0, 0.2, 1)',
+      })
+    }
+
+    animate(overlay, {
+      clipPath: [
+        { to: `circle(0% at ${cx}px ${cy}px)` },
+        { to: `circle(150% at ${cx}px ${cy}px)` },
+      ],
+      duration: 600,
+      ease: 'cubicBezier(0.4, 0, 0.2, 1)',
+      onUpdate: (anim: { progress: number }) => {
+        if (!overlay.dataset.swapped && anim.progress >= 60) {
+          overlay.dataset.swapped = '1'
+          toggleTheme()
+        }
+      },
+      onComplete: () => {
+        animate(overlay, {
+          opacity: [1, 0],
+          duration: 280,
+          ease: 'cubicBezier(0.16, 1, 0.3, 1)',
+          onComplete: () => {
+            overlay.remove()
+            rippleRef.current  = null
+            isRippling.current = false
+          },
+        })
+      },
+    })
+  }
 
   return (
     <aside
@@ -261,7 +327,8 @@ export function Sidebar() {
 
               {/* Theme toggle */}
               <motion.button
-                onClick={toggleTheme}
+                ref={themeButtonRef}
+                onClick={handleThemeToggle}
                 whileHover={{ x: 2 }}
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 22 }}
@@ -306,7 +373,7 @@ export function Sidebar() {
               </div>
 
               <motion.button
-                onClick={toggleTheme}
+                onClick={handleThemeToggle}
                 whileHover={{ scale: 1.15, rotate: 20 }}
                 whileTap={{ scale: 0.92 }}
                 transition={{ type: 'spring', stiffness: 400, damping: 15 }}
