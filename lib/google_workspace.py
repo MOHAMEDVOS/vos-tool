@@ -375,6 +375,37 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
         }
     })
 
+    # Color scale on count column (C): light green → yellow → dark red
+    # Matches sheet theme: green = low concern, red = high concern
+    fmt.append({
+        "addConditionalFormatRule": {
+            "rule": {
+                "ranges": [{
+                    "sheetId": summary_gid,
+                    "startRowIndex": 1,
+                    "startColumnIndex": 2,
+                    "endColumnIndex": 3,
+                }],
+                "gradientRule": {
+                    "minpoint": {
+                        "color": _rgb(0, 150, 57),   # green (low)
+                        "type": "MIN",
+                    },
+                    "midpoint": {
+                        "color": _rgb(255, 214, 102),  # yellow (mid)
+                        "type": "PERCENTILE",
+                        "value": "50",
+                    },
+                    "maxpoint": {
+                        "color": _rgb(192, 0, 0),    # dark red (high)
+                        "type": "MAX",
+                    },
+                },
+            },
+            "index": 0,
+        }
+    })
+
     sheets.spreadsheets().batchUpdate(
         spreadsheetId=spreadsheet_id,
         body={"requests": fmt},
