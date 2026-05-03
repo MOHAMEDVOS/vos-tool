@@ -20,6 +20,7 @@ export function LoginPage() {
   const titleRef       = useRef<HTMLHeadingElement>(null)
   const subtitleRef    = useRef<HTMLHeadingElement>(null)
   const taglineRef     = useRef<HTMLParagraphElement>(null)
+  const typewriterRef  = useRef<HTMLSpanElement>(null)
   const dividerRef     = useRef<HTMLDivElement>(null)
   const authSectionRef = useRef<HTMLDivElement>(null)
   const footerRef      = useRef<HTMLDivElement>(null)
@@ -44,7 +45,7 @@ export function LoginPage() {
       .add(logoMarkRef.current!, { scale: [0, 1], opacity: [0, 1], rotate: [-15, 0], duration: 600, ease: 'spring(1, 80, 12, 4)' }, '-=500')
       .add(titleRef.current!, { translateX: [-14, 0], opacity: [0, 1], duration: 500 }, '-=200')
       .add(subtitleRef.current!, { translateX: [-10, 0], opacity: [0, 1], duration: 420 }, '-=360')
-      .add(taglineRef.current!, { translateY: [6, 0], opacity: [0, 1], duration: 400 }, '-=300')
+      .add(taglineRef.current!, { opacity: [0, 1], duration: 1 }, '-=300')
       .add(dividerRef.current!, { scaleX: [0, 1], opacity: [0, 1], duration: 450 }, '-=200')
       .add(authSectionRef.current!, { translateY: [12, 0], opacity: [0, 1], duration: 500 }, '-=200')
       .add(footerRef.current!, { translateY: [8, 0], opacity: [0, 1], duration: 400 }, '-=200')
@@ -102,6 +103,24 @@ export function LoginPage() {
       clearTimeout(holdTimer)
       clearTimeout(cycleTimer)
     }
+  }, [])
+
+  /* ── Typewriter on tagline ── */
+  useEffect(() => {
+    const el = typewriterRef.current
+    if (!el) return
+    const full = 'AI That Listens, Learns, and Elevates Quality'
+    el.textContent = ''
+    let i = 0
+    // Start after entrance animation reaches the tagline (~1.4s)
+    const start = setTimeout(() => {
+      const interval = setInterval(() => {
+        el.textContent = full.slice(0, ++i)
+        if (i >= full.length) clearInterval(interval)
+      }, 38)
+      return () => clearInterval(interval)
+    }, 1400)
+    return () => clearTimeout(start)
   }, [])
 
   /* ── Status dots stagger loop ── */
@@ -211,7 +230,7 @@ export function LoginPage() {
                   className="text-[14px] leading-relaxed text-[#666] flex items-center gap-[2px]"
                   style={{ opacity: 0 }}
                 >
-                  AI That Listens, Learns, and Elevates Quality
+                  <span ref={typewriterRef} />
                   <span className="inline-block w-[1.5px] h-[14px] bg-[#555] ml-1 cursor-blink" />
                 </p>
               </div>
