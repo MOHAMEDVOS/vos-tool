@@ -94,11 +94,9 @@ export function LoginPage() {
       })
     }
 
-    // Entrance animation takes ~900ms, wait 5s after it settles
-    const startTimer = setTimeout(runCycle, 5000)
+    runCycle()
     return () => {
       stopped = true
-      clearTimeout(startTimer)
       clearTimeout(holdTimer)
       clearTimeout(cycleTimer)
     }
