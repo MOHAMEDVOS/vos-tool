@@ -60,20 +60,6 @@ export function LoginPage() {
         ease:     'cubicBezier(0.45, 0, 0.55, 1)',
       })
     }
-
-    /* logo shimmer */
-    if (logoMarkRef.current) {
-      animate(logoMarkRef.current, {
-        boxShadow: [
-          { to: '0 0 8px 2px rgba(255,255,255,0.15)' },
-          { to: '0 0 22px 6px rgba(255,255,255,0.38)' },
-          { to: '0 0 8px 2px rgba(255,255,255,0.15)' },
-        ],
-        duration: 2600,
-        loop:     true,
-        ease:     'cubicBezier(0.45, 0, 0.55, 1)',
-      })
-    }
   }, [])
 
   /* ── Water fill loop on login V logo ── */
@@ -108,9 +94,11 @@ export function LoginPage() {
       })
     }
 
-    runCycle()
+    // Entrance animation takes ~900ms, wait 5s after it settles
+    const startTimer = setTimeout(runCycle, 5000)
     return () => {
       stopped = true
+      clearTimeout(startTimer)
       clearTimeout(holdTimer)
       clearTimeout(cycleTimer)
     }
@@ -215,7 +203,7 @@ export function LoginPage() {
                       ref={loginWaterRef}
                       className="absolute inset-0 z-0 pointer-events-none"
                       style={{
-                        background: 'linear-gradient(to top, #1a1a1a 0%, #000000 100%)',
+                        background: 'linear-gradient(to top, #ededed 0%, #ffffff 100%)',
                         transform: 'translateY(100%)',
                         willChange: 'transform',
                       }}
