@@ -227,11 +227,11 @@ export function LoginPage() {
 
                 <p
                   ref={taglineRef}
-                  className="text-[14px] leading-relaxed text-[#666] flex items-center gap-[2px]"
+                  className="text-[14px] leading-relaxed text-white"
                   style={{ opacity: 0 }}
                 >
                   <span ref={typewriterRef} />
-                  <span className="inline-block w-[1.5px] h-[14px] bg-[#555] ml-1 cursor-blink" />
+                  <span className="inline-block w-[1.5px] h-[13px] bg-white ml-[2px] align-middle cursor-blink" />
                 </p>
               </div>
 
