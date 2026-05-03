@@ -21,16 +21,16 @@
   --accent-border:   rgba(15, 17, 23, 0.18);
   --accent-text:     #0f1117;
 
-  /* ── Canvas — refined Geist-style separation ── */
-  --surface-page:    #fafafa;
-  --surface-sidebar: #ffffff;
-  --surface-card:    #ffffff;
-  --surface-input:   #ffffff;
-  --surface-soft:    #f0f2f5;
+  /* ── Canvas — warm parchment palette ── */
+  --surface-page:    #f4f3ef;
+  --surface-sidebar: #f9f9f7;
+  --surface-card:    #f9f9f7;
+  --surface-input:   #f9f9f7;
+  --surface-soft:    #eae8e0;
 
   /* ── Glass surfaces (login card, modals) ── */
-  --glass-card-bg:     rgba(255, 255, 255, 0.72);
-  --glass-card-border: rgba(255, 255, 255, 0.90);
+  --glass-card-bg:     rgba(249, 249, 247, 0.82);
+  --glass-card-border: rgba(239, 238, 232, 0.90);
   --glass-blur:        blur(20px) saturate(180%);
 
   /* ── Text ── */
@@ -50,11 +50,11 @@
 
   /* ── Shadow stack tokens ── */
   --shadow-border: rgba(0, 0, 0, 0.08) 0px 0px 0px 1px;
-  --shadow-ring:   rgb(226, 230, 236) 0px 0px 0px 1px;
+  --shadow-ring:   rgb(229, 227, 217) 0px 0px 0px 1px;
   --shadow-card:   0px 0px 0px 1px rgba(0,0,0,0.06),
                    0px 2px 4px rgba(0,0,0,0.04),
                    0px 8px 24px rgba(0,0,0,0.06),
-                   0px 0px 0px 1px #ffffff inset;
+                   0px 0px 0px 1px #f9f9f7 inset;
   --shadow-card-hover: 0px 0px 0px 1px rgba(0,0,0,0.08),
                        0px 4px 8px rgba(0,0,0,0.06),
                        0px 16px 40px rgba(0,0,0,0.10);
@@ -63,7 +63,7 @@
                    0px 20px 60px rgba(0,0,0,0.12);
   --shadow-soft:   0px 2px 8px rgba(0,0,0,0.06);
   --shadow-accent: 0px 4px 16px rgba(0,0,0,0.18);
-  --focus-ring:    0 0 0 2px #ffffff, 0 0 0 4px var(--accent);
+  --focus-ring:    0 0 0 2px #f9f9f7, 0 0 0 4px var(--accent);
 
   /* ── Interactions ── */
   --hover-overlay:  rgba(0, 0, 0, 0.03);
@@ -71,15 +71,15 @@
   --selected-bg:    var(--accent-muted);
   --selected-text:  var(--accent-text);
   --selected-check: var(--accent);
-  --c-dropdown:     #ffffff;
+  --c-dropdown:     #f9f9f7;
 
   /* ── Buttons ── */
   --btn-primary-bg:     var(--accent);
   --btn-primary-text:   #ffffff;
   --btn-primary-hover:  var(--accent-hover);
-  --btn-secondary-bg:   #ffffff;
+  --btn-secondary-bg:   #f4f3ef;
   --btn-secondary-text: var(--t-primary);
-  --btn-secondary-shadow: rgb(226,230,236) 0px 0px 0px 1px;
+  --btn-secondary-shadow: rgb(229,227,217) 0px 0px 0px 1px;
 
   /* ── Audit Buttons (Light) ── */
   --btn-heavy-bg:      var(--accent);
@@ -116,13 +116,13 @@
   --vos-200:   #e2e6ec;
   --vos-50:    #f0f2f5;
 
-  --c-base:    #ffffff;
-  --c-deep:    #f4f6f9;
-  --c-float:   #ffffff;
-  --c-raised:  #f0f2f5;
-  --c-calendar: #ffffff;
+  --c-base:    #f9f9f7;
+  --c-deep:    #efeee8;
+  --c-float:   #f9f9f7;
+  --c-raised:  #eae8e0;
+  --c-calendar: #f9f9f7;
 
-  --surface-strong: #e8ebf0;
+  --surface-strong: #e5e3d9;
 
   /* ── Radius ── */
   --radius-xs:   2px;
