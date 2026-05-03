@@ -2,11 +2,6 @@ import { useEffect, useRef } from 'react'
 import { animate } from 'animejs'
 import { useUiStore } from '@/store/uiStore'
 
-/**
- * Full-screen clip-path shockwave that fires once after login.
- * Mounts in App.tsx. Watches loginAnimating from uiStore.
- * Expands from center, then auto-dismisses and clears the flag.
- */
 export function ShockwaveOverlay() {
   const loginAnimating    = useUiStore((s) => s.loginAnimating)
   const setLoginAnimating = useUiStore((s) => s.setLoginAnimating)
@@ -21,9 +16,11 @@ export function ShockwaveOverlay() {
 
     hasRun.current = true
 
+    // Reset to hidden start state before animating
     el.style.background = theme === 'dark' ? '#0a0a0a' : '#ffffff'
     el.style.clipPath   = 'circle(0% at 50% 50%)'
     el.style.opacity    = '1'
+    el.style.display    = 'block'
 
     animate(el, {
       clipPath: [
@@ -38,6 +35,7 @@ export function ShockwaveOverlay() {
           duration: 320,
           ease: 'cubicBezier(0.16, 1, 0.3, 1)',
           onComplete: () => {
+            el.style.display = 'none'
             setLoginAnimating(false)
             hasRun.current = false
           },
@@ -46,12 +44,12 @@ export function ShockwaveOverlay() {
     })
   }, [loginAnimating, theme, setLoginAnimating])
 
-  if (!loginAnimating) return null
-
+  // Always rendered so overlayRef is always populated — hidden via display:none when idle
   return (
     <div
       ref={overlayRef}
       style={{
+        display:       'none',
         position:      'fixed',
         inset:         0,
         zIndex:        9999,
