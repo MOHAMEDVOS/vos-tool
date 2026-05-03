@@ -129,6 +129,17 @@ export function Sidebar() {
         'flex h-14 shrink-0 items-center border-b border-[var(--b-divider)]',
         sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-4',
       ].join(' ')}>
+        {/* V logo mark — always visible */}
+        <div
+          className="w-[26px] h-[26px] rounded-[4px] flex items-center justify-center shrink-0 select-none"
+          style={{ background: 'var(--accent)', boxShadow: '0 0 0 1px rgba(0,0,0,0.08)' }}
+        >
+          <span
+            className="text-[13px] font-black leading-none"
+            style={{ color: theme === 'dark' ? '#000' : '#fff', letterSpacing: '-0.5px' }}
+          >V</span>
+        </div>
+
         <AnimatePresence mode="wait">
           {!sidebarCollapsed && (
             <motion.span
@@ -137,7 +148,7 @@ export function Sidebar() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -4 }}
               transition={{ duration: 0.18 }}
-              className="font-bold text-[16px] tracking-[-0.5px] select-none"
+              className="font-bold text-[15px] tracking-[-0.5px] select-none flex-1 ml-2"
               style={{ color: 'var(--accent)' }}
             >
               VOS
