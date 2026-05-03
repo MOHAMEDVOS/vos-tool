@@ -70,6 +70,48 @@ _GREEN_BG    = _rgb(0, 150, 57)
 _DETECT_FG   = _rgb(255, 255, 255)
 _STATUS_RED  = _rgb(192, 0, 0)
 _STATUS_FG   = _rgb(255, 255, 255)
+_SUMMARY_SUBHEADER = _rgb(100, 130, 100)  # mid-green for agent name rows
+
+
+# Issue columns: (column key in row dict, human-readable issue label, count_no=True means count "No" as the problem)
+_ISSUE_COLS = [
+    ("Agent Intro",          "Agent Intro (skipped intro)",           True),   # No = bad
+    ("Owner Name",           "Owner Name (not confirmed)",            True),   # No = bad
+    ("Reason For Calling",   "Reason for Calling (address skipped)",  True),   # No = bad
+    ("Late Hello Detection", "Late Hello Detection",                  False),  # Yes = bad
+    ("Releasing Detection",  "Releasing Detection",                   False),  # Yes = bad
+]
+
+
+def _build_agent_issues_summary(rows: List[Dict[str, Any]]) -> List[Tuple[str, str, int]]:
+    """
+    Count flagged answers per agent per issue column.
+    For Agent Intro / Owner Name / Reason For Calling: count rows where value == "No".
+    For Late Hello Detection / Releasing Detection: count rows where value == "Yes".
+    Returns list of (agent_name, issue_label, count) sorted by agent then issue,
+    only where count > 0.
+    """
+    from collections import defaultdict
+    counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for r in rows:
+        agent = str(r.get("Agent Name", "")).strip()
+        if not agent:
+            continue
+        for col_key, label, count_no in _ISSUE_COLS:
+            val = str(r.get(col_key, "")).strip()
+            if count_no and val == "No":
+                counts[agent][label] += 1
+            elif not count_no and val == "Yes":
+                counts[agent][label] += 1
+
+    result = []
+    for agent in sorted(counts.keys()):
+        for _, label, _ in _ISSUE_COLS:
+            c = counts[agent].get(label, 0)
+            if c > 0:
+                result.append((agent, label, c))
+    return result
 
 
 def create_spreadsheet(
@@ -215,8 +257,128 @@ def create_spreadsheet(
             body={"requests": fmt_requests},
         ).execute()
 
+    # ── Sheet 2: Agent Issues Summary ────────────────────────────────────────
+    summary_rows = _build_agent_issues_summary(rows)
+    if summary_rows:
+        _add_summary_sheet(sheets, sheet_id, summary_rows)
+
     sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
     return sheet_id, sheet_url
+
+
+def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str, str, int]]) -> None:
+    """Add a second sheet tab 'Agent Issues Summary' with a grouped issue table."""
+
+    # 1. Create the new sheet tab
+    add_resp = sheets.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={"requests": [{"addSheet": {"properties": {"title": "Agent Issues Summary"}}}]},
+    ).execute()
+    summary_gid = add_resp["replies"][0]["addSheet"]["properties"]["sheetId"]
+
+    # 2. Build the values: header + grouped data rows
+    header = [["Agent Name", "Issue Type", "Total Samples with Issue"]]
+    values = []
+    current_agent = None
+    for agent, label, count in summary_rows:
+        if agent != current_agent:
+            # Show agent name only on first issue row for that agent
+            values.append([agent, label, count])
+            current_agent = agent
+        else:
+            values.append(["", label, count])
+
+    sheets.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range="Agent Issues Summary!A1",
+        valueInputOption="RAW",
+        body={"values": header + values},
+    ).execute()
+
+    total_rows = len(values) + 1  # +1 for header
+
+    fmt = []
+
+    # Header row: dark green bg, white bold, frozen
+    fmt.append({
+        "repeatCell": {
+            "range": {"sheetId": summary_gid, "startRowIndex": 0, "endRowIndex": 1,
+                      "startColumnIndex": 0, "endColumnIndex": 3},
+            "cell": {
+                "userEnteredFormat": {
+                    "backgroundColor": _HEADER_BG,
+                    "textFormat": {"foregroundColor": _HEADER_FG, "bold": True},
+                    "horizontalAlignment": "CENTER",
+                }
+            },
+            "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+        }
+    })
+    fmt.append({"updateSheetProperties": {
+        "properties": {"sheetId": summary_gid, "gridProperties": {"frozenRowCount": 1}},
+        "fields": "gridProperties.frozenRowCount",
+    }})
+
+    # Data rows: colour agent-name cells mid-green + count column centre-aligned
+    current_agent = None
+    for row_i, (agent, label, count) in enumerate(summary_rows, start=1):
+        if agent != current_agent:
+            current_agent = agent
+            # Agent name cell — mid-green bg, white bold
+            fmt.append({
+                "repeatCell": {
+                    "range": {"sheetId": summary_gid,
+                              "startRowIndex": row_i, "endRowIndex": row_i + 1,
+                              "startColumnIndex": 0, "endColumnIndex": 1},
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": _SUMMARY_SUBHEADER,
+                            "textFormat": {"foregroundColor": _HEADER_FG, "bold": True},
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat)",
+                }
+            })
+
+        # Count cell — red bg if count >= 10, orange if 5-9, else default; always bold+centre
+        if count >= 10:
+            count_bg = _RED_BG
+            count_fg = _HEADER_FG
+        elif count >= 5:
+            count_bg = _rgb(230, 120, 0)
+            count_fg = _HEADER_FG
+        else:
+            count_bg = _rgb(255, 255, 255)
+            count_fg = _rgb(0, 0, 0)
+
+        fmt.append({
+            "repeatCell": {
+                "range": {"sheetId": summary_gid,
+                          "startRowIndex": row_i, "endRowIndex": row_i + 1,
+                          "startColumnIndex": 2, "endColumnIndex": 3},
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": count_bg,
+                        "textFormat": {"foregroundColor": count_fg, "bold": True},
+                        "horizontalAlignment": "CENTER",
+                    }
+                },
+                "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+            }
+        })
+
+    # Auto-resize all 3 columns
+    fmt.append({
+        "autoResizeDimensions": {
+            "dimensions": {"sheetId": summary_gid, "dimension": "COLUMNS",
+                           "startIndex": 0, "endIndex": 3}
+        }
+    })
+
+    sheets.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={"requests": fmt},
+    ).execute()
 
 
 def replace_doc_placeholders(docs, doc_id: str, mapping: Dict[str, str]) -> None:
