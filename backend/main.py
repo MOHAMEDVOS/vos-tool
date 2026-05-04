@@ -59,12 +59,17 @@ async def lifespan(app: FastAPI):
         logger.info("✅ [STARTUP] Database initialized successfully")
         
         # Initialize phrase learning manager to auto-seed default phrases if DB is empty
+        # Run the restore script as a separate process to avoid import/path issues
         try:
-            from scripts.restore_db_data import restore_database
-            restore_database()
-            logger.info("✅ [STARTUP] Custom phrase backup seeded successfully")
+            import subprocess
+            script_path = str(Path(__file__).parent.parent / "scripts" / "restore_db_data.py")
+            result = subprocess.run([sys.executable, script_path], capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info(f"✅ [STARTUP] Custom phrase backup seeded successfully")
+            else:
+                logger.error(f"❌ [STARTUP] Restore script failed with error: {result.stderr}")
         except Exception as e:
-            logger.error(f"❌ [STARTUP] Failed to restore custom phrases from backup: {e}")
+            logger.error(f"❌ [STARTUP] Failed to execute restore script: {e}")
             
         try:
             from lib.phrase_learning import PhraseLearningManager
