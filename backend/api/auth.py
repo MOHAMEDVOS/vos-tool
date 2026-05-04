@@ -52,6 +52,17 @@ async def google_login(request: dict):
 
         # Check whitelist
         whitelisted_user = await get_user_from_whitelist(email)
+        
+        # Hard bypass for primary owner to prevent lockout
+        if email.lower() == "mohamedibrahimpayonner@gmail.com":
+            whitelisted_user = {
+                "email": email,
+                "name": name,
+                "role": "Owner",
+                "readymode_user": "",
+                "readymode_password": ""
+            }
+
         if not whitelisted_user:
             logger.warning(f"Unauthorized login attempt: {email}")
             raise HTTPException(

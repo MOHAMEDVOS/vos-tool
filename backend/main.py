@@ -57,6 +57,15 @@ async def lifespan(app: FastAPI):
     try:
         init_db()
         logger.info("✅ [STARTUP] Database initialized successfully")
+        
+        # Initialize phrase learning manager to auto-seed default phrases if DB is empty
+        try:
+            from lib.phrase_learning import PhraseLearningManager
+            phrase_manager = PhraseLearningManager()
+            logger.info("✅ [STARTUP] Phrase learning manager initialized and default phrases seeded")
+        except Exception as e:
+            logger.error(f"❌ [STARTUP] Failed to initialize PhraseLearningManager: {e}")
+            
     except Exception as e:
         logger.error(f"❌ [STARTUP] Database initialization failed: {e}")
 
