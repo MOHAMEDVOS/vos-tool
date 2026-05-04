@@ -38,14 +38,59 @@ def restore_database():
         except Exception as e:
             logger.error(f"Failed to insert owner into whitelist: {e}")
             
-    # 3. Seed phrases
-    logger.info("Restoring rebuttal phrases...")
+    # 3. Seed phrases from backup
+    logger.info("Restoring phrases from backup file...")
     try:
-        from lib.phrase_learning import PhraseLearningManager
-        pm = PhraseLearningManager()
-        # Force a rebuild just in case
-        pm.rebuild_repository_from_existing()
-        logger.info("Rebuttal phrases restored successfully.")
+        import json
+        backup_file = root_dir / 'cloud-migration' / 'phrases_backup.json'
+        
+        if backup_file.exists():
+            with open(backup_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                
+            repo_phrases = data.get('repository_phrases', [])
+            rebuttal_phrases = data.get('rebuttal_phrases', [])
+            
+            logger.info(f"Found {len(repo_phrases)} repository phrases and {len(rebuttal_phrases)} rebuttal phrases in backup.")
+            
+            # Restore repository_phrases
+            if repo_phrases and db:
+                for p in repo_phrases:
+                    db.execute_query(
+                        """
+                        INSERT INTO repository_phrases (phrase, category, source, usage_count, successful_detections) 
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (phrase, category) DO NOTHING
+                        """,
+                        (p['phrase'], p['category'], p.get('source', 'manual'), p.get('usage_count', 0), p.get('successful_detections', 0)),
+                        fetch=False
+                    )
+                logger.info("repository_phrases restored successfully.")
+                
+            # Restore rebuttal_phrases
+            if rebuttal_phrases and db:
+                for p in rebuttal_phrases:
+                    db.execute_query(
+                        """
+                        INSERT INTO rebuttal_phrases (category, phrase, source) 
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (category, phrase) DO NOTHING
+                        """,
+                        (p['category'], p['phrase'], p.get('source', 'manual')),
+                        fetch=False
+                    )
+                logger.info("rebuttal_phrases restored successfully.")
+                
+            # Update phrase learning manager cache
+            from lib.phrase_learning import PhraseLearningManager
+            pm = PhraseLearningManager()
+            pm.refresh_cache()
+        else:
+            logger.warning("phrases_backup.json not found! Falling back to KeywordRepository...")
+            from lib.phrase_learning import PhraseLearningManager
+            pm = PhraseLearningManager()
+            pm.rebuild_repository_from_existing()
+            
     except Exception as e:
         logger.error(f"Failed to restore phrases: {e}")
         
