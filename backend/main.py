@@ -62,12 +62,16 @@ async def lifespan(app: FastAPI):
         try:
             from scripts.restore_db_data import restore_database
             restore_database()
-            
-            from lib.phrase_learning import PhraseLearningManager
-            phrase_manager = PhraseLearningManager()
-            logger.info("✅ [STARTUP] Phrase learning manager initialized and full custom phrase backup seeded")
+            logger.info("✅ [STARTUP] Custom phrase backup seeded successfully")
         except Exception as e:
             logger.error(f"❌ [STARTUP] Failed to restore custom phrases from backup: {e}")
+            
+        try:
+            from lib.phrase_learning import PhraseLearningManager
+            phrase_manager = PhraseLearningManager()
+            logger.info("✅ [STARTUP] Phrase learning manager initialized")
+        except Exception as e:
+            logger.error(f"❌ [STARTUP] Failed to initialize PhraseLearningManager: {e}")
             
     except Exception as e:
         logger.error(f"❌ [STARTUP] Database initialization failed: {e}")
