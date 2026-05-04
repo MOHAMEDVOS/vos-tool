@@ -38,7 +38,60 @@ def restore_database():
         except Exception as e:
             logger.error(f"Failed to insert owner into whitelist: {e}")
             
-    # 3. Seed phrases from backup
+    # 3. Restore other tables from db_backup.json if it exists
+    logger.info("Checking for full DB backup...")
+    try:
+        import json
+        db_backup_file = root_dir / 'cloud-migration' / 'db_backup.json'
+        if db_backup_file.exists() and db:
+            with open(db_backup_file, 'r', encoding='utf-8') as f:
+                db_data = json.load(f)
+            
+            # Users
+            users = db_data.get('users', [])
+            for u in users:
+                db.execute_query(
+                    """
+                    INSERT INTO users (id, username, app_pass_hash, readymode_user, readymode_pass_encrypted, role, created_at, updated_at) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (u['id'], u['username'], u.get('app_pass_hash',''), u.get('readymode_user'), u.get('readymode_pass_encrypted'), u.get('role', 'Auditor'), u.get('created_at'), u.get('updated_at')),
+                    fetch=False
+                )
+            
+            # Whitelist
+            whitelist = db_data.get('whitelist', [])
+            for w in whitelist:
+                db.execute_query(
+                    "INSERT INTO whitelist (email, role, created_at) VALUES (%s, %s, %s) ON CONFLICT (email) DO NOTHING",
+                    (w['email'], w.get('role', 'Auditor'), w.get('created_at')),
+                    fetch=False
+                )
+                
+            # Audit Results
+            for table in ['agent_audit_results', 'lite_audit_results', 'campaign_audit_results']:
+                rows = db_data.get(table, [])
+                for r in rows:
+                    cols = list(r.keys())
+                    if 'metadata' in cols and isinstance(r['metadata'], (dict, list)):
+                        r['metadata'] = json.dumps(r['metadata'])
+                    if 'detection_results' in cols and isinstance(r['detection_results'], (dict, list)):
+                        r['detection_results'] = json.dumps(r['detection_results'])
+                        
+                    placeholders = ', '.join(['%s'] * len(cols))
+                    col_names = ', '.join(cols)
+                    values = tuple(r[c] for c in cols)
+                    try:
+                        db.execute_query(f"INSERT INTO {table} ({col_names}) VALUES ({placeholders}) ON CONFLICT (id) DO NOTHING", values, fetch=False)
+                    except Exception as err:
+                        pass
+            
+            logger.info(f"Full DB backup restored! Loaded {len(users)} users, {len(whitelist)} whitelist entries.")
+    except Exception as e:
+        logger.error(f"Failed to restore full DB backup: {e}")
+
+    # 4. Seed phrases from backup
     logger.info("Restoring phrases from backup file...")
     try:
         import json
