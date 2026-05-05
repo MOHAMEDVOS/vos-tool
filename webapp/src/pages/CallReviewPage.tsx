@@ -297,7 +297,21 @@ function CallCard({ call }: { call: FlaggedCall }) {
             {(call.Timestamp ?? call.timestamp) && (
               <span>
                 <span className="block text-xs font-medium uppercase tracking-wider text-vos-400 mb-0.5">Time</span>
-                {call.Timestamp ?? call.timestamp}
+                {(() => {
+                  const ts = call.Timestamp ?? call.timestamp
+                  if (!ts) return ''
+                  const str = String(ts)
+                  if (/^\d{13}$/.test(str)) {
+                    return new Date(Number(str)).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true
+                    })
+                  }
+                  return str.replace(/(\d{1,2})_(\d{2})(AM|PM)/ig, '$1:$2$3')
+                })()}
               </span>
             )}
             {call.Disposition && (
