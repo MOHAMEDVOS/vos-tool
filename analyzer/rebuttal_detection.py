@@ -2393,6 +2393,10 @@ class SemanticDetectionEngine:
             r'\bstop\s+calling\b',
             r'\btake\s+me\s+off\b',
             r'\bremove\s+me\b',
+            r'\brent\b',
+            r'\brenter\b',
+            r'\brenting\b',
+            r'\brented\b',
         ]
         
         compiled_denials = [re.compile(p, re.IGNORECASE) for p in denial_patterns]
@@ -2964,9 +2968,9 @@ class RebuttalDetectionModule:
                     corrected_transcript = cleaned_agent_text
                     corrections_made = []
 
-            # 5. Semantic Detection (on agent transcript only)
+            # 5. Semantic Detection (on agent transcript only, but with dialogue context if available)
             logger.debug("Step 5: Semantic detection")
-            matches, feedback_metadata = self.detection_engine.detect_rebuttals(corrected_transcript)
+            matches, feedback_metadata = self.detection_engine.detect_rebuttals(corrected_transcript, dialogue=dialogue_transcript)
             logger.debug(f"Found {len(matches)} rebuttal matches")
 
             # 6. Determine Result

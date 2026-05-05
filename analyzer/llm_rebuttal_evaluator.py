@@ -17,13 +17,13 @@ logger = logging.getLogger(__name__)
 class GroqClient:
     """Handles communication with GroqCloud API."""
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.1-8b-instant"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.3-70b-versatile"):
         """
         Initialize GroqCloud API client.
         
         Args:
             api_key: GroqCloud API key. If not provided, reads from environment.
-            model: Model to use for inference (default: llama-3.1-8b-instant)
+            model: Model to use for inference (default: llama-3.3-70b-versatile)
         """
         self.api_key = api_key or os.getenv("GROQ_API_KEY", "")
         if not self.api_key:
@@ -116,7 +116,8 @@ class RebuttalPromptBuilder:
         "price_too_low": "customer thinks the offer price is too low",
         "needs_time": "customer needs more time to think or decide",
         "spouse_decision": "customer needs to consult with spouse/partner",
-        "wrong_number": "customer said they are not the person the agent asked for / wrong number"
+        "wrong_number": "customer said they are not the person the agent asked for / wrong number",
+        "renter_not_owner": "customer said they are a renter or do not own the property"
     }
     
     SYSTEM_PROMPT = """You are an expert quality assurance evaluator for outbound real estate cold calls. Your task is to determine whether a sales agent attempted to handle or overcome a customer's objection during a phone call.
@@ -255,6 +256,12 @@ WHAT DOES NOT COUNT:
 ❌ Ending the call immediately after the objection with no attempt
 ❌ Pure pleasantries with zero substance ("okay sorry to bother you goodbye")
 
+THE RENTER/NOT OWNER EXCEPTION (BYPASS RULE):
+- If the Owner explicitly states they are a RENTER, or that they RENT the property, or they are NOT THE OWNER, or the property is RENTED.
+- This is an acceptable reason to end the call immediately without a rebuttal attempt.
+- In this specific case, you MUST set "rebuttal_detected": true and set "reasoning": "Bypass: Contact is a renter/not the owner".
+- This ensures the agent is not penalized for failing to rebut someone who cannot sell the property anyway.
+
 REAL TRANSCRIPT PATTERNS (from actual recorded calls — study these carefully):
 These are exactly how your agents speak. All of these ARE rebuttals:
 - "and by any chance, do you have a property yourself you're thinking to sell thank you"
@@ -345,6 +352,7 @@ Pay special attention to (most commonly missed):
 - Does the agent ask for a callback or referral? (Strategy 6, 8)
 - Is there ANY broken English attempt to ask about property? (Strategy 14 — do not miss these)
 - Does the agent ask an incomplete question that points toward property? (Strategy 20)
+- EXCEPTION CHECK: Did the Owner say they are a RENTER or NOT THE OWNER? If so, mark as detected=true with reasoning "Bypass: Renter".
 
 """
         
@@ -389,7 +397,7 @@ class LLMRebuttalEvaluator:
     _learned_phrases_loaded_at = 0
     _cache_lock = threading.Lock()
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.1-8b-instant"):
+    def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.3-70b-versatile"):
         """
         Initialize LLM evaluator.
         
