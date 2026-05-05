@@ -294,26 +294,31 @@ function CallCard({ call }: { call: FlaggedCall }) {
           )}
 
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-vos-black">
-            {(call.Timestamp ?? call.timestamp) && (
-              <span>
-                <span className="block text-xs font-medium uppercase tracking-wider text-vos-400 mb-0.5">Time</span>
-                {(() => {
-                  const ts = call.Timestamp ?? call.timestamp
-                  if (!ts) return ''
-                  const str = String(ts)
-                  if (/^\d{13}$/.test(str)) {
-                    return new Date(Number(str)).toLocaleString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: 'numeric',
-                      minute: '2-digit',
-                      hour12: true
-                    })
-                  }
-                  return str.replace(/(\d{1,2})_(\d{2})(AM|PM)/ig, '$1:$2$3')
-                })()}
-              </span>
-            )}
+            {(() => {
+              const metaTs = call.metadata?.timestamp ?? call.metadata?.Timestamp
+              const rawTs = metaTs ?? call.Timestamp ?? call.timestamp
+              if (!rawTs) return null
+              
+              let displayStr = String(rawTs)
+              if (/^\d{13}$/.test(displayStr)) {
+                displayStr = new Date(Number(displayStr)).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: 'numeric',
+                  minute: '2-digit',
+                  hour12: true
+                })
+              } else {
+                displayStr = displayStr.replace(/(\d{1,2})_(\d{2})(AM|PM)/ig, '$1:$2$3')
+              }
+              
+              return (
+                <span>
+                  <span className="block text-xs font-medium uppercase tracking-wider text-vos-400 mb-0.5">Time</span>
+                  {displayStr}
+                </span>
+              )
+            })()}
             {call.Disposition && (
               <span>
                 <span className="block text-xs font-medium uppercase tracking-wider text-vos-400 mb-0.5">Disposition</span>

@@ -477,20 +477,48 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         except:
                             pass
 
-                        # 1. Wait for dropdown (Allow hidden state since it may use custom UI)
-                        page.wait_for_selector("#restrict_campaign", state="attached", timeout=10000)
+                # 1. Wait for dropdown (Allow hidden state since it may use custom UI)
+                try:
+                    page.wait_for_selector("#restrict_campaign", state="attached", timeout=10000)
+                except:
+                    print("WARNING: #restrict_campaign dropdown not found explicitly, searching all select elements...")
 
-                        # 2. Select Campaign via Direct JS (Works with hidden/custom UI)
-                        print(f"Selecting campaign '{campaign_name}' via Direct JS...")
+                # 2. Select Campaign via Direct JS (Works with hidden/custom UI)
+                print(f"Selecting campaign '{campaign_name}' via Direct JS...")
 
-                        # Wait for any select to have options (sometimes they load late)
-                        page.wait_for_function("""
-                            () => {
-                                const selects = document.querySelectorAll('select');
-                                return Array.from(selects).some(s => s.options.length > 1);
-                            }
-                        """, timeout=15000)
+                # Wait for any select to have options (sometimes they load late)
+                try:
+                    page.wait_for_function("""
+                        () => {
+                            const selects = document.querySelectorAll('select');
+                            return Array.from(selects).some(s => s.options.length > 1);
+                        }
+                    """, timeout=10000)
+                except:
+                    print("WARNING: Select options didn't load in time.")
 
+                campaign_selected = False
+                for attempt in range(2): # Reduced to 2 attempts for faster failure
+                    try:
+                        print(f"Campaign Filter Attempt {attempt + 1}/2")
+
+                        # 0. HANDLE BLOCKING POPUPS
+                        try:
+                            popups = page.locator("button.close, .modal-close, button[aria-label='Close'], .ui-dialog-titlebar-close")
+                            for i in range(popups.count()):
+                                if popups.nth(i).is_visible():
+                                    print("INFO Closing blocking popup/modal...")
+                                    popups.nth(i).click()
+                                    time.sleep(0.5)
+
+                            if page.is_visible("text=On a scale of 0-10"):
+                                print("INFO Detected NPS Survey. Attempting to close...")
+                                page.mouse.click(10, 10)
+                                time.sleep(0.5)
+                        except:
+                            pass
+
+                        # Get all available options to check if target exists
                         available_info = page.evaluate("""
                             () => {
                                 const selects = Array.from(document.querySelectorAll('select'));
@@ -501,11 +529,20 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                 }));
                             }
                         """)
-                        print(f"DEBUG Found {len(available_info)} select elements.")
+                        
+                        all_options = []
                         for info in available_info:
-                            print(f"DEBUG Select(id={info['id']}, name={info['name']}) options: {info['options'][:5]}... (Total: {len(info['options'])})")
+                            all_options.extend([o.lower() for o in info['options']])
+                        
+                        target_lower = campaign_name.strip().lower()
+                        if not any(target_lower in opt for opt in all_options):
+                            print(f"ERROR: Campaign '{campaign_name}' definitely not found in any dropdown options.")
+                            if attempt == 1: # Last attempt
+                                break
+                            time.sleep(2)
+                            continue
 
-                        # 2. Select Campaign via Direct JS
+                        # Select Campaign via Direct JS
                         selection_result = page.evaluate("""
                             (campaignName) => {
                                 const selects = Array.from(document.querySelectorAll('select'));
@@ -545,12 +582,9 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         used_selector = selection_result.get("selector", "#restrict_campaign")
 
                         if not found_and_selected:
-                            print(f"WARNING: Campaign '{campaign_name}' not found in any dropdown.")
-                            # Fallback: Try Playwright's native select force
-                            try:
-                                page.select_option("#restrict_campaign", label=campaign_name.strip(), force=True)
-                            except:
-                                pass
+                            print(f"WARNING: Selection failed via JS for '{campaign_name}'.")
+                            time.sleep(2)
+                            continue
 
                         time.sleep(1)
 
@@ -561,23 +595,17 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                             selected_value = "unknown"
 
                         if campaign_name.strip().lower() not in selected_value.lower():
-                            print(f"WARNING Selection verification failed on '{used_selector}'. Got '{selected_value}', expected '{campaign_name}'")
+                            print(f"WARNING Verification failed. Got '{selected_value}', expected '{campaign_name}'")
                             time.sleep(2)
                             continue
 
                         campaign_selected = True
-                        print(f"SUCCESS Campaign filter selected: {selected_value} (via {used_selector})")
-
-                        # Wait for page to update
-                        print("WAIT Waiting for page to refresh with filtered results...")
-                        time.sleep(3)
-                        try:
-                            page.wait_for_selector("a[href*='.mp3']", timeout=15000)
-                            print("SUCCESS Page updated with filtered results")
-                            break
-                        except:
-                            print("WARNING: No MP3 links found explicitly (could be 0 results), but filter applied.")
-                            break
+                        print(f"SUCCESS Campaign filter selected: {selected_value}")
+                        
+                        # Wait for page update
+                        print("WAIT Waiting for results to refresh...")
+                        time.sleep(4)
+                        break
 
                     except Exception as e:
                         print(f"WARNING Campaign filter attempt {attempt + 1} failed: {e}")
@@ -585,7 +613,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
 
                 if not campaign_selected:
                     error_msg = f"No campaign found with name '{campaign_name}'"
-                    print(f"[!] CRITICAL: {error_msg}. Stopping to prevent invalid data download.")
+                    print(f"\n[!] CRITICAL: {error_msg}. STOPPING PROCESS.")
                     raise ReadyModeNoCallsError(error_msg)
 
                 print(f"SUCCESS CAMPAIGN FILTER FINALIZED: '{campaign_name}'\n")

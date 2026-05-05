@@ -2167,16 +2167,23 @@ class DashboardManager:
                     timestamp_field = record.get('Timestamp')
                     if timestamp_field:
                         try:
-                            # Parse timestamp and ensure it's in proper format
                             if isinstance(timestamp_field, str):
-                                # Try to parse as datetime
-                                timestamp_dt = dt.datetime.strptime(timestamp_field, "%B %d, %I:%M:%S %p")
-                                formatted_timestamp = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
+                                ts_str = timestamp_field.strip()
+                                # 1. Try full format from some audits
+                                try:
+                                    timestamp_dt = dt.datetime.strptime(ts_str, "%B %d, %I:%M:%S %p")
+                                    formatted_timestamp = timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
+                                except ValueError:
+                                    # 2. Try time-only format from ReadyMode (e.g. "12:45 PM" or "01:23AM" or "12_45PM")
+                                    clean_time = ts_str.replace("_", ":").strip()
+                                    # Handle optional space before AM/PM
+                                    if " AM" not in clean_time and " PM" not in clean_time:
+                                        clean_time = clean_time.replace("AM", " AM").replace("PM", " PM")
+                                    time_dt = dt.datetime.strptime(clean_time, "%I:%M %p")
+                                    formatted_timestamp = dt.datetime.combine(dt.datetime.now().date(), time_dt.time()).strftime("%Y-%m-%d %H:%M:%S")
                             else:
-                                # Use as-is if it's already a datetime object
                                 formatted_timestamp = timestamp_field.strftime("%Y-%m-%d %H:%M:%S") if hasattr(timestamp_field, 'strftime') else str(timestamp_field)
                         except Exception:
-                            # Fallback to current timestamp if parsing fails
                             formatted_timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     else:
                         formatted_timestamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
