@@ -170,22 +170,23 @@ export function CampaignAuditDashboard() {
                   Clear Selected Campaign Data
                 </DestroyButton>
               ) : (
-                <div className="rounded-xl border border-b-strong bg-c-base p-6 max-w-lg shadow-2xl absolute bottom-0 left-0 z-[60] mb-12">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-1 h-6 bg-[#c0392b] rounded-full" />
-                    <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#e74c3c]">Confirm Deletion</h3>
+                <div className="flex flex-col gap-3 p-4 rounded-xl border border-ship-red/20 bg-ship-red/5 min-w-[300px]">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-ship-red">Confirm Deletion</h3>
                   </div>
-                  <p className="mb-6 text-xs text-t-primary leading-relaxed font-medium">
-                    Permanently delete all audit data for campaign <span className="text-t-primary font-black underline decoration-[#c0392b]/50">'{effectiveCampaign}'</span>. This cannot be undone.
+                  <p className="text-[10px] text-t-primary leading-relaxed font-bold opacity-80">
+                    Delete all audit data for campaign <span className="underline decoration-ship-red/50">'{effectiveCampaign}'</span>?
                   </p>
-                  <div className="flex justify-start gap-3">
+                  <div className="flex justify-start gap-2">
                     <DestroyButton
+                      size="sm"
                       onClick={() => clearData.mutate()}
                       disabled={clearData.isPending}
                     >
-                      {clearData.isPending ? 'Processing...' : 'Permanently Delete'}
+                      {clearData.isPending ? 'Processing...' : 'Yes, Delete All'}
                     </DestroyButton>
                     <Button
+                      size="sm"
                       variant="action"
                       onClick={() => setShowConfirm(false)}
                     >

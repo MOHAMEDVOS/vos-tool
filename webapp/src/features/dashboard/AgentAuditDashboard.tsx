@@ -98,26 +98,27 @@ export function AgentAuditDashboard() {
               Clear Agent Audit Data
             </DestroyButton>
           ) : (
-            <div className="rounded-xl border border-b-strong bg-c-base p-6 max-w-lg shadow-2xl absolute bottom-0 left-0 z-[60] mb-12">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-1 h-6 bg-[#c0392b] rounded-full" />
-                <h3 className="text-xs font-black uppercase tracking-[0.2em] text-[#e74c3c]">Confirm Deletion</h3>
-              </div>
-              <p className="mb-6 text-xs text-t-primary leading-relaxed font-medium">
-                Permanently delete all agent audit data. This cannot be undone.
-              </p>
-              <div className="flex justify-start gap-3">
-                <DestroyButton
-                  onClick={() => clearData.mutate()}
-                  disabled={clearData.isPending}
-                >
-                  {clearData.isPending ? 'Clearing...' : 'Permanently Delete'}
-                </DestroyButton>
-                <Button variant="action" onClick={() => setShowConfirm(false)}>
-                  Cancel
-                </Button>
-              </div>
+          <div className="flex flex-col gap-3 p-4 rounded-xl border border-ship-red/20 bg-ship-red/5 min-w-[300px]">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={14} className="text-ship-red" strokeWidth={3} />
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-ship-red">Confirm Deletion</h3>
             </div>
+            <p className="text-[10px] text-t-primary leading-relaxed font-bold opacity-80">
+              Permanently delete all agent audit data?
+            </p>
+            <div className="flex justify-start gap-2">
+              <DestroyButton
+                size="sm"
+                onClick={() => clearData.mutate()}
+                disabled={clearData.isPending}
+              >
+                {clearData.isPending ? 'Clearing...' : 'Yes, Delete All'}
+              </DestroyButton>
+              <Button size="sm" variant="action" onClick={() => setShowConfirm(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
           )
         }
       />
