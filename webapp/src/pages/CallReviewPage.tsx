@@ -295,8 +295,8 @@ function CallCard({ call }: { call: FlaggedCall }) {
 
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-vos-black">
             {(() => {
-              const metaTs = call.metadata?.timestamp ?? call.metadata?.Timestamp
-              const rawTs = metaTs ?? call.Timestamp ?? call.timestamp
+              // Priority: explicitly named fields, then merged fields from backend
+              const rawTs = (call as any).Timestamp || (call as any).timestamp || (call as any).metadata?.timestamp || (call as any).metadata?.Timestamp
               if (!rawTs) return null
               
               let displayStr = String(rawTs)

@@ -54,7 +54,7 @@ export interface AuditRecord {
   campaign?: string
   transcript?: string
   rebuttals?: Record<string, unknown>[]
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, any>
 }
 
 export interface DashboardData {
@@ -92,7 +92,7 @@ export interface AgentAuditRow {
   audit_type?: string
   'File Name'?: string
   'File Path'?: string
-  [key: string]: unknown
+  [key: string]: any
 }
 
 export interface FlaggedCall extends AgentAuditRow {
