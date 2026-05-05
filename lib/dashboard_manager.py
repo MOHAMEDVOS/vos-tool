@@ -2162,6 +2162,12 @@ class DashboardManager:
         df_with_metadata['audit_timestamp'] = audit_timestamp
         df_with_metadata['username'] = username
         
+        # Pre-format time for storage/metadata
+        if 'timestamp' in df_with_metadata.columns:
+            df_with_metadata['Time'] = df_with_metadata['timestamp'].apply(self._format_time)
+        elif 'Timestamp' in df_with_metadata.columns:
+            df_with_metadata['Time'] = df_with_metadata['Timestamp'].apply(self._format_time)
+        
         # Save to database
         if self._db_manager:
             try:
