@@ -456,27 +456,6 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 print(f"Applying Campaign Filter: '{campaign_name}'")
                 print(f"{'='*60}")
 
-                campaign_selected = False
-                for attempt in range(3):
-                    try:
-                        print(f"Campaign Filter Attempt {attempt + 1}/3")
-
-                        # 0. HANDLE BLOCKING POPUPS
-                        try:
-                            popups = page.locator("button.close, .modal-close, button[aria-label='Close'], .ui-dialog-titlebar-close")
-                            for i in range(popups.count()):
-                                if popups.nth(i).is_visible():
-                                    print("INFO Closing blocking popup/modal...")
-                                    popups.nth(i).click()
-                                    time.sleep(0.5)
-
-                            if page.is_visible("text=On a scale of 0-10"):
-                                print("INFO Detected NPS Survey. Attempting to close...")
-                                page.mouse.click(10, 10)
-                                time.sleep(0.5)
-                        except:
-                            pass
-
                 # 1. Wait for dropdown (Allow hidden state since it may use custom UI)
                 try:
                     page.wait_for_selector("#restrict_campaign", state="attached", timeout=10000)
