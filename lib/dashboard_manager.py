@@ -2108,23 +2108,48 @@ class DashboardManager:
             print(f"Error resetting user to isolated mode: {e}")
             return False
     
-    def _format_time(self, ts) -> str:
-        """Format timestamp to HH:MM AM/PM."""
+    def _format_time(self, ts):
+        """Formats timestamp into HH:MM AM/PM."""
         if not ts:
             return ""
-        try:
-            if isinstance(ts, str):
-                # Try to parse ISO format or other common formats
-                from dateutil import parser
-                dt_obj = parser.parse(ts)
-            elif hasattr(ts, 'strftime'):
-                dt_obj = ts
-            else:
-                return str(ts)
+        
+        ts_str = str(ts).strip()
+        if not ts_str:
+            return ""
             
+        # 1. First, try to match the specific '7_28PM' or '12_45 AM' format common in filenames
+        import re
+        # This matches things like 7_28PM, 7_28 PM, 07_28PM, 12:45PM, 4:00AM, etc.
+        match = re.search(r'(\d{1,2})[_\:](\d{2})\s*(AM|PM)', ts_str, re.IGNORECASE)
+        if match:
+            h, m, ampm = match.groups()
+            return f"{int(h)}:{m} {ampm.upper()}"
+            
+        try:
+            # 2. Handle 13-digit JS timestamps (milliseconds)
+            if ts_str.isdigit() and len(ts_str) == 13:
+                import datetime
+                dt_obj = datetime.datetime.fromtimestamp(int(ts_str) / 1000.0)
+                return dt_obj.strftime("%I:%M %p")
+                
+            # 3. Handle standard date/time strings
+            from dateutil import parser
+            # CRITICAL: We use a very specific default to detect if the time portion is actually present
+            # If the parser doesn't find a time, it will return the time from our default (04:19:28)
+            import datetime
+            magic_default = datetime.datetime(1900, 1, 1, 4, 19, 28)
+            dt_obj = parser.parse(ts_str, default=magic_default)
+            
+            # If the time is our magic default, it means the input string HAD NO TIME
+            if dt_obj.hour == 4 and dt_obj.minute == 19 and dt_obj.second == 28:
+                # If there's no time in the string, don't invent one
+                return ts_str if len(ts_str) < 15 else "" 
+                
             return dt_obj.strftime("%I:%M %p")
+            
         except Exception:
-            return str(ts)
+            # Final fallback: just return the raw string if it's short, or empty if it's a long date
+            return ts_str if len(ts_str) < 15 else ""
 
     def save_agent_audit_results(self, df: pd.DataFrame, username: str = None):
         """
@@ -2336,15 +2361,32 @@ class DashboardManager:
                 # Convert to DataFrame format matching the original JSON structure
                 records = []
                 for row in results:
+                    # Priority: 1. Try to extract from file_name (most reliable for ReadyMode)
+                    #           2. Fallback to stored timestamp
+                    file_name = row.get('file_name', '')
+                    db_timestamp = row.get('timestamp', '')
+                    
+                    # Try extraction from filename first to 'repair' any bad DB data
+                    extracted_time = ""
+                    if file_name:
+                        import re
+                        from pathlib import Path
+                        stem = Path(file_name).stem
+                        # Match 7_28PM or 4:00AM or May 5, 4:00AM
+                        match = re.search(r'(\d{1,2})[_\:](\d{2})\s*(AM|PM)', stem, re.IGNORECASE)
+                        if match:
+                            extracted_time = f"{int(match.group(1))}:{match.group(2)} {match.group(3).upper()}"
+                    
                     record = {
+                        'id': row.get('id'),
                         'Agent Name': row.get('agent_name'),
                         'File Name': row.get('file_name'),
                         'File Path': row.get('file_path'),
                         'Releasing Detection': row.get('releasing_detection'),
                         'Late Hello Detection': row.get('late_hello_detection'),
                         'Rebuttal Detection': row.get('rebuttal_detection'),
-                        'Timestamp': row.get('timestamp'),
-                        'Time': self._format_time(row.get('timestamp')),
+                        'Timestamp': db_timestamp,
+                        'Time': extracted_time or self._format_time(db_timestamp),
                         'Call Duration': row.get('call_duration'),
                         'Transcription': row.get('transcript', ''),  # Map database 'transcript' to 'Transcription'
                         'Confidence Score': row.get('confidence_score'),
@@ -2698,28 +2740,28 @@ class DashboardManager:
                                 from pathlib import Path
                                 import re
                                 stem = Path(file_name).stem
+                                # Try to extract with pattern first
                                 parts = stem.split(" _ ")
                                 
                                 if len(parts) == 4:
                                     # New format: AgentName _ Timestamp _ Phone _ Disposition.mp3
                                     agent_name_raw, timestamp_raw, phone_number, disposition = parts
-                                    # Format timestamp for display (same as process_single_file_lite)
-                                    if timestamp_raw and timestamp_raw.strip():
-                                        # Use same format_timestamp_for_display logic: replace underscore with colon in time portion
-                                        import re
-                                        time_pattern = r'(\d{1,2})_(\d{2})(AM|PM)'
-                                        timestamp = re.sub(time_pattern, r'\1:\2\3', timestamp_raw)
-                                    else:
-                                        timestamp = ''
+                                    timestamp = timestamp_raw
                                 elif len(parts) == 2:
                                     # Old format: AgentName _ Phone.mp3
                                     agent_name_raw, phone_number = parts
-                                    timestamp = ''
-                                    disposition = ''
+                                    timestamp = ""
                                 else:
-                                    phone_number = ''
-                                    timestamp = ''
-                                    disposition = ''
+                                    # No pattern found (e.g., "May 5, 4:00AM")
+                                    # Treat the whole stem as the timestamp/metadata source
+                                    timestamp = stem
+                                    phone_number = ""
+                                    disposition = ""
+
+                                # Cleanup timestamp formatting if it contains underscores (ReadyMode specific)
+                                if timestamp:
+                                    # Replace _ with : (e.g. 7_28PM -> 7:28PM)
+                                    timestamp = re.sub(r'(\d{1,2})_(\d{2})(AM|PM)', r'\1:\2\3', timestamp, flags=re.IGNORECASE)
                             except Exception as e:
                                 logger.debug(f"Error parsing file_name for metadata: {e}")
                                 phone_number = ''
@@ -2735,8 +2777,22 @@ class DashboardManager:
                             disposition = detection_results.get('disposition')
                         
                         record['Phone Number'] = phone_number
+                        # Priority: 1. Try to extract from file_name (most reliable for ReadyMode)
+                        #           2. Fallback to stored timestamp
+                        
+                        # Try extraction from filename first to 'repair' any bad DB data
+                        extracted_time = ""
+                        if file_name:
+                            import re
+                            from pathlib import Path
+                            stem = Path(file_name).stem
+                            # Match 7_28PM or 4:00AM or May 5, 4:00AM
+                            match = re.search(r'(\d{1,2})[_\:](\d{2})\s*(AM|PM)', stem, re.IGNORECASE)
+                            if match:
+                                extracted_time = f"{int(match.group(1))}:{match.group(2)} {match.group(3).upper()}"
+                                
                         record['Timestamp'] = timestamp
-                        record['Time'] = self._format_time(timestamp)
+                        record['Time'] = extracted_time or self._format_time(timestamp)
                         record['Disposition'] = disposition
                         
                         # Extract Dialer Name from detection_results or file path
