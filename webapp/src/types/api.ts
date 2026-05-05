@@ -87,6 +87,7 @@ export interface AgentAuditRow {
   'Intro Score'?: string | number
   Status?: string
   Timestamp?: string
+  timestamp?: string
   username?: string
   audit_type?: string
   'File Name'?: string

@@ -294,6 +294,12 @@ function CallCard({ call }: { call: FlaggedCall }) {
           )}
 
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-vos-black">
+            {(call.Timestamp ?? call.timestamp) && (
+              <span>
+                <span className="block text-xs font-medium uppercase tracking-wider text-vos-400 mb-0.5">Time</span>
+                {call.Timestamp ?? call.timestamp}
+              </span>
+            )}
             {call.Disposition && (
               <span>
                 <span className="block text-xs font-medium uppercase tracking-wider text-vos-400 mb-0.5">Disposition</span>

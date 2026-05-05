@@ -584,9 +584,9 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         time.sleep(2)
 
                 if not campaign_selected:
-                    error_msg = f"[!] CRITICAL: Failed to select campaign '{campaign_name}' after 3 attempts. Stopping to prevent invalid data download."
-                    print(error_msg)
-                    raise RuntimeError(error_msg)
+                    error_msg = f"No campaign found with name '{campaign_name}'"
+                    print(f"[!] CRITICAL: {error_msg}. Stopping to prevent invalid data download.")
+                    raise ReadyModeNoCallsError(error_msg)
 
                 print(f"SUCCESS CAMPAIGN FILTER FINALIZED: '{campaign_name}'\n")
             
@@ -691,9 +691,9 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         time.sleep(2)
                 
                 if not agent_selected:
-                    error_msg = f"[!] CRITICAL: Failed to select agent '{agent}' after 3 attempts. Stopping to prevent invalid data download."
-                    print(error_msg)
-                    raise Exception(error_msg)
+                    error_msg = f"No agent found with name '{agent}'"
+                    print(f"[!] CRITICAL: {error_msg}. Stopping to prevent invalid data download.")
+                    raise ReadyModeNoCallsError(error_msg)
 
                 print(f"SUCCESS AGENT FILTER FINALIZED: '{agent}'\n")
             
