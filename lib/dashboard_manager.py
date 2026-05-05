@@ -2108,6 +2108,24 @@ class DashboardManager:
             print(f"Error resetting user to isolated mode: {e}")
             return False
     
+    def _format_time(self, ts) -> str:
+        """Format timestamp to HH:MM AM/PM."""
+        if not ts:
+            return ""
+        try:
+            if isinstance(ts, str):
+                # Try to parse ISO format or other common formats
+                from dateutil import parser
+                dt_obj = parser.parse(ts)
+            elif hasattr(ts, 'strftime'):
+                dt_obj = ts
+            else:
+                return str(ts)
+            
+            return dt_obj.strftime("%I:%M %p")
+        except Exception:
+            return str(ts)
+
     def save_agent_audit_results(self, df: pd.DataFrame, username: str = None):
         """
         Append new agent audit results to user-specific storage.
@@ -2320,6 +2338,7 @@ class DashboardManager:
                         'Late Hello Detection': row.get('late_hello_detection'),
                         'Rebuttal Detection': row.get('rebuttal_detection'),
                         'Timestamp': row.get('timestamp'),
+                        'Time': self._format_time(row.get('timestamp')),
                         'Call Duration': row.get('call_duration'),
                         'Transcription': row.get('transcript', ''),  # Map database 'transcript' to 'Transcription'
                         'Confidence Score': row.get('confidence_score'),
@@ -2711,6 +2730,7 @@ class DashboardManager:
                         
                         record['Phone Number'] = phone_number
                         record['Timestamp'] = timestamp
+                        record['Time'] = self._format_time(timestamp)
                         record['Disposition'] = disposition
                         
                         # Extract Dialer Name from detection_results or file path

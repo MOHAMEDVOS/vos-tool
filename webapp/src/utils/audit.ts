@@ -15,6 +15,7 @@ export const AGENT_AUDIT_COLUMN_ORDER = [
   'Reason for calling',
   'Intro Score',
   'Status',
+  'Time',
 ] as const
 
 // Columns to hide from display (kept in data for CSV) - matches app.py:2442

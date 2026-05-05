@@ -12,9 +12,10 @@ interface Props {
   rows: AgentAuditRow[]
   getRowClassName?: (row: Record<string, unknown>, index: number) => string
   leftActions?: React.ReactNode
+  excludeColumns?: string[]
 }
 
-export function AuditTable({ rows, leftActions }: Props) {
+export function AuditTable({ rows, leftActions, excludeColumns = [] }: Props) {
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [search, setSearch] = useState('')
@@ -31,7 +32,7 @@ export function AuditTable({ rows, leftActions }: Props) {
   }, [])
 
   const { columns, rowData } = useMemo(() => {
-    const columns = [...AGENT_AUDIT_COLUMN_ORDER]
+    const columns = AGENT_AUDIT_COLUMN_ORDER.filter(col => !excludeColumns.includes(col))
     const normalized = rows.map(normalizeRow)
 
     let filtered = normalized

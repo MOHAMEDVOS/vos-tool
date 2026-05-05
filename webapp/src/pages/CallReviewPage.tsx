@@ -295,11 +295,12 @@ function CallCard({ call }: { call: FlaggedCall }) {
 
           <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-vos-black">
             {(() => {
-              // Priority: explicitly named fields, then merged fields from backend
-              const rawTs = (call as any).Timestamp || (call as any).timestamp || (call as any).metadata?.timestamp || (call as any).metadata?.Timestamp
-              if (!rawTs) return null
+              // Priority: Use the pre-formatted 'Time' field first, then fall back to raw timestamps
+              const displayTime = call.Time || call.Timestamp || call.timestamp
+              if (!displayTime) return null
               
-              let displayStr = String(rawTs)
+              let displayStr = String(displayTime)
+              // If it's a 13-digit JS timestamp, format it
               if (/^\d{13}$/.test(displayStr)) {
                 displayStr = new Date(Number(displayStr)).toLocaleString('en-US', {
                   month: 'short',
@@ -308,8 +309,6 @@ function CallCard({ call }: { call: FlaggedCall }) {
                   minute: '2-digit',
                   hour12: true
                 })
-              } else {
-                displayStr = displayStr.replace(/(\d{1,2})_(\d{2})(AM|PM)/ig, '$1:$2$3')
               }
               
               return (

@@ -160,6 +160,7 @@ export function CampaignAuditDashboard() {
 
           <AuditTable 
             rows={displayRows} 
+            excludeColumns={['Time']}
             leftActions={
               !showConfirm ? (
                 <DestroyButton

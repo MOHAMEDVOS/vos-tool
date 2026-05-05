@@ -6,7 +6,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import type { FlaggedCall } from '@/types/api'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
-import { RefreshCw, Search, ChevronDown, Check, Copy } from 'lucide-react'
+import { RefreshCw, Search, ChevronDown, Check, Copy, ArrowUp, ArrowDown } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/Select'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CountUp, Metric } from '@/components/ui/Metric'
@@ -20,6 +20,8 @@ interface AgentDeductionRow {
 
 function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [sortCol, setSortCol] = useState<keyof AgentDeductionRow | null>('flaggedCalls')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
@@ -27,7 +29,7 @@ function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
-  const headers = [
+  const headers: { key: keyof AgentDeductionRow; label: string; cls: string }[] = [
     { key: 'agentName',    label: 'Agent Name',     cls: 'min-w-[200px]' },
     { key: 'totalCalls',   label: 'Total Calls',    cls: 'min-w-[100px] text-right' },
     { key: 'flaggedCalls', label: 'Flagged Calls',  cls: 'min-w-[110px] text-right' },
@@ -38,21 +40,64 @@ function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
     { key: 'deduction',    label: 'Deduction',      cls: 'min-w-[100px]' },
   ]
 
+  const sortedRows = useMemo(() => {
+    if (!sortCol) return rows
+    return [...rows].sort((a, b) => {
+      let va = a[sortCol]
+      let vb = b[sortCol]
+      
+      // Handle array/boolean types for sorting
+      if (Array.isArray(va)) va = va.join(', ')
+      if (Array.isArray(vb)) vb = vb.join(', ')
+      
+      const sa = String(va ?? '').toLowerCase()
+      const sb = String(vb ?? '').toLowerCase()
+      
+      // Try numeric sort for numeric fields
+      if (typeof va === 'number' && typeof vb === 'number') {
+        return sortDir === 'asc' ? va - vb : vb - va
+      }
+      
+      return sortDir === 'asc' ? sa.localeCompare(sb) : sb.localeCompare(sa)
+    })
+  }, [rows, sortCol, sortDir])
+
+  const toggleSort = (key: keyof AgentDeductionRow) => {
+    if (sortCol === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortCol(key)
+      setSortDir('desc')
+    }
+  }
+
   return (
     <div className="rounded-lg shadow-card border border-b-subtle overflow-hidden bg-c-base">
       <div className="overflow-auto max-h-[380px] resize-y min-h-[200px] custom-scrollbar">
         <table className="w-max min-w-full border-collapse text-sm relative">
           <thead className="sticky top-0 z-20 bg-c-base shadow-[inset_0_-1px_0_rgba(255,255,255,0.05)]">
             <tr>
-              {headers.map((h) => (
-                <th key={h.key} className={`${h.cls} border-r border-b-subtle px-3 py-2.5 text-left text-[10px] font-black uppercase tracking-[0.15em] text-vos-500 whitespace-nowrap last:border-r-0`}>
-                  {h.label}
-                </th>
-              ))}
+              {headers.map((h) => {
+                const isSorted = sortCol === h.key
+                return (
+                  <th 
+                    key={h.key} 
+                    onClick={() => toggleSort(h.key)}
+                    className={`${h.cls} border-r border-b-subtle px-3 py-2.5 text-left text-[10px] font-black uppercase tracking-[0.15em] text-vos-500 whitespace-nowrap last:border-r-0 cursor-pointer hover:bg-c-raised/30 transition-colors select-none`}
+                  >
+                    <div className={`flex items-center gap-2 ${h.cls.includes('text-right') ? 'justify-end' : 'justify-start'}`}>
+                      {h.label}
+                      <span className={`transition-opacity duration-200 ${isSorted ? 'opacity-100' : 'opacity-0'}`}>
+                        {sortDir === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />}
+                      </span>
+                    </div>
+                  </th>
+                )
+              })}
             </tr>
           </thead>
         <tbody className="divide-y divide-b-subtle">
-          {rows.map((row, idx) => {
+          {sortedRows.map((row, idx) => {
             const flagBg = row.flaggedCalls >= 5 
               ? 'bg-[var(--semantic-error-bg)] text-semantic-error' 
               : row.flaggedCalls === 4 
@@ -307,7 +352,8 @@ export function ActionsPage() {
                         if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
                         if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
                         if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
-                        return `${c['Phone Number'] || 'Unknown'} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}`
+                        const timeStr = c['Time'] ? ` - ${c['Time']}` : ''
+                        return `${c['Phone Number'] || 'Unknown'} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}${timeStr}`
                       }).join('\n')
                       copyToClipboard(text, 'all')
                     }}
@@ -337,7 +383,7 @@ export function ActionsPage() {
                       if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
                       return (
                         <div key={i} className="hover:text-t-primary transition-colors">
-                          {c['Phone Number'] || 'Unknown'} - {issues.join(', ') || 'Flagged'} - {c['Dialer Name'] || 'Unknown'}
+                          {c['Phone Number'] || 'Unknown'} - {issues.join(', ') || 'Flagged'} - {c['Dialer Name'] || 'Unknown'}{c['Time'] && ` - ${c['Time']}`}
                         </div>
                       )
                     })}

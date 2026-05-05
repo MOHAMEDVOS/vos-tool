@@ -88,6 +88,7 @@ export interface AgentAuditRow {
   Status?: string
   Timestamp?: string
   timestamp?: string
+  Time?: string
   username?: string
   audit_type?: string
   'File Name'?: string
