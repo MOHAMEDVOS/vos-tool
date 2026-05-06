@@ -755,7 +755,7 @@ class QuotaManager:
                     if not admin_exists:
                         logger.warning("Default 'admin' account not found. Creating it...")
                         # Auto-create admin group with high capacity
-                        self.set_admin_limits("admin", max_users=1000, daily_quota=1000000, owner_username="system")
+                        self.set_admin_limits("admin", max_users=1000, total_daily_quota=1000000, owner_username="system")
                         quota_data = self._load_quota_data()  # Reload to confirm creation
                         admin_exists = quota_data.get("admin_limits", {}).get("admin")
                     
