@@ -24,19 +24,26 @@ function SeamlessVideo({ src }: { src: string }) {
     if (!v1 || !v2) return
 
     // Initial play
-    v1.play().catch(() => {})
+    if (activeIdx === 0) {
+      v1.play().catch(() => {})
+    } else {
+      v2.play().catch(() => {})
+    }
 
     const interval = setInterval(() => {
       const active = activeIdx === 0 ? v1 : v2
       const next = activeIdx === 0 ? v2 : v1
 
-      // If we are within 1.2 seconds of the end, trigger the crossfade
-      if (active.duration && active.currentTime > active.duration - 1.2) {
-        next.currentTime = 0
-        next.play().catch(() => {})
-        setActiveIdx(activeIdx === 0 ? 1 : 0)
+      // Trigger 1.5 seconds before end for a more generous overlap
+      if (active.duration && active.currentTime > active.duration - 1.5) {
+        if (next.paused) {
+          next.currentTime = 0
+          next.play().then(() => {
+            setActiveIdx(activeIdx === 0 ? 1 : 0)
+          }).catch(() => {})
+        }
       }
-    }, 100)
+    }, 50)
 
     return () => clearInterval(interval)
   }, [activeIdx])
@@ -48,8 +55,9 @@ function SeamlessVideo({ src }: { src: string }) {
     height: '100%',
     objectFit: 'cover',
     opacity: isActive ? 1 : 0,
-    transition: 'opacity 1200ms ease-in-out',
+    transition: 'opacity 2000ms cubic-bezier(0.45, 0, 0.55, 1)', // Softer ease-in-out
     pointerEvents: 'none',
+    transform: 'scale(1.02)', // Tiny scale to hide potential edge flicker
   })
 
   return (
