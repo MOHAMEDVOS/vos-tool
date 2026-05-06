@@ -3363,7 +3363,9 @@ class DashboardManager:
 
         all_data = []
         
-        # Load from database first (if available)
+        # Load from database — fetch only the MOST RECENT audit run for this campaign.
+        # Loading all historical runs and concatenating caused records to be lost when
+        # the same file appeared in multiple runs (dedup kept only one copy).
         if self._db_manager:
             try:
                 placeholders = ','.join(['%s'] * len(shared_users))
@@ -3372,6 +3374,7 @@ class DashboardManager:
                     SELECT * FROM campaign_audit_results
                     WHERE campaign_name = %s AND username IN ({placeholders})
                     ORDER BY timestamp DESC
+                    LIMIT 1
                 """
                 results = self._db_manager.execute_query(query, tuple(params), fetch=True)
                 
