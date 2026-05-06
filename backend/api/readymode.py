@@ -6,6 +6,34 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import StreamingResponse
 from typing import Optional
 import sys, io, threading, queue, json, time
+
+# ── Thread-local stdout router ────────────────────────────────────────────────
+# Each worker thread registers its own QueueWriter here so concurrent audits
+# never overwrite each other's sys.stdout.
+_thread_local = threading.local()
+
+class _ThreadLocalStdout(io.TextIOBase):
+    """Proxy that routes writes to the current thread's registered writer,
+    falling back to the real stdout for threads that haven't registered one."""
+    def __init__(self, real_stdout):
+        self._real = real_stdout
+
+    def write(self, s: str):
+        writer = getattr(_thread_local, "queue_writer", None)
+        if writer is not None:
+            return writer.write(s)
+        return self._real.write(s)
+
+    def flush(self):
+        writer = getattr(_thread_local, "queue_writer", None)
+        if writer is not None:
+            writer.flush()
+        else:
+            self._real.flush()
+
+# Install the router once at import time (safe — it's a stable proxy object)
+if not isinstance(sys.stdout, _ThreadLocalStdout):
+    sys.stdout = _ThreadLocalStdout(sys.stdout)
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -172,7 +200,7 @@ async def stream_readymode_audit(
     result_box: dict = {}
 
     def worker():
-        """Run download + analysis in thread, redirect stdout to queue."""
+        """Run download + analysis in thread, stream stdout to this user's queue only."""
         class QueueWriter(io.TextIOBase):
             def write(self, s: str):
                 for line in s.splitlines():
@@ -182,8 +210,9 @@ async def stream_readymode_audit(
                 return len(s)
             def flush(self): pass
 
-        old_stdout = sys.stdout
-        sys.stdout = QueueWriter()
+        # Register on thread-local storage — does NOT touch global sys.stdout,
+        # so concurrent users each write only to their own queue.
+        _thread_local.queue_writer = QueueWriter()
         try:
             def check_cancel():
                 return cancel_event.is_set()
@@ -227,8 +256,9 @@ async def stream_readymode_audit(
         except Exception as e:
             result_box["error"] = str(e)
         finally:
-            sys.stdout = old_stdout
-            log_q.put(None)  # sentinel — None (not a tuple) signals end
+            # Unregister this thread's writer so the thread is clean if reused
+            _thread_local.queue_writer = None
+            log_q.put(None)  # sentinel — signals event_stream to stop
 
     t = threading.Thread(target=worker, daemon=True)
     t.start()
