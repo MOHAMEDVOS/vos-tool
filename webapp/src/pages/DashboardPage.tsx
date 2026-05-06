@@ -53,19 +53,15 @@ export function DashboardPage() {
             <h1 className="font-display text-[42px] font-light tracking-[0.05em] text-t-primary leading-none">Dashboard</h1>
             <p className="text-[14px] text-t-muted font-medium tracking-tight">Overview of your automated audits and detections.</p>
           </div>
-          <motion.button
-            whileTap={{ scale: 0.98 }}
+          <Button
+            variant={showConfig ? 'primary' : 'secondary'}
             onClick={() => setShowConfig(!showConfig)}
-            className={`flex items-center gap-2 rounded-md px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em] transition-all border ${
-              showConfig 
-                ? 'bg-t-primary text-t-on-primary border-t-primary shadow-md' 
-                : 'bg-c-base text-t-muted border-b-medium hover:border-t-primary hover:text-t-primary'
-            }`}
+            className="gap-2 h-9"
           >
             <Key size={13} />
-            {showConfig ? 'Hide Config' : 'Configure AI Key'}
+            <span className="uppercase tracking-[0.1em]">{showConfig ? 'Hide Config' : 'Configure AI Key'}</span>
             <ChevronDown size={13} className={`transition-transform duration-300 ${showConfig ? 'rotate-180' : ''}`} />
-          </motion.button>
+          </Button>
         </div>
 
         <AnimatePresence>
@@ -77,36 +73,74 @@ export function DashboardPage() {
               transition={{ duration: 0.3, ease: 'easeInOut' }}
               className="overflow-hidden"
             >
-              <Card className="flex flex-col gap-5 bg-c-raised/50 border-b-medium backdrop-blur-sm">
-                <div>
-                  <h2 className="text-base font-black uppercase tracking-tight text-t-primary flex items-center gap-2">
-                    <Key size={16} className="text-vos-500" />
-                    My AssemblyAI API Key
-                  </h2>
-                  <p className="mt-1 text-sm text-vos-400">
-                    Store a personal AssemblyAI API key. Encrypted and used for transcription when available.
-                  </p>
+              <Card className="flex flex-col bg-surface-card shadow-card overflow-hidden border border-b-medium">
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-b-divider bg-surface-soft/30 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Key size={14} className="text-t-primary" />
+                    <h2 className="text-[11px] font-bold uppercase tracking-[0.15em] text-t-primary">
+                      AssemblyAI Configuration
+                    </h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-medium text-t-muted uppercase tracking-widest">Status:</span>
+                    <span className={`text-[10px] font-bold uppercase tracking-widest ${keyStatus.data?.has_key ? 'text-semantic-success' : 'text-t-muted'}`}>
+                      {keyStatus.data?.has_key ? 'Active' : 'Missing'}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-sm text-vos-400">
-                  Status: <strong className="text-t-primary font-bold">{keyStatus.data?.has_key ? 'Set' : 'Not set'}</strong>
-                </p>
-                <div>
-                  <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">
-                    Update your AssemblyAI API key
-                  </label>
-                  <Input
-                    type="password"
-                    value={assemblyKey}
-                    onChange={(e) => setAssemblyKey(e.target.value)}
-                    placeholder="Enter new key or leave blank to clear"
-                  />
+
+                {/* Body */}
+                <div className="p-6 flex flex-col gap-6">
+                  <div>
+                    <p className="text-[13px] text-t-secondary leading-relaxed max-w-xl">
+                      Your AssemblyAI API key is used for secure, high-accuracy audio transcription. 
+                      It is stored encrypted and only used for your private transcription jobs.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-[0.15em] text-t-muted">
+                      API Key
+                    </label>
+                    <Input
+                      type="password"
+                      className="bg-surface-page/50 border border-b-medium focus:border-accent transition-all"
+                      value={assemblyKey}
+                      onChange={(e) => setAssemblyKey(e.target.value)}
+                      placeholder="Enter new key (e.g. 78a5...)"
+                    />
+                    <p className="text-[11px] text-t-muted">
+                      Enter a new key to update or leave blank to clear the current configuration.
+                    </p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <SuccessFlash show={updateKey.isSuccess} label="Key Saved" />
-                  <Button onClick={() => updateKey.mutate()} disabled={!assemblyKey.trim() || updateKey.isPending}>Save key</Button>
-                  {keyStatus.data?.has_key && (
-                    <Button variant="danger" onClick={() => clearKey.mutate()} disabled={clearKey.isPending}>Clear key</Button>
-                  )}
+
+                {/* Footer */}
+                <div className="px-6 py-4 bg-surface-soft/20 border-t border-t-divider flex items-center justify-between">
+                  <SuccessFlash show={updateKey.isSuccess} label="Settings Updated" />
+                  <div className="flex items-center gap-3">
+                    {keyStatus.data?.has_key && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => clearKey.mutate()} 
+                        disabled={clearKey.isPending}
+                        className="text-semantic-error hover:bg-semantic-error/10 hover:text-semantic-error"
+                      >
+                        Clear Key
+                      </Button>
+                    )}
+                    <Button 
+                      variant="primary" 
+                      size="sm"
+                      onClick={() => updateKey.mutate()} 
+                      disabled={!assemblyKey.trim() || updateKey.isPending}
+                      className="min-w-[140px]"
+                    >
+                      {updateKey.isPending ? 'Saving...' : 'Save Configuration'}
+                    </Button>
+                  </div>
                 </div>
               </Card>
             </motion.div>
