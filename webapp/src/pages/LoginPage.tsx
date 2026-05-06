@@ -1,5 +1,5 @@
 // test deploy trigger
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GoogleLogin } from '@react-oauth/google'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -8,6 +8,71 @@ import { useAuthStore } from '@/store/authStore'
 import { createTimeline, animate, stagger } from 'animejs'
 
 const LOGIN_BACKGROUND_VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260418_080021_d598092b-c4c2-4e53-8e46-94cf9064cd50.mp4'
+
+/**
+ * A component that handles a seamless loop for videos that don't perfectly loop
+ * by cross-fading between two video elements.
+ */
+function SeamlessVideo({ src }: { src: string }) {
+  const [activeIdx, setActiveIdx] = useState(0)
+  const v1Ref = useRef<HTMLVideoElement>(null)
+  const v2Ref = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    const v1 = v1Ref.current
+    const v2 = v2Ref.current
+    if (!v1 || !v2) return
+
+    // Initial play
+    v1.play().catch(() => {})
+
+    const interval = setInterval(() => {
+      const active = activeIdx === 0 ? v1 : v2
+      const next = activeIdx === 0 ? v2 : v1
+
+      // If we are within 1.2 seconds of the end, trigger the crossfade
+      if (active.duration && active.currentTime > active.duration - 1.2) {
+        next.currentTime = 0
+        next.play().catch(() => {})
+        setActiveIdx(activeIdx === 0 ? 1 : 0)
+      }
+    }, 100)
+
+    return () => clearInterval(interval)
+  }, [activeIdx])
+
+  const videoStyle = (isActive: boolean): React.CSSProperties => ({
+    position: 'absolute',
+    inset: 0,
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    opacity: isActive ? 1 : 0,
+    transition: 'opacity 1200ms ease-in-out',
+    pointerEvents: 'none',
+  })
+
+  return (
+    <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
+      <video
+        ref={v1Ref}
+        src={src}
+        style={videoStyle(activeIdx === 0)}
+        muted
+        playsInline
+        preload="auto"
+      />
+      <video
+        ref={v2Ref}
+        src={src}
+        style={videoStyle(activeIdx === 1)}
+        muted
+        playsInline
+        preload="auto"
+      />
+    </div>
+  )
+}
 
 export function LoginPage() {
   const navigate  = useNavigate()
@@ -145,17 +210,7 @@ export function LoginPage() {
     <div
       className="relative flex flex-col min-h-screen items-center justify-center bg-[#000] selection:bg-white selection:text-black overflow-hidden"
     >
-      <video
-        aria-hidden="true"
-        className="fixed inset-0 z-0 h-full w-full object-cover pointer-events-none"
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
-      >
-        <source src={LOGIN_BACKGROUND_VIDEO_URL} type="video/mp4" />
-      </video>
+      <SeamlessVideo src={LOGIN_BACKGROUND_VIDEO_URL} />
 
       {/* Readability wash over the video */}
       <div
