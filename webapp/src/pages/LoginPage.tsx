@@ -5,8 +5,9 @@ import { GoogleLogin } from '@react-oauth/google'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useGoogleLogin } from '@/hooks/useAuth'
 import { useAuthStore } from '@/store/authStore'
-import { LoginCanvasBackground } from '@/components/ui/LoginCanvasBackground'
 import { createTimeline, animate, stagger } from 'animejs'
+
+const LOGIN_BACKGROUND_VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260418_080021_d598092b-c4c2-4e53-8e46-94cf9064cd50.mp4'
 
 export function LoginPage() {
   const navigate  = useNavigate()
@@ -144,18 +145,33 @@ export function LoginPage() {
     <div
       className="relative flex flex-col min-h-screen items-center justify-center bg-[#000] selection:bg-white selection:text-black overflow-hidden"
     >
-      <LoginCanvasBackground />
+      <video
+        aria-hidden="true"
+        className="fixed inset-0 z-0 h-full w-full object-cover pointer-events-none"
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
+      >
+        <source src={LOGIN_BACKGROUND_VIDEO_URL} type="video/mp4" />
+      </video>
+
+      {/* Readability wash over the video */}
+      <div
+        className="fixed inset-0 z-[1] pointer-events-none bg-black/45"
+      />
 
       {/* Radial vignette */}
       <div
-        className="fixed inset-0 z-[1] pointer-events-none"
+        className="fixed inset-0 z-[2] pointer-events-none"
         style={{ background: 'radial-gradient(ellipse 70% 70% at 50% 50%, transparent 20%, rgba(0,0,0,0.75) 100%)' }}
       />
 
       {/* Ambient glow ring */}
       <div
         ref={glowRingRef}
-        className="fixed z-[2] pointer-events-none"
+        className="fixed z-[3] pointer-events-none"
         style={{
           width: 520, height: 520, borderRadius: '50%',
           background: 'radial-gradient(circle, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 70%)',
