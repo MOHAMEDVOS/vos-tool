@@ -2874,10 +2874,16 @@ class DashboardManager:
                                       f"{releasing_count} releasing, {late_hello_count} late hello, "
                                       f"{flagged_count} flagged total")
                     
-                    # Remove duplicates based on phone number, keeping the most recent entry
-                    if not combined_df.empty and 'Phone Number' in combined_df.columns:
-                        combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
-                        combined_df = combined_df.drop_duplicates(subset=['Phone Number'], keep='first')
+                    # Deduplicate by File Name (unique per recording), not Phone Number.
+                    # Deduping by phone would drop valid repeated calls to the same number.
+                    if not combined_df.empty:
+                        dedup_col = next(
+                            (c for c in ['File Name', 'file_name', 'File Path', 'file_path']
+                             if c in combined_df.columns),
+                            None
+                        )
+                        if dedup_col:
+                            combined_df = combined_df.drop_duplicates(subset=[dedup_col], keep='first')
                         combined_df = combined_df.sort_values('audit_timestamp', ascending=False)
                     
                     return combined_df
@@ -3503,61 +3509,23 @@ class DashboardManager:
 
         if all_data:
             combined_df = pd.concat(all_data, ignore_index=True)
-            
-            # Remove duplicates based on phone number, keeping the most recent entry
-            if not combined_df.empty and 'Phone Number' in combined_df.columns:
-                # Sort by timestamp if available, otherwise keep first occurrence
-                if 'Timestamp' in combined_df.columns:
-                    # Try to sort by parsed timestamp for most recent first
-                    try:
-                        # Add a temporary parsed timestamp column for sorting
-                        def parse_timestamp(ts_str):
-                            if pd.isna(ts_str) or ts_str == '':
-                                return pd.Timestamp.min
-                            try:
-                                # Handle quoted timestamps and underscores
-                                ts_str = str(ts_str).strip()
-                                if ts_str.startswith('"') and ts_str.endswith('"'):
-                                    ts_str = ts_str[1:-1]
-                                clean_ts = ts_str.replace('_', ':')
-                                
-                                current_year = datetime.now().year
-                                current_month = datetime.now().month
-                                
-                                # Extract month from timestamp for smart year determination
-                                try:
-                                    month_str = clean_ts.split(',')[0].strip().split()[0]  # "Oct" from "Oct 30"
-                                    timestamp_month = datetime.strptime(month_str, "%b").month
-                                    
-                                    if timestamp_month > current_month:
-                                        parsed_year = current_year - 1
-                                    else:
-                                        parsed_year = current_year
-                                except (ValueError, AttributeError) as e:
-                                    logger.debug(f"Error parsing timestamp month in parse_timestamp: {e}")
-                                    parsed_year = current_year
-                                
-                                if ',' in clean_ts:
-                                    date_part = clean_ts.split(',')[0].strip()
-                                    date_str = f"{date_part}, {parsed_year}"
-                                else:
-                                    date_str = f"{clean_ts}, {parsed_year}"
-                                
-                                return pd.to_datetime(date_str, format="%b %d, %Y")
-                            except (ValueError, TypeError) as e:
-                                logger.debug(f"Error parsing datetime in parse_timestamp: {e}")
-                                return pd.Timestamp.min
-                        
-                        combined_df['_parsed_timestamp'] = combined_df['Timestamp'].apply(parse_timestamp)
-                        combined_df = combined_df.sort_values('_parsed_timestamp', ascending=False)
-                        combined_df = combined_df.drop('_parsed_timestamp', axis=1)
-                    except Exception:
-                        # Fallback: just drop duplicates without sorting
-                        pass
-                
-                # Drop duplicates by phone number, keeping the first (most recent) occurrence
-                combined_df = combined_df.drop_duplicates(subset=['Phone Number'], keep='first')
-            
+
+            # Deduplicate by File Name (unique per recording) to remove rows saved
+            # twice — NOT by Phone Number, which would wrongly collapse all callbacks
+            # and repeated calls to the same lead into a single row.
+            if not combined_df.empty:
+                dedup_col = next(
+                    (c for c in ['File Name', 'file_name', 'File Path', 'file_path']
+                     if c in combined_df.columns),
+                    None
+                )
+                if dedup_col:
+                    before = len(combined_df)
+                    combined_df = combined_df.drop_duplicates(subset=[dedup_col], keep='first')
+                    dropped = before - len(combined_df)
+                    if dropped:
+                        logger.debug(f"Deduped {dropped} duplicate rows by '{dedup_col}' in campaign data")
+
             return combined_df
         else:
             return pd.DataFrame()
