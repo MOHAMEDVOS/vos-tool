@@ -105,7 +105,7 @@ export function DashboardPage() {
                     </label>
                     <Input
                       type="password"
-                      className="bg-surface-page/50 border border-b-medium focus:border-accent transition-all"
+                      className="bg-surface-soft border border-b-strong focus:border-accent transition-all"
                       value={assemblyKey}
                       onChange={(e) => setAssemblyKey(e.target.value)}
                       placeholder="Enter new key (e.g. 78a5...)"
@@ -122,11 +122,11 @@ export function DashboardPage() {
                   <div className="flex items-center gap-3">
                     {keyStatus.data?.has_key && (
                       <Button 
-                        variant="ghost" 
+                        variant="secondary" 
                         size="sm"
                         onClick={() => clearKey.mutate()} 
                         disabled={clearKey.isPending}
-                        className="text-semantic-error hover:bg-semantic-error/10 hover:text-semantic-error"
+                        className="text-semantic-error border-semantic-error/20 hover:bg-semantic-error/5 hover:text-semantic-error"
                       >
                         Clear Key
                       </Button>

@@ -188,7 +188,7 @@
   --c-dropdown:     #1e1e1e;
 
   --btn-primary-bg:     var(--accent);
-  --btn-primary-text:   #ffffff;
+  --btn-primary-text:   var(--t-on-primary);
   --btn-primary-hover:  var(--accent-hover);
   --btn-secondary-bg:   #111111;
   --btn-secondary-text: #ededed;
