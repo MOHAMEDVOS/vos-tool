@@ -31,24 +31,56 @@ security = HTTPBearer()
 
 @router.post("/google", response_model=LoginResponse)
 async def google_login(request: dict):
-    """Authenticate user using Google ID token."""
+    """Authenticate user using Google ID token or Access Token."""
     try:
         credential = request.get("credential")
-        if not credential:
-            raise HTTPException(status_code=400, detail="Missing credential")
+        access_token = request.get("access_token")
+        
+        if not credential and not access_token:
+            raise HTTPException(status_code=400, detail="Missing credential or access_token")
 
-        # Verify Google token
         from backend.core.config import settings
         client_id = settings.GOOGLE_CLIENT_ID
-        try:
-            # Use 10s clock skew to handle 'Token used too early' errors (server/client clock mismatch)
-            idinfo = id_token.verify_oauth2_token(credential, google_requests.Request(), client_id, clock_skew_in_seconds=10)
-            email = idinfo['email']
-            name = idinfo.get('name', '')
-            picture = idinfo.get('picture', '')
-        except Exception as e:
-            logger.error(f"Google token verification failed: {e}")
-            raise HTTPException(status_code=401, detail="Invalid Google token")
+        idinfo = None
+
+        if credential:
+            # Verify Google ID token
+            try:
+                # Use 10s clock skew to handle 'Token used too early' errors (server/client clock mismatch)
+                idinfo = id_token.verify_oauth2_token(credential, google_requests.Request(), client_id, clock_skew_in_seconds=10)
+            except Exception as e:
+                logger.error(f"Google ID token verification failed: {e}")
+                raise HTTPException(status_code=401, detail="Invalid Google ID token")
+        else:
+            # Verify Google Access Token
+            import requests
+            try:
+                # Get token info to verify client_id (azp)
+                token_info_resp = requests.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={access_token}")
+                if token_info_resp.status_code != 200:
+                    raise Exception("Failed to verify access token")
+                
+                token_info = token_info_resp.json()
+                if token_info.get("azp") != client_id:
+                    logger.error(f"Google access token client_id mismatch: {token_info.get('azp')} != {client_id}")
+                    raise Exception("Client ID mismatch")
+
+                # Get user info
+                user_info_resp = requests.get(
+                    "https://www.googleapis.com/oauth2/v3/userinfo",
+                    headers={"Authorization": f"Bearer {access_token}"}
+                )
+                if user_info_resp.status_code != 200:
+                    raise Exception("Failed to fetch user info")
+                
+                idinfo = user_info_resp.json()
+            except Exception as e:
+                logger.error(f"Google access token verification failed: {e}")
+                raise HTTPException(status_code=401, detail="Invalid Google access token")
+
+        email = idinfo['email']
+        name = idinfo.get('name', '')
+        picture = idinfo.get('picture', '')
 
         # Check whitelist
         whitelisted_user = await get_user_from_whitelist(email)

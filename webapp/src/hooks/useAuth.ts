@@ -30,7 +30,7 @@ export function useGoogleLogin() {
   const setAuth = useAuthStore((s) => s.setAuth)
 
   return useMutation({
-    mutationFn: authApi.googleLogin,
+    mutationFn: (params: { credential?: string, access_token?: string }) => authApi.googleLogin(params),
     onSuccess: (data) => {
       setAuth(data.access_token, data.username, data.role, data.session_id, data.name, data.picture)
     },
