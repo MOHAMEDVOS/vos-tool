@@ -247,10 +247,10 @@ export function LoginPage() {
           style={{ opacity: 0, transformStyle: 'preserve-3d', width: '100%', maxWidth: 420, padding: '0 24px' }}
         >
           <div
-            className="relative bg-[rgba(0,0,0,0.84)] rounded-xl overflow-hidden"
+            className="relative bg-[rgba(10,10,10,0.58)] rounded-xl overflow-hidden"
             style={{
-              boxShadow: '0px 0px 0px 1px rgba(255,255,255,0.10), 0 32px 96px rgba(0,0,0,0.75)',
-              backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+              boxShadow: '0px 0px 0px 1px rgba(255,255,255,0.08), 0 32px 96px rgba(0,0,0,0.8)',
+              backdropFilter: 'blur(24px) saturate(160%)', WebkitBackdropFilter: 'blur(24px) saturate(160%)',
               willChange: 'transform, opacity',
             }}
           >
@@ -317,10 +317,10 @@ export function LoginPage() {
               <div ref={authSectionRef} className="space-y-8" style={{ opacity: 0 }}>
                 <div ref={dividerRef} className="relative py-2" style={{ opacity: 0, transformOrigin: 'center' }}>
                   <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-white/5" />
+                    <div className="w-full border-t border-white/10" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="bg-transparent px-3 text-[10px] font-medium text-[#444] uppercase tracking-[0.2em]">
+                    <span className="bg-transparent px-3 text-[10px] font-medium text-[#888] uppercase tracking-[0.2em]">
                       Authentication
                     </span>
                   </div>
@@ -335,7 +335,7 @@ export function LoginPage() {
                         className="flex items-center gap-3 py-3"
                       >
                         <div className="w-4 h-4 rounded-full border-[1.5px] border-white/10 border-t-white animate-spin" />
-                        <span className="font-mono text-[11px] font-medium text-[#444] uppercase tracking-widest">
+                        <span className="font-mono text-[11px] font-medium text-[#888] uppercase tracking-widest">
                           Authorizing
                         </span>
                       </motion.div>
@@ -398,14 +398,14 @@ export function LoginPage() {
                       />
                     ))}
                   </div>
-                  <span className="font-mono text-[9px] font-medium text-[#444] uppercase tracking-widest">
+                  <span className="font-mono text-[9px] font-medium text-[#888] uppercase tracking-widest">
                     Systems Ready
                   </span>
                 </div>
                 <a
                   href="https://t.me/Mohmed_abdo"
                   target="_blank" rel="noopener noreferrer"
-                  className="text-[10px] font-medium text-[#444] hover:text-white transition-colors uppercase tracking-widest"
+                  className="text-[10px] font-medium text-[#888] hover:text-white transition-colors uppercase tracking-widest"
                 >
                   Mohamed Abdo
                 </a>
