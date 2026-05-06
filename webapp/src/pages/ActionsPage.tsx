@@ -352,8 +352,7 @@ export function ActionsPage() {
                         if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
                         if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
                         if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
-                        const timeStr = c['Time'] ? ` - ${c['Time']}` : ''
-                        return `${c['Phone Number'] || 'Unknown'} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}${timeStr}`
+                        return `${c['Phone Number'] || 'Unknown'} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}`
                       }).join('\n')
                       copyToClipboard(text, 'all')
                     }}
@@ -383,7 +382,7 @@ export function ActionsPage() {
                       if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
                       return (
                         <div key={i} className="hover:text-t-primary transition-colors">
-                          {c['Phone Number'] || 'Unknown'} - {issues.join(', ') || 'Flagged'} - {c['Dialer Name'] || 'Unknown'}{c['Time'] && ` - ${c['Time']}`}
+                          {c['Phone Number'] || 'Unknown'} - {issues.join(', ') || 'Flagged'} - {c['Dialer Name'] || 'Unknown'}
                         </div>
                       )
                     })}
