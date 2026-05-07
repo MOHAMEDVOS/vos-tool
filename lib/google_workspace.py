@@ -101,7 +101,11 @@ def _build_agent_issues_summary(rows: List[Dict[str, Any]]) -> List[Tuple[str, s
             continue
         totals[agent] += 1
         for col_key, label, count_no in _ISSUE_COLS:
-            val = str(r.get(col_key, "")).strip()
+            val = r.get(col_key)
+            if col_key == "Reason For Calling" and not val:
+                val = r.get("Reason for calling") or r.get("Reason for Calling")
+            val = str(val or "").strip()
+            
             if count_no and val == "No":
                 counts[agent][label] += 1
             elif not count_no and val == "Yes":
@@ -135,7 +139,17 @@ def create_spreadsheet(
     ]
 
     header = [columns]
-    data = [[str(r.get(col, "")) for col in columns] for r in rows]
+    
+    data = []
+    for r in rows:
+        row_data = []
+        for col in columns:
+            if col == "Reason For Calling":
+                val = r.get("Reason For Calling") or r.get("Reason for calling") or r.get("Reason for Calling") or ""
+            else:
+                val = r.get(col, "")
+            row_data.append(str(val))
+        data.append(row_data)
 
     body = {
         "name": f"{name} – audit data",
