@@ -3521,10 +3521,14 @@ class DashboardManager:
                 )
                 if dedup_col:
                     before = len(combined_df)
-                    combined_df = combined_df.drop_duplicates(subset=[dedup_col], keep='first')
+                    subset_cols = [dedup_col]
+                    audit_type_col = next((c for c in ['Audit Type', 'audit_type'] if c in combined_df.columns), None)
+                    if audit_type_col:
+                        subset_cols.append(audit_type_col)
+                    combined_df = combined_df.drop_duplicates(subset=subset_cols, keep='first')
                     dropped = before - len(combined_df)
                     if dropped:
-                        logger.debug(f"Deduped {dropped} duplicate rows by '{dedup_col}' in campaign data")
+                        logger.debug(f"Deduped {dropped} duplicate rows by {subset_cols} in campaign data")
 
             return combined_df
         else:
