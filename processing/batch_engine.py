@@ -534,6 +534,9 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
         
         # Only include flagged calls (calls with issues or missed opportunities)
         if releasing_flagged or late_hello_flagged or rebuttal_not_used:
+            file_path_str = result.get('file_path', '')
+            file_name = Path(file_path_str).name if file_path_str else ''
+            
             flagged_call = {
                 RESULT_KEYS["AGENT_NAME"]: result.get('agent_name', ''),
                 RESULT_KEYS["PHONE_NUMBER"]: result.get('phone_number', ''),
@@ -542,7 +545,9 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
                 RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
                 RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', '')  # Fallback for legacy key
+                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', ''),  # Fallback for legacy key
+                "File Name": file_name,
+                "File Path": file_path_str
             }
             
             # Add dialer name if available in metadata
@@ -632,6 +637,9 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
         # Include files with errors so users can see what happened
         if not result.get('classification_success', False):
             # Create error row
+            file_path_str = result.get('file_path', '')
+            file_name = Path(file_path_str).name if file_path_str else ''
+            
             error_row = {
                 RESULT_KEYS["AGENT_NAME"]: result.get('agent_name', 'Error'),
                 RESULT_KEYS["PHONE_NUMBER"]: result.get('phone_number', ''),
@@ -641,10 +649,8 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
                 RESULT_KEYS["LATE_HELLO"]: "Error",
                 RESULT_KEYS["REBUTTAL"]: "N/A",
                 RESULT_KEYS["TRANSCRIPTION"]: f"Error: {result.get('error', 'Unknown error')}",
-                "Status": "Error",
-                "Agent Intro": "N/A",
-                "Owner Name": "N/A",
-                RESULT_KEYS["TRANSCRIPTION"]: f"Error: {result.get('error', 'Unknown error')}",
+                "File Name": file_name,
+                "File Path": file_path_str,
                 "Status": "Error",
                 "Agent Intro": "N/A",
                 "Owner Name": "N/A",
@@ -655,6 +661,9 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
             formatted_results.append(error_row)
             continue
         
+        file_path_str = result.get('file_path', '')
+        file_name = Path(file_path_str).name if file_path_str else ''
+        
         formatted_result = {
             RESULT_KEYS["AGENT_NAME"]: result.get('agent_name', ''),
             RESULT_KEYS["PHONE_NUMBER"]: result.get('phone_number', ''),
@@ -663,7 +672,9 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
             RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
             RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
             RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', '')  # Fallback for legacy key
+            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', ''),  # Fallback for legacy key
+            "File Name": file_name,
+            "File Path": file_path_str
         }
         
         # Add dialer name if available in metadata
