@@ -465,19 +465,21 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 # 2. Select Campaign via Direct JS (Works with hidden/custom UI)
                 print(f"Selecting campaign '{campaign_name}' via Direct JS...")
 
-                # Wait for any select to have options (sometimes they load late)
+                # Wait specifically for the campaign dropdown to be populated after date filter
+                print("WAIT Waiting for campaign dropdown options to load...")
                 try:
                     page.wait_for_function("""
                         () => {
-                            const selects = document.querySelectorAll('select');
-                            return Array.from(selects).some(s => s.options.length > 1);
+                            const el = document.querySelector('#restrict_campaign');
+                            return el && el.options.length > 1;
                         }
-                    """, timeout=10000)
+                    """, timeout=25000)
+                    print("SUCCESS Campaign dropdown populated")
                 except:
-                    print("WARNING: Select options didn't load in time.")
+                    print("WARNING: Campaign dropdown didn't populate in 25s, attempting anyway...")
 
                 campaign_selected = False
-                for attempt in range(2): # Reduced to 2 attempts for faster failure
+                for attempt in range(3):
                     try:
                         print(f"Campaign Filter Attempt {attempt + 1}/2")
 
@@ -515,10 +517,10 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                         
                         target_lower = campaign_name.strip().lower()
                         if not any(target_lower in opt for opt in all_options):
-                            print(f"ERROR: Campaign '{campaign_name}' definitely not found in any dropdown options.")
-                            if attempt == 1: # Last attempt
+                            print(f"ERROR: Campaign '{campaign_name}' not found in dropdown options (attempt {attempt + 1}/3).")
+                            if attempt == 2: # Last attempt
                                 break
-                            time.sleep(2)
+                            time.sleep(3)
                             continue
 
                         # Select Campaign via Direct JS
