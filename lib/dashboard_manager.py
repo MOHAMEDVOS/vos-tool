@@ -2196,7 +2196,7 @@ class DashboardManager:
         # Save to database
         if self._db_manager:
             try:
-                df_dict = df_with_metadata.to_dict('records')
+                df_dict = df_with_metadata.where(pd.notna(df_with_metadata), other=None).to_dict('records')
                 query = """
                         INSERT INTO agent_audit_results 
                         (username, agent_name, file_name, file_path, releasing_detection, 
@@ -2251,7 +2251,7 @@ class DashboardManager:
                             transcription,
                             record.get('Confidence Score'),
                             record.get('Feedback'),
-                            json.dumps(record) if record else None,
+                            json.dumps(record, allow_nan=False) if record else None,
                         )
                     )
                 
@@ -2546,9 +2546,9 @@ class DashboardManager:
         # Save to database
         if self._db_manager:
             try:
-                df_dict = df_with_metadata.to_dict('records')
+                df_dict = df_with_metadata.where(pd.notna(df_with_metadata), other=None).to_dict('records')
                 params_list = []
-                
+
                 for record in df_dict:
                     # Validate and normalize detection values before saving
                     releasing = record.get('Releasing Detection', 'No')
@@ -2593,7 +2593,7 @@ class DashboardManager:
                         record.get('Agent Name'),
                         record.get('File Name'),
                         record.get('File Path'),
-                        json.dumps(detection_results)
+                        json.dumps(detection_results, allow_nan=False)
                     ))
                 
                 # Use optimized execute_values_batch for 50x faster inserts
@@ -3211,11 +3211,13 @@ class DashboardManager:
         if self._db_manager:
             try:
                 # Store full DataFrame as metadata JSONB
+                # Replace NaN/NaT with None so json.dumps emits null, not literal NaN
+                df_json = df_to_save.where(pd.notna(df_to_save), other=None)
                 metadata = {
                     "campaign_name": campaign_name,
                     "username": username,
                     "timestamp": timestamp,
-                    "data": df_to_save.to_dict('records')
+                    "data": df_json.to_dict('records')
                 }
                 
                 query = """
@@ -3232,7 +3234,7 @@ class DashboardManager:
                     releasing_count,
                     late_hello_count,
                     rebuttal_count,
-                    json.dumps(metadata, separators=(',', ':'))
+                    json.dumps(metadata, separators=(',', ':'), allow_nan=False)
                 )
                 
                 # Force cleanup after large payload creation
