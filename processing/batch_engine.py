@@ -33,7 +33,9 @@ def _run_with_context(ctx, func, *args, **kwargs):
 FORCED_MAX_WORKERS = 5  # Free AssemblyAI plan limit (max 5 concurrent API calls)
 
 # Shared executor pool for async batch processing to avoid resource exhaustion
-_batch_executor = ThreadPoolExecutor(max_workers=20, thread_name_prefix="BatchProc")
+# Reduced from 20→8: heavy batch pool was idle during lite processing but consumed PIDs.
+# 8 workers covers the AssemblyAI concurrent call budget with headroom.
+_batch_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="BatchProc")
 
 
 class BatchProcessor:
@@ -855,17 +857,22 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
     
     timeout_per_file = 15  # 15 seconds timeout per file (optimized lite processing should be faster)
 
-    # Optimize workers based on GPU availability
-    import torch
+    # --- Fix 6: Thread count monitoring — log before batch to detect exhaustion early ---
+    active_threads = threading.active_count()
+    logger.info(f"Thread count before lite batch processing: {active_threads}")
+    if active_threads > 80:
+        logger.warning(
+            f"HIGH THREAD COUNT: {active_threads} threads active before lite batch. "
+            f"Risk of pthread_create failures. Consider reducing concurrent load."
+        )
+
+    # --- Fix 1: Reduce lite workers to prevent thread exhaustion ---
+    # Each worker spawns an ffmpeg subprocess. ffmpeg 7.x uses 4+ threads per process.
+    # Previous value (16) caused: 16 workers × 4 ffmpeg threads = 64 threads → pthread_create EAGAIN.
+    # 8 workers × 1 ffmpeg thread (constrained below) = 8 threads — safe for containerized envs.
+    # Railway Pro Plan (up to 24 vCPU per replica) can handle 8 workers comfortably.
     cpu_count = multiprocessing.cpu_count()
-    
-    # Optimize workers for lite processing (no GPU needed, just audio I/O and simple detections)
-    # Lite processing is I/O bound (loading audio files), so more workers help
-    # But too many workers can cause memory issues with large audio files
-    if torch.cuda.is_available():
-        max_workers = min(cpu_count, 12)  # Lite processing doesn't use API, can use more workers
-    else:
-        max_workers = min(cpu_count, 16)  # Lite is I/O bound, not limited by AssemblyAI
+    max_workers = min(cpu_count, 8)
 
     i = 0
     batch_num = 0
@@ -1139,9 +1146,30 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
         # Load audio file - OPTIMIZED for lite processing speed
         # Strategy: Load full file once, then slice for late hello (which only needs first portion)
         try:
-            # Load audio file (this is the main I/O bottleneck)
-            audio = AudioSegment.from_file(str(file_path))
-            
+            # --- Fix 2 + Fix 4: ffmpeg single-thread + retry on thread exhaustion ---
+            # parameters=["-threads", "1"] prevents ffmpeg 7.x from spawning 4+ threads per process.
+            # Retry with exponential backoff handles transient pthread_create EAGAIN errors.
+            audio = None
+            for _attempt in range(3):
+                try:
+                    audio = AudioSegment.from_file(str(file_path), parameters=["-threads", "1"])
+                    break
+                except Exception as _e:
+                    _emsg = str(_e)
+                    if "Resource temporarily unavailable" in _emsg or "245" in _emsg:
+                        _wait = 2 ** _attempt  # 1s, 2s, 4s
+                        logger.warning(
+                            f"ffmpeg thread exhaustion on {file_path.name}, "
+                            f"retrying in {_wait}s (attempt {_attempt + 1}/3). "
+                            f"Active threads: {threading.active_count()}"
+                        )
+                        import gc; gc.collect()
+                        time.sleep(_wait)
+                    else:
+                        raise
+            if audio is None:
+                raise Exception(f"Failed to load audio after 3 retries due to thread exhaustion: {file_path.name}")
+
             # For late hello detection, we only need first 15 seconds (late hello threshold is typically 5s)
             # This avoids processing entire long files when we only need the beginning
             max_duration_ms = 15 * 1000  # 15 seconds is enough for late hello detection
@@ -1151,7 +1179,7 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             else:
                 # File is short, use full audio
                 audio_for_late_hello = audio
-                
+
         except Exception as e:
             logger.error(f"Failed to load audio file {file_path}: {e}")
             raise

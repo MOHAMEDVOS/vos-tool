@@ -53,11 +53,15 @@ def _visible_text(page, selector: str) -> str:
 
 
 # Concurrent download configuration
-_max_downloads_env = os.getenv("MAX_CONCURRENT_DOWNLOADS", "25")
+# Fix 5: Reduced default from 25→15 to prevent thread exhaustion when download pool
+# and analysis thread pool overlap. 15 concurrent downloads is fast on Railway Pro
+# and frees ~10 thread slots for ffmpeg subprocesses.
+# Override via MAX_CONCURRENT_DOWNLOADS env var to tune per deployment.
+_max_downloads_env = os.getenv("MAX_CONCURRENT_DOWNLOADS", "15")
 try:
     MAX_CONCURRENT_DOWNLOADS = int(_max_downloads_env)
 except ValueError:
-    MAX_CONCURRENT_DOWNLOADS = 25
+    MAX_CONCURRENT_DOWNLOADS = 15
 
 
 def _sanitize_path_component(value: str) -> str:

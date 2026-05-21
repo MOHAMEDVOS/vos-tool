@@ -113,12 +113,16 @@ class AudioProcessor:
         return True
 
     def load_audio_file(self, file_path: Path) -> Optional[AudioSegment]:
+        # Fix 2: Constrain ffmpeg to single-thread per invocation.
+        # ffmpeg 7.x defaults to multi-threaded decoding (4+ threads each).
+        # With many parallel workers this causes pthread_create EAGAIN in containers.
+        _ffmpeg_single = ["-threads", "1"]
         try:
-            return AudioSegment.from_mp3(file_path)
+            return AudioSegment.from_mp3(file_path, parameters=_ffmpeg_single)
         except Exception:
             for format_name in ['wav', 'mp4', 'm4a']:
                 try:
-                    return AudioSegment.from_file(str(file_path), format=format_name)
+                    return AudioSegment.from_file(str(file_path), format=format_name, parameters=_ffmpeg_single)
                 except Exception:
                     continue
             return None
