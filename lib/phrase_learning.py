@@ -1206,12 +1206,22 @@ class PhraseLearningManager:
                 quality_score = row[9] if row_len > 9 and row[9] is not None else None
                 canonical_form = row[10] if row_len > 10 and row[10] else None
 
+                # Convert UUID and Decimal to standard Python types to prevent Pydantic validation errors in the API layer.
+                raw_id = row[0]
+                str_id = str(raw_id) if raw_id is not None else ""
+
+                raw_confidence = row[3]
+                try:
+                    conf_val = float(raw_confidence) if raw_confidence is not None else None
+                except (ValueError, TypeError):
+                    conf_val = None
+
                 phrase_data = {
-                    'id': row[0],
+                    'id': str_id,
                     'phrase': row[1],
                     'category': row[2],
-                    'confidence': row[3],
-                    'detection_count': row[4],
+                    'confidence': conf_val,
+                    'detection_count': int(row[4]) if row[4] is not None else None,
                     'first_detected': row[5],
                     'last_detected': row[6],
                     'sample_contexts': row[7] or "",
@@ -1220,6 +1230,11 @@ class PhraseLearningManager:
 
                 if quality_score is None:
                     quality_score = self.calculate_quality_score(phrase_data)
+                else:
+                    try:
+                        quality_score = float(quality_score)
+                    except (ValueError, TypeError):
+                        quality_score = 0.0
 
                 if canonical_form is None:
                     canonical_form = self.normalize_to_canonical(row[1])
