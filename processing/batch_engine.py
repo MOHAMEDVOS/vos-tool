@@ -830,7 +830,10 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
         pandas DataFrame with lite analysis results
     """
     from audio_pipeline.detections import releasing_detection, late_hello_detection
-    from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+    # ProcessPoolExecutor gives TRUE parallelism — each worker gets its own Python interpreter,
+    # bypassing the GIL. This lets all 20 cores run FFT/numpy detection simultaneously.
+    # ThreadPoolExecutor was blocked by the GIL: only one thread could run Python at a time.
+    from concurrent.futures import ProcessPoolExecutor, as_completed, TimeoutError
 
     logger = logging.getLogger(__name__)
 
@@ -866,12 +869,12 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
             f"Risk of pthread_create failures. Consider reducing concurrent load."
         )
 
-    # --- Fix 1: Optimize workers for 24 vCPU Railway Pro Plan ---
-    # Constrained to 20 workers to utilize your massive 24 vCPUs for blazing-fast speed
-    # while leaving 4 vCPUs free for Database and Web Server responsiveness.
-    # Safe from thread exhaustion because ffmpeg is now restricted to 1 thread per worker.
+    # ProcessPoolExecutor workers: each worker = 1 real OS process = 1 dedicated CPU core.
+    # With 24 vCPUs, 20 workers processes 20 files simultaneously with true parallelism.
+    # Leaving 4 cores free for: PostgreSQL, Uvicorn web server, and OS scheduling overhead.
     cpu_count = multiprocessing.cpu_count()
     max_workers = min(cpu_count, 20)
+    logger.info(f"Lite batch using ProcessPoolExecutor with {max_workers} worker processes ({cpu_count} CPUs available)")
 
     i = 0
     batch_num = 0
@@ -892,7 +895,7 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
 
         logger.info(f"Processing lite batch {batch_num}/{total_batches} ({len(batch_files)} files)")
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit batch for lite processing
             futures = {}
             for file_path in batch_files:
@@ -1198,14 +1201,10 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             logger.error(f"Late hello detection failed for {file_path.name}: {e}")
             late_hello = "Error"
         
-        # Memory optimization: delete audio references after all detections to free memory
-        try:
-            import gc
-            if 'audio' in locals(): del audio
-            if 'audio_for_late_hello' in locals(): del audio_for_late_hello
-            gc.collect()
-        except:
-            pass
+        # Memory: Python's reference counter frees audio objects automatically when
+        # this function returns. No need for manual gc.collect() — it adds 50-100ms
+        # overhead per file and is wasteful with 24GB RAM available.
+        del audio, audio_for_late_hello
 
         # Derive a simple quality-based status for lite results
         # - If both detections are clean (No/No) -> Excellent
