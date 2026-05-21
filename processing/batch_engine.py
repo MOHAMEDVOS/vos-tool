@@ -866,13 +866,12 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
             f"Risk of pthread_create failures. Consider reducing concurrent load."
         )
 
-    # --- Fix 1: Reduce lite workers to prevent thread exhaustion ---
-    # Each worker spawns an ffmpeg subprocess. ffmpeg 7.x uses 4+ threads per process.
-    # Previous value (16) caused: 16 workers × 4 ffmpeg threads = 64 threads → pthread_create EAGAIN.
-    # 8 workers × 1 ffmpeg thread (constrained below) = 8 threads — safe for containerized envs.
-    # Railway Pro Plan (up to 24 vCPU per replica) can handle 8 workers comfortably.
+    # --- Fix 1: Optimize workers for 24 vCPU Railway Pro Plan ---
+    # Constrained to 20 workers to utilize your massive 24 vCPUs for blazing-fast speed
+    # while leaving 4 vCPUs free for Database and Web Server responsiveness.
+    # Safe from thread exhaustion because ffmpeg is now restricted to 1 thread per worker.
     cpu_count = multiprocessing.cpu_count()
-    max_workers = min(cpu_count, 8)
+    max_workers = min(cpu_count, 20)
 
     i = 0
     batch_num = 0
