@@ -111,6 +111,11 @@ export const useAuditStore = create<AuditState>((set, get) => ({
         },
         newController.signal,
       )
+      // Stream closed normally but may not have sent a done/error event (e.g. proxy disconnect).
+      // If status is still 'running', the audit didn't complete — surface it as an error.
+      if (get().status === 'running') {
+        set({ error: 'Connection lost before audit completed. The download may still be running on the server — check back in a few minutes.', status: 'error' })
+      }
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         set({ status: 'cancelled' })

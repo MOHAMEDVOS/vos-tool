@@ -58,5 +58,6 @@ def setup_backend_logging() -> None:
     """
     setup_logging(
         level=logging.INFO,
-        format_string='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format_string='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        stream=sys.stdout
     )

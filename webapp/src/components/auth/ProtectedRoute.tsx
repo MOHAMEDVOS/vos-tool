@@ -18,6 +18,8 @@ export function ProtectedRoute({ children, requiredRole }: Props) {
     queryFn: authApi.me,
     enabled: Boolean(token),
     retry: false,
+    staleTime: 5 * 60 * 1000,   // treat as fresh for 5 min — prevents re-auth during long audits
+    gcTime: 10 * 60 * 1000,
   })
 
   useEffect(() => {
