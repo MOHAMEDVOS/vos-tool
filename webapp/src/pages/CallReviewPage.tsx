@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { useFlaggedCalls } from '@/hooks/useDashboard'
+import { useFlaggedCalls, useAgentAudits, useLiteAudits } from '@/hooks/useDashboard'
 import { Spinner } from '@/components/ui/Spinner'
 import { Badge } from '@/components/ui/Badge'
 import type { FlaggedCall, WordTimestamp } from '@/types/api'
@@ -8,6 +8,7 @@ import { apiUrl, authHeaders, api } from '@/api/client'
 import { RefreshCw, Play, Pause, Volume2, MoreVertical, Search } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/Select'
 import { KaraokeTranscript } from '@/components/KaraokeTranscript'
+import { AgentDeductionsTable, type AgentDeductionRow } from '@/pages/ActionsPage'
 
 /* ─── Custom Audio Player ─────────────────────────────────────── */
 interface AudioPlayerProps {
@@ -156,9 +157,43 @@ type IssueFilter = 'All Issues' | 'Releasing Only' | 'Late Hello Only' | 'No Reb
 
 export function CallReviewPage() {
   const { data: calls, isLoading, isError } = useFlaggedCalls()
+  const { data: allAuditsData } = useAgentAudits()
+  const { data: liteAuditsData } = useLiteAudits()
   const [issueFilter, setIssueFilter] = useState<IssueFilter>('All Issues')
   const [agentFilter, setAgentFilter] = useState('All Agents')
   const [search, setSearch] = useState('')
+
+  const totalCallsMap = useMemo(() => {
+    const agentRecords = allAuditsData?.records?.map((r) => r.metadata ?? r) ?? []
+    const liteRecords = liteAuditsData?.records?.map((r) => r.metadata ?? r) ?? []
+    const map = new Map<string, number>()
+    for (const row of [...agentRecords, ...liteRecords]) {
+      const name = ((row as Record<string, unknown>)['Agent Name'] as string | undefined)?.trim()
+      if (name) map.set(name, (map.get(name) ?? 0) + 1)
+    }
+    return map
+  }, [allAuditsData, liteAuditsData])
+
+  const agentDeductions = useMemo<AgentDeductionRow[]>(() => {
+    const flagged = calls ?? []
+    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; dialerNames: Set<string> }>()
+    for (const call of flagged) {
+      const name = (call['Agent Name'] ?? 'Unknown').trim()
+      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, dialerNames: new Set() })
+      const entry = agentMap.get(name)!
+      entry.flagged.push(call)
+      if (call['Releasing Detection'] === 'Yes') entry.releasing++
+      if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
+      if (call['Rebuttal Detection'] === 'No') entry.noRebuttals++
+      const dialer = call['Dialer Name'] as string | undefined
+      if (dialer) entry.dialerNames.add(dialer)
+    }
+    return [...agentMap.entries()].map(([agentName, data]) => ({
+      agentName, totalCalls: totalCallsMap.get(agentName) ?? data.flagged.length,
+      flaggedCalls: data.flagged.length, releasing: data.releasing, lateHello: data.lateHello,
+      noRebuttals: data.noRebuttals, dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
+    })).sort((a, b) => b.flaggedCalls - a.flaggedCalls)
+  }, [calls, totalCallsMap])
 
   const agents = useMemo(() => {
     const names = [...new Set((calls ?? []).map((call) => call['Agent Name']).filter(Boolean) as string[])]
@@ -187,6 +222,13 @@ export function CallReviewPage() {
         <h1 className="text-2xl font-bold text-t-primary tracking-tight">Call Review</h1>
         <p className="text-vos-400 text-sm">Listen to flagged calls. Audio is loaded securely from the backend.</p>
       </div>
+
+      {agentDeductions.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <p className="text-[10px] font-black uppercase tracking-[0.15em] text-vos-500">Agent Deductions</p>
+          <AgentDeductionsTable rows={agentDeductions} />
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <CustomSelect

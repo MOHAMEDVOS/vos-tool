@@ -11,14 +11,14 @@ import { CustomSelect } from '@/components/ui/Select'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CountUp, Metric } from '@/components/ui/Metric'
 
-interface AgentDeductionRow {
+export interface AgentDeductionRow {
   agentName: string; totalCalls: number; flaggedCalls: number
   releasing: number; lateHello: number; noRebuttals: number
   dialerNames: string[]; deduction: boolean
 }
 
 
-function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
+export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [sortCol, setSortCol] = useState<keyof AgentDeductionRow | null>('flaggedCalls')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
