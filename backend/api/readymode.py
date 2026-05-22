@@ -66,7 +66,7 @@ def _get_cancel_event(username: str) -> threading.Event:
 def _resolve_duration(df: str, audit_type: str, custom_secs: Optional[int]):
     min_dur, max_dur = None, None
     if audit_type == "heavy" and df == "all":
-        min_dur = 20
+        min_dur = 16
     elif df == "lt30":
         max_dur = 30
     elif df == "30to60":
