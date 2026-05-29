@@ -3213,6 +3213,9 @@ class DashboardManager:
                 # Store full DataFrame as metadata JSONB
                 # Replace NaN/NaT with None so json.dumps emits null, not literal NaN
                 df_json = df_to_save.where(pd.notna(df_to_save), other=None)
+                # Also replace inf/-inf with None (not caught by pd.notna)
+                import numpy as np
+                df_json = df_json.replace([np.inf, -np.inf], None)
                 metadata = {
                     "campaign_name": campaign_name,
                     "username": username,
