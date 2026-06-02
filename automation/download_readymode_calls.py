@@ -309,6 +309,7 @@ def download_single_file(session, cookies, headers, href, filepath, min_duration
 
 def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                   start_date=None, end_date=None,
+                                  start_time=None,
                                   max_samples=50, campaign_name=None,
                                   call_type=None, min_duration=None,
                                   max_duration=None,
@@ -434,6 +435,95 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                     }}
                 """)
                 time.sleep(1)
+
+                # STEP 4a: SET START TIME (if provided)
+                if start_time:
+                    print(f"TIME Setting start time: {start_time}")
+                    try:
+                        # Parse start_time — expected format "HH:MM AM" or "HH:MM PM"
+                        parts = start_time.strip().upper().split()
+                        time_part = parts[0]   # "HH:MM"
+                        ampm_part = parts[1] if len(parts) > 1 else "AM"  # "AM" or "PM"
+                        hour_str, minute_str = time_part.split(":")
+                        hour_val   = int(hour_str)
+                        minute_val = int(minute_str)
+
+                        # Click the "Select Time..." button to open the flatpickr time picker
+                        # It lives inside the calendar that is tied to the start date input
+                        print("TIME Clicking 'Select Time...' button...")
+                        clicked_time_btn = page.evaluate("""
+                            () => {
+                                // The button appears inside the open flatpickr calendar
+                                const btn = document.querySelector('.flatpickr-calendar.open .flatpickr-time-toggle, .flatpickr-calendar.open .shortcut-buttons-flatpickr-button');
+                                if (btn) { btn.click(); return true; }
+                                // Fallback: look for any visible element containing 'Select Time'
+                                const all = Array.from(document.querySelectorAll('*'));
+                                const el = all.find(e => e.offsetParent !== null && e.textContent.trim() === 'Select Time...');
+                                if (el) { el.click(); return true; }
+                                return false;
+                            }
+                        """)
+
+                        if not clicked_time_btn:
+                            # Re-open the flatpickr calendar first by clicking the start date input
+                            print("TIME Calendar not open — clicking start date input to open it...")
+                            page.evaluate("""
+                                () => {
+                                    const inp = document.querySelector("input[name='report[time_from_d]']");
+                                    if (inp) inp.click();
+                                }
+                            """)
+                            time.sleep(0.5)
+                            page.evaluate("""
+                                () => {
+                                    const all = Array.from(document.querySelectorAll('*'));
+                                    const el = all.find(e => e.offsetParent !== null && e.textContent.trim() === 'Select Time...');
+                                    if (el) el.click();
+                                }
+                            """)
+
+                        time.sleep(0.5)
+
+                        # Set hour, minute, AM/PM directly on the flatpickr time inputs
+                        page.evaluate(f"""
+                            () => {{
+                                const cal = document.querySelector('.flatpickr-calendar.open') ||
+                                            document.querySelector('.flatpickr-calendar');
+                                if (!cal) return;
+
+                                const hourInput   = cal.querySelector('.flatpickr-hour');
+                                const minuteInput = cal.querySelector('.flatpickr-minute');
+                                const ampmSpan    = cal.querySelector('.flatpickr-am-pm');
+
+                                if (hourInput) {{
+                                    hourInput.value = '{hour_val}';
+                                    hourInput.dispatchEvent(new Event('input',  {{ bubbles: true }}));
+                                    hourInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                }}
+                                if (minuteInput) {{
+                                    minuteInput.value = '{minute_val:02d}';
+                                    minuteInput.dispatchEvent(new Event('input',  {{ bubbles: true }}));
+                                    minuteInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                }}
+                                // Toggle AM/PM to desired value
+                                if (ampmSpan) {{
+                                    const current = ampmSpan.textContent.trim().toUpperCase();
+                                    if (current !== '{ampm_part}') {{
+                                        ampmSpan.click();
+                                    }}
+                                }}
+                            }}
+                        """)
+                        time.sleep(0.3)
+
+                        # Close the calendar by pressing Escape or clicking elsewhere
+                        page.keyboard.press("Escape")
+                        time.sleep(0.3)
+
+                        print(f"SUCCESS Start time set: {hour_val}:{minute_val:02d} {ampm_part}")
+
+                    except Exception as te:
+                        print(f"WARNING Could not set start time: {te}")
                 
                 page.evaluate(f"""
                     var endInput = document.querySelector("input[name='report[time_to_d]']");

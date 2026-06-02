@@ -38,6 +38,7 @@ export interface DownloadRequest {
   max_calls: number
   start_date: string
   end_date: string
+  start_time?: string   // e.g. "02:30 PM" — optional start-of-day time filter
   dispositions: string[]
   duration_filter: string
   custom_duration_seconds?: number

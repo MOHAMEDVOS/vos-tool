@@ -131,6 +131,7 @@ class ReadyModeDownloadRequest(BaseModel):
     max_calls: Optional[int] = None
     start_date: Optional[str] = None   # ISO date string YYYY-MM-DD
     end_date: Optional[str] = None
+    start_time: Optional[str] = None   # e.g. "02:30 PM" — time of day for start date
     dispositions: Optional[List[str]] = None
     duration_filter: Optional[str] = None   # e.g. "all", "lt30", "30to60", "60to600", "gt_custom", "lt_custom"
     custom_duration_seconds: Optional[int] = None

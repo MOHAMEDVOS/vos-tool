@@ -676,6 +676,10 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const [maxCalls, setMaxCalls] = useState(500)
   const [startDate, setStartDate] = useState(todayISO())
   const [endDate, setEndDate] = useState(todayISO())
+  const [startTimeHour, setStartTimeHour] = useState('12')
+  const [startTimeMinute, setStartTimeMinute] = useState('00')
+  const [startTimeAmPm, setStartTimeAmPm] = useState<'AM' | 'PM'>('AM')
+  const [useStartTime, setUseStartTime] = useState(false)
   const [dispositions, setDispositions] = useState<string[]>([])
   const [durationFilter, setDurationFilter] = useState('all')
   const [customDuration, setCustomDuration] = useState(60)
@@ -706,6 +710,9 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
       max_calls: maxCalls,
       start_date: startDate,
       end_date: endDate,
+      start_time: useStartTime
+        ? `${startTimeHour.padStart(2,'0')}:${startTimeMinute.padStart(2,'0')} ${startTimeAmPm}`
+        : undefined,
       dispositions,
       duration_filter: durationFilter,
       audit_type: auditType,
@@ -713,7 +720,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
     if (durationFilter === 'gt_custom' || durationFilter === 'lt_custom')
       body.custom_duration_seconds = customDuration
     return body
-  }, [dialerUrl, isCampaign, identifier, maxCalls, startDate, endDate, dispositions, durationFilter, customDuration])
+  }, [dialerUrl, isCampaign, identifier, maxCalls, startDate, endDate, useStartTime, startTimeHour, startTimeMinute, startTimeAmPm, dispositions, durationFilter, customDuration])
 
   const notConfigured = rmStatus?.status === 'not_configured'
   const needsCustomDuration = durationFilter === 'gt_custom' || durationFilter === 'lt_custom'
@@ -782,6 +789,88 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                 <label className={labelClass} style={{ color: 'var(--t-label)' }}>Start Date</label>
                 <CustomDatePicker value={startDate} onChange={setStartDate} disabled={isRunning} />
               </div>
+
+              {/* Start Time picker — toggle with a small checkbox */}
+              <div>
+                <label
+                  className="flex items-center gap-2 cursor-pointer select-none"
+                  style={{ color: 'var(--t-label)' }}
+                >
+                  <div
+                    onClick={() => !isRunning && setUseStartTime(v => !v)}
+                    style={{
+                      width: 32, height: 18, borderRadius: 9,
+                      backgroundColor: useStartTime ? 'var(--active-overlay)' : 'var(--c-raised)',
+                      border: '1px solid var(--b-strong)',
+                      position: 'relative', cursor: isRunning ? 'not-allowed' : 'pointer',
+                      transition: 'background 0.2s',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div style={{
+                      position: 'absolute', top: 2,
+                      left: useStartTime ? 15 : 2,
+                      width: 12, height: 12, borderRadius: '50%',
+                      backgroundColor: useStartTime ? '#60a5fa' : 'var(--t-muted)',
+                      transition: 'left 0.2s',
+                    }} />
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-[0.1em]">Start Time</span>
+                  {useStartTime && (
+                    <span className="text-[10px]" style={{ color: 'var(--t-muted)' }}>
+                      {startTimeHour.padStart(2,'0')}:{startTimeMinute.padStart(2,'0')} {startTimeAmPm}
+                    </span>
+                  )}
+                </label>
+
+                {useStartTime && (
+                  <div className="flex items-center gap-2 mt-2">
+                    {/* Hour */}
+                    <input
+                      type="number" min={1} max={12}
+                      value={startTimeHour}
+                      onChange={e => {
+                        const v = Math.min(12, Math.max(1, parseInt(e.target.value) || 1))
+                        setStartTimeHour(String(v))
+                      }}
+                      disabled={isRunning}
+                      style={{ ...inputBase, width: 58, textAlign: 'center', borderRadius: 6, padding: '6px 8px', fontSize: 14, outline: 'none' }}
+                      className="rounded-md border shadow-inner disabled:opacity-50"
+                    />
+                    <span style={{ color: 'var(--t-muted)', fontWeight: 800, fontSize: 16 }}>:</span>
+                    {/* Minute */}
+                    <input
+                      type="number" min={0} max={59}
+                      value={startTimeMinute}
+                      onChange={e => {
+                        const v = Math.min(59, Math.max(0, parseInt(e.target.value) || 0))
+                        setStartTimeMinute(String(v).padStart(2, '0'))
+                      }}
+                      disabled={isRunning}
+                      style={{ ...inputBase, width: 58, textAlign: 'center', borderRadius: 6, padding: '6px 8px', fontSize: 14, outline: 'none' }}
+                      className="rounded-md border shadow-inner disabled:opacity-50"
+                    />
+                    {/* AM / PM toggle */}
+                    <button
+                      type="button"
+                      disabled={isRunning}
+                      onClick={() => setStartTimeAmPm(v => v === 'AM' ? 'PM' : 'AM')}
+                      style={{
+                        ...inputBase,
+                        padding: '6px 14px', borderRadius: 6, fontSize: 13,
+                        fontWeight: 800, letterSpacing: '0.08em',
+                        color: startTimeAmPm === 'AM' ? '#60a5fa' : '#f472b6',
+                        borderColor: startTimeAmPm === 'AM' ? '#60a5fa44' : '#f472b644',
+                        cursor: 'pointer',
+                      }}
+                      className="rounded-md border shadow-inner transition-colors disabled:opacity-50"
+                    >
+                      {startTimeAmPm}
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className={labelClass} style={{ color: 'var(--t-label)' }}>End Date</label>
                 <CustomDatePicker value={endDate} onChange={setEndDate} disabled={isRunning} />
