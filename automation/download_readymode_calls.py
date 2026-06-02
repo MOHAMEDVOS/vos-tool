@@ -520,7 +520,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                             all_options.extend([o.lower() for o in info['options']])
                         
                         target_lower = campaign_name.strip().lower()
-                        if not any(target_lower in opt for opt in all_options):
+                        def _camp_match(opt): return opt == target_lower or opt.startswith(target_lower + ".")
+                        if not any(_camp_match(opt) for opt in all_options):
                             print(f"ERROR: Campaign '{campaign_name}' not found in dropdown options (attempt {attempt + 1}/3).")
                             if attempt == 2: # Last attempt
                                 break
@@ -532,10 +533,14 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                             (campaignName) => {
                                 const selects = Array.from(document.querySelectorAll('select'));
                                 const target = campaignName.trim().toLowerCase();
+                                const isMatch = (text) => {
+                                    const t = text.trim().toLowerCase();
+                                    return t === target || t.startsWith(target + '.');
+                                };
                                 
                                 const findAndSelect = (select) => {
                                     for(let i=0; i<select.options.length; i++) {
-                                        if(select.options[i].text.trim().toLowerCase().includes(target)) {
+                                        if(isMatch(select.options[i].text)) {
                                             select.selectedIndex = i;
                                             select.dispatchEvent(new Event('change'));
                                             // Return a unique selector for this element
@@ -651,8 +656,13 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                 if (!select) return false;
                                 
                                 let found = false;
+                                const agentTarget = agentName.trim().toLowerCase();
+                                const agentMatch = (text) => {
+                                    const t = text.trim().toLowerCase();
+                                    return t === agentTarget || t.startsWith(agentTarget + '.');
+                                };
                                 for(let i=0; i<select.options.length; i++) {
-                                    if(select.options[i].text.includes(agentName)) {
+                                    if(agentMatch(select.options[i].text)) {
                                         select.selectedIndex = i;
                                         select.dispatchEvent(new Event('change')); // Important: Trigger ReadyMode update
                                         found = true;
@@ -941,8 +951,13 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                             (agentName) => {
                                 const select = document.querySelector('#restrict_uid');
                                 if (!select) return false;
+                                const agentTarget = agentName.trim().toLowerCase();
+                                const agentMatch = (text) => {
+                                    const t = text.trim().toLowerCase();
+                                    return t === agentTarget || t.startsWith(agentTarget + '.');
+                                };
                                 for(let i=0; i<select.options.length; i++) {
-                                    if(select.options[i].text.includes(agentName)) {
+                                    if(agentMatch(select.options[i].text)) {
                                         select.selectedIndex = i;
                                         select.dispatchEvent(new Event('change'));
                                         return true;
