@@ -623,14 +623,22 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                             (campaignName) => {
                                 const selects = Array.from(document.querySelectorAll('select'));
                                 const target = campaignName.trim().toLowerCase();
-                                const isMatch = (text) => {
-                                    const t = text.trim().toLowerCase();
-                                    return t === target || t.startsWith(target + '.');
-                                };
                                 
                                 const findAndSelect = (select) => {
+                                    // Pass 1: Prioritize exact match
                                     for(let i=0; i<select.options.length; i++) {
-                                        if(isMatch(select.options[i].text)) {
+                                        if(select.options[i].text.trim().toLowerCase() === target) {
+                                            select.selectedIndex = i;
+                                            select.dispatchEvent(new Event('change'));
+                                            // Return a unique selector for this element
+                                            if (select.id) return '#' + select.id;
+                                            if (select.name) return `select[name="${select.name}"]`;
+                                            return null;
+                                        }
+                                    }
+                                    // Pass 2: Fallback to matching prefix (e.g., target + '.')
+                                    for(let i=0; i<select.options.length; i++) {
+                                        if(select.options[i].text.trim().toLowerCase().startsWith(target + '.')) {
                                             select.selectedIndex = i;
                                             select.dispatchEvent(new Event('change'));
                                             // Return a unique selector for this element
@@ -657,6 +665,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                 return { success: false };
                             }
                         """, campaign_name.strip())
+
 
                         found_and_selected = selection_result.get("success", False)
                         used_selector = selection_result.get("selector", "#restrict_campaign")
@@ -747,21 +756,32 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                 
                                 let found = false;
                                 const agentTarget = agentName.trim().toLowerCase();
-                                const agentMatch = (text) => {
-                                    const t = text.trim().toLowerCase();
-                                    return t === agentTarget || t.startsWith(agentTarget + '.');
-                                };
+                                
+                                // Pass 1: Prioritize exact match
                                 for(let i=0; i<select.options.length; i++) {
-                                    if(agentMatch(select.options[i].text)) {
+                                    if(select.options[i].text.trim().toLowerCase() === agentTarget) {
                                         select.selectedIndex = i;
                                         select.dispatchEvent(new Event('change')); // Important: Trigger ReadyMode update
                                         found = true;
                                         break;
                                     }
                                 }
+                                
+                                // Pass 2: Fallback to matching prefix (e.g., agentTarget + '.')
+                                if(!found) {
+                                    for(let i=0; i<select.options.length; i++) {
+                                        if(select.options[i].text.trim().toLowerCase().startsWith(agentTarget + '.')) {
+                                            select.selectedIndex = i;
+                                            select.dispatchEvent(new Event('change')); // Important: Trigger ReadyMode update
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                }
                                 return found;
                             }
                         """, agent.strip())
+
                         
                         if not found_and_selected:
                             print(f"WARNING: Agent '{agent}' not found in dropdown list via JS.")
@@ -1042,12 +1062,19 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                 const select = document.querySelector('#restrict_uid');
                                 if (!select) return false;
                                 const agentTarget = agentName.trim().toLowerCase();
-                                const agentMatch = (text) => {
-                                    const t = text.trim().toLowerCase();
-                                    return t === agentTarget || t.startsWith(agentTarget + '.');
-                                };
+                                
+                                // Pass 1: Prioritize exact match
                                 for(let i=0; i<select.options.length; i++) {
-                                    if(agentMatch(select.options[i].text)) {
+                                    if(select.options[i].text.trim().toLowerCase() === agentTarget) {
+                                        select.selectedIndex = i;
+                                        select.dispatchEvent(new Event('change'));
+                                        return true;
+                                    }
+                                }
+                                
+                                // Pass 2: Fallback to matching prefix (e.g., agentTarget + '.')
+                                for(let i=0; i<select.options.length; i++) {
+                                    if(select.options[i].text.trim().toLowerCase().startsWith(agentTarget + '.')) {
                                         select.selectedIndex = i;
                                         select.dispatchEvent(new Event('change'));
                                         return true;
@@ -1056,6 +1083,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                 return false;
                             }
                         """, agent.strip())
+
                         
                         if not found_and_selected:
                             print(f"WARNING: Agent '{agent}' not found for re-application.")
