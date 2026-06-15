@@ -12,6 +12,16 @@
 .encryption_key
 */.encryption_key
 
+# Scratch / throwaway analysis & recon (may contain credentials, PII, HARs)
+scratch/
+
+# Playwright skill throwaway execution files (may embed credentials) + its node_modules
+.agents/skills/**/.temp-execution-*.js
+.agents/skills/**/node_modules/
+
+# DB backup with credentials/PII — must not be tracked (rotate creds; scrub history separately)
+cloud-migration/db_backup.json
+
 # Backup files that may contain credentials
 config_backup.py
 .env_backup
