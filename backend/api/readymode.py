@@ -124,6 +124,7 @@ async def download_readymode_calls(
             functools.partial(
                 download_all_call_recordings,
                 dialer_url=dialer_url,
+                dialer_url_2=request.dialer_url_2 or None,
                 agent=request.agent_name or "All users",
                 campaign_name=request.campaign_name or None,
                 start_date=start_date,
@@ -223,6 +224,7 @@ async def stream_readymode_audit(
 
             download_result = download_all_call_recordings(
                 dialer_url=dialer_url,
+                dialer_url_2=request.dialer_url_2 or None,
                 agent=request.agent_name or "All users",
                 campaign_name=request.campaign_name or None,
                 start_date=start_date,

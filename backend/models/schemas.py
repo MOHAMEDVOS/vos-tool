@@ -126,6 +126,7 @@ class UserListResponse(BaseModel):
 # ReadyMode schemas
 class ReadyModeDownloadRequest(BaseModel):
     dialer_url: Optional[str] = None
+    dialer_url_2: Optional[str] = None  # optional second dialer; each dialer independently gets max_calls
     agent_name: Optional[str] = None
     campaign_name: Optional[str] = None
     max_calls: Optional[int] = None

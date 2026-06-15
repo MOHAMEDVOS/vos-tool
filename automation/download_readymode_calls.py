@@ -168,6 +168,112 @@ def download_single_file(session, cookies, headers, href, filepath, min_duration
         return False, None, None
 
 
+def _collect_tasks_for_dialer(
+    dialer_url, login_username, login_password,
+    start_str, end_str, start_dateonly,
+    agent, campaign_name, disposition,
+    max_samples, download_dir,
+    cancellation_callback=None,
+    task_offset=0,
+):
+    """Login to one dialer and paginate up to max_samples tasks.
+
+    Returns (tasks, cookies_dict) where tasks = [(href, filepath, filename), ...].
+    task_offset is used to keep 'unknown_N' phone placeholders unique across dialers.
+    Raises ReadyModeLoginError / ReadyModeNoCallsError on hard failures.
+    """
+    client = ReadyModeHTTPClient(dialer_url)
+    client.login(login_username, login_password)
+    print(f"SUCCESS Login successful (HTTP) on {client.dialer}")
+    client.init_call_log()
+
+    probe = client.fetch_report(time_from=start_str, time_to=end_str,
+                                time_from_dateonly=start_dateonly)
+    restrict_campaign = 0
+    restrict_uid = 0
+
+    if campaign_name:
+        cid, cname = resolve_campaign_id(probe.get("campaignlist", {}), campaign_name)
+        if not cid:
+            raise ReadyModeNoCallsError(f"No campaign found with name '{campaign_name}' on {client.dialer}")
+        restrict_campaign = cid
+        print(f"SUCCESS Campaign filter resolved: {cname} (id={cid}) on {client.dialer}")
+
+    if agent and agent.strip().lower() not in ["any", "all users", "all agents"]:
+        uid, label = resolve_agent_id(probe.get("userlist", {}), agent)
+        if not uid:
+            raise ReadyModeNoCallsError(f"No agent found with name '{agent}' on {client.dialer}")
+        restrict_uid = uid
+        print(f"SUCCESS Agent filter resolved: {label} (uid={uid}) on {client.dialer}")
+
+    types = disposition_type_ids(disposition) if disposition else None
+    if disposition:
+        print(f"INFO Disposition filter on {client.dialer}: {disposition} -> types {types}")
+
+    tasks = []
+    seen_links = set()
+    page = 0
+    total_pages = None
+    collected = task_offset  # used only for unique placeholder filenames
+
+    while len(tasks) < max_samples and page < 2000:
+        if cancellation_callback and cancellation_callback():
+            raise KeyboardInterrupt("Download cancelled by user")
+
+        data = client.fetch_report(
+            time_from=start_str, time_to=end_str, time_from_dateonly=start_dateonly,
+            restrict_uid=restrict_uid, restrict_campaign=restrict_campaign,
+            types=types, page=page,
+        )
+
+        if total_pages is None:
+            try:
+                total_pages = int(data.get("pages") or 0)
+            except (TypeError, ValueError):
+                total_pages = 0
+            print(f"PAGE {client.dialer} total pages: {total_pages}")
+
+        results = data.get("results") or {}
+        if not results:
+            break
+
+        new_links = 0
+        for row in results.values():
+            if len(tasks) >= max_samples:
+                break
+            rec = row.get("RecId")
+            if not rec:
+                continue
+
+            href = f"{client.dialer}{quote(rec, safe='/')}"
+            href = href + ("&force_dl=1" if "?" in href else "?force_dl=1")
+            if href in seen_links:
+                continue
+
+            agent_text = (row.get("User") or "").strip() or "Unknown_Agent"
+            time_text  = (row.get("Time") or "").strip() or "Unknown_Time"
+            type_text  = (row.get("Type") or "").strip() or "Unknown_Type"
+            file_text  = row.get("File") or ""
+            phone_match = re.search(r"\(\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}", file_text)
+            phone_number = phone_match.group(0) if phone_match else f"unknown_{collected + 1}"
+
+            filename = f"{agent_text} _ {time_text} _ {phone_number} _ {type_text}.mp3"
+            filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
+            filepath = os.path.join(download_dir, filename)
+
+            seen_links.add(href)
+            tasks.append((href, filepath, filename))
+            new_links += 1
+            collected += 1
+
+        print(f"SEARCH {client.dialer} page {page + 1}: +{new_links} (collected {len(tasks)}/{max_samples})")
+        page += 1
+        if total_pages and page >= total_pages:
+            break
+
+    return tasks, client.cookies
+
+
 def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                  start_date=None, end_date=None,
                                  start_time=None,
@@ -177,13 +283,18 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                  username=None, keep_browser_open=False,
                                  readymode_user=None, readymode_pass=None,
                                  cancellation_callback=None, driver_storage=None,
-                                 disposition=None):
+                                 disposition=None, dialer_url_2=None):
     """Download call recordings from ReadyMode via pure HTTP (no browser).
 
     Signature, output folders, filename format, progress prints, duration filtering and
     cancellation semantics are preserved from the previous Playwright implementation.
     ``keep_browser_open`` / ``driver_storage`` / ``call_type`` are accepted for backward
     compatibility but are no longer used.
+
+    ``dialer_url_2`` is optional. When provided, both dialers are queried in parallel and
+    each independently collects up to ``max_samples`` recordings (total = 2 × max_samples).
+    If dialer 2 fails (login error, no calls), a warning is printed and the run continues
+    with dialer 1 only.
     """
     # ── Validate ──────────────────────────────────────────────────────────────
     if not agent or not agent.strip():
@@ -209,6 +320,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
 
     counter = get_next_run_counter(display_name, username or "default", subfolder)
     dialer_name = extract_dialer_name_from_url(dialer_url)
+    if dialer_url_2:
+        dialer_name = f"{dialer_name}+{extract_dialer_name_from_url(dialer_url_2)}"
     today = datetime.now().strftime('%Y-%m-%d')
     safe_display_name = format_agent_name_for_filename(display_name)
     folder_name = f"{safe_display_name}-{today}_{counter:03d} {dialer_name}"
@@ -218,150 +331,94 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
     print(f"DEBUG DOWNLOAD_DIR: {DOWNLOAD_DIR}")
 
     try:
-        # ── Login (pure HTTP) ─────────────────────────────────────────────────
         login_username = readymode_user or USERNAME
         login_password = readymode_pass or PASSWORD
         print(f"DEBUG LOGIN: Using username='{login_username}' "
               f"(length={len(login_username) if login_username else 0})")
-
-        client = ReadyModeHTTPClient(dialer_url)
-        client.login(login_username, login_password)
-        print(f"SUCCESS Login successful (HTTP) on {client.dialer}")
-        client.init_call_log()
 
         # ── Date / time range ─────────────────────────────────────────────────
         start_str = start_date.strftime("%m/%d/%Y")
         end_str = end_date.strftime("%m/%d/%Y")
         start_dateonly = "1"
         if start_time:
-            # Best-effort time-of-day lower bound (e.g. "02:30 PM"). Recon captured date-only
-            # requests only, so this path is validated during end-to-end testing.
             start_str = f"{start_str} {start_time}".strip()
             start_dateonly = "0"
         print(f"DATE Range {start_str} -> {end_str}")
 
-        # ── Resolve campaign / agent ids from the dropdown maps ────────────────
-        probe = client.fetch_report(time_from=start_str, time_to=end_str,
-                                    time_from_dateonly=start_dateonly)
-        restrict_campaign = 0
-        restrict_uid = 0
+        # ── Collect tasks (one or two dialers in parallel) ────────────────────
+        print(f"SEARCH Collecting up to {max_samples} recordings"
+              f"{' per dialer (2 dialers)' if dialer_url_2 else ''}...")
 
-        if campaign_name:
-            cid, cname = resolve_campaign_id(probe.get("campaignlist", {}), campaign_name)
-            if not cid:
-                raise ReadyModeNoCallsError(f"No campaign found with name '{campaign_name}'")
-            restrict_campaign = cid
-            print(f"SUCCESS Campaign filter resolved: {cname} (id={cid})")
+        shared_args = dict(
+            login_username=login_username, login_password=login_password,
+            start_str=start_str, end_str=end_str, start_dateonly=start_dateonly,
+            agent=agent, campaign_name=campaign_name, disposition=disposition,
+            max_samples=max_samples, download_dir=DOWNLOAD_DIR,
+            cancellation_callback=cancellation_callback,
+        )
 
-        if agent and agent.strip().lower() not in ["any", "all users", "all agents"]:
-            uid, label = resolve_agent_id(probe.get("userlist", {}), agent)
-            if not uid:
-                raise ReadyModeNoCallsError(f"No agent found with name '{agent}'")
-            restrict_uid = uid
-            print(f"SUCCESS Agent filter resolved: {label} (uid={uid})")
+        # tagged tasks = [(href, filepath, filename, cookies_dict), ...]
+        tagged_tasks = []
 
-        # ── Disposition -> report[types][] ids ─────────────────────────────────
-        types = disposition_type_ids(disposition) if disposition else None
-        if disposition:
-            print(f"INFO Disposition filter: {disposition} -> types {types}")
+        if dialer_url_2:
+            from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+            futures_map = {}
+            with _TPE(max_workers=2) as col_exec:
+                f1 = col_exec.submit(_collect_tasks_for_dialer, dialer_url,  **shared_args, task_offset=0)
+                f2 = col_exec.submit(_collect_tasks_for_dialer, dialer_url_2, **shared_args, task_offset=0)
+                futures_map[f1] = dialer_url
+                futures_map[f2] = dialer_url_2
 
-        # ── Paginate the report, collecting download tasks ─────────────────────
-        print(f"SEARCH Collecting up to {max_samples} recordings...")
-        download_tasks = []   # (href, filepath, filename)
-        seen_links = set()
-        page = 0
-        total_pages = None
-        max_pages_guard = 2000
-
-        while len(download_tasks) < max_samples and page < max_pages_guard:
-            if cancellation_callback and cancellation_callback():
-                print("CANCELLED Download cancelled by user")
-                raise KeyboardInterrupt("Download cancelled by user")
-
-            data = client.fetch_report(
-                time_from=start_str, time_to=end_str, time_from_dateonly=start_dateonly,
-                restrict_uid=restrict_uid, restrict_campaign=restrict_campaign,
-                types=types, page=page,
-            )
-
-            if total_pages is None:
+            for fut in (f1, f2):
+                durl = futures_map[fut]
                 try:
-                    total_pages = int(data.get("pages") or 0)
-                except (TypeError, ValueError):
-                    total_pages = 0
-                print(f"PAGE Total pages reported: {total_pages}")
+                    tasks, cookies = fut.result()
+                    for href, filepath, filename in tasks:
+                        tagged_tasks.append((href, filepath, filename, cookies))
+                    print(f"INFO {durl}: {len(tasks)} tasks collected")
+                except (ReadyModeLoginError, ReadyModeNoCallsError) as e:
+                    if durl == dialer_url:
+                        raise  # primary dialer failure is fatal
+                    print(f"WARNING Dialer 2 ({durl}) skipped: {e}")
+                except KeyboardInterrupt:
+                    raise
+        else:
+            tasks, cookies = _collect_tasks_for_dialer(dialer_url, **shared_args, task_offset=0)
+            for href, filepath, filename in tasks:
+                tagged_tasks.append((href, filepath, filename, cookies))
 
-            results = data.get("results") or {}
-            if not results:
-                break
-
-            new_links = 0
-            for row in results.values():
-                if len(download_tasks) >= max_samples:
-                    break
-                rec = row.get("RecId")
-                if not rec:
-                    continue
-
-                href = f"{client.dialer}{quote(rec, safe='/')}"
-                href = href + ("&force_dl=1" if "?" in href else "?force_dl=1")
-                if href in seen_links:
-                    continue
-
-                agent_text = (row.get("User") or "").strip() or "Unknown_Agent"
-                time_text = (row.get("Time") or "").strip() or "Unknown_Time"
-                type_text = (row.get("Type") or "").strip() or "Unknown_Type"
-                file_text = row.get("File") or ""
-                phone_match = re.search(r"\(\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}", file_text)
-                phone_number = phone_match.group(0) if phone_match else f"unknown_{len(download_tasks) + 1}"
-
-                # Descriptive filename (matches the prior Selenium/Playwright format)
-                filename = f"{agent_text} _ {time_text} _ {phone_number} _ {type_text}.mp3"
-                filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
-                filepath = os.path.join(DOWNLOAD_DIR, filename)
-
-                seen_links.add(href)
-                download_tasks.append((href, filepath, filename))
-                new_links += 1
-
-            print(f"SEARCH Page {page + 1}: +{new_links} (collected {len(download_tasks)}/{max_samples})")
-            if update_callback:
-                update_callback(len(download_tasks), max_samples)
-
-            page += 1
-            if total_pages and page >= total_pages:
-                break
-
-        if not download_tasks:
+        if not tagged_tasks:
             raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
 
-        print(f"SEARCH Collected {len(download_tasks)} links across {page} page(s)")
+        print(f"SEARCH Collected {len(tagged_tasks)} total links")
+        if update_callback:
+            update_callback(len(tagged_tasks), len(tagged_tasks))
 
-        # ── Download files concurrently (cookie-based; unchanged logic) ────────
-        cookies_dict = client.cookies
-        print(f"DOWNLOAD Starting download of {len(download_tasks)} files...")
-        session = requests.Session()
+        # ── Download files concurrently ────────────────────────────────────────
+        print(f"DOWNLOAD Starting download of {len(tagged_tasks)} files...")
+        dl_session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(
             pool_connections=MAX_CONCURRENT_DOWNLOADS + 5,
             pool_maxsize=MAX_CONCURRENT_DOWNLOADS + 5,
         )
-        session.mount('https://', adapter)
-        session.mount('http://', adapter)
+        dl_session.mount('https://', adapter)
+        dl_session.mount('http://', adapter)
         headers = {"User-Agent": UA}
 
         lock = threading.Lock()
         downloaded_count = 0
         skipped_count = 0
-        total_count = len(download_tasks)
+        total_count = len(tagged_tasks)
 
         with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOWNLOADS) as executor:
-            futures = []
-            for href, filepath, filename in download_tasks:
-                futures.append(executor.submit(
+            futures = [
+                executor.submit(
                     download_single_file,
-                    session, cookies_dict, headers, href, filepath,
+                    dl_session, task_cookies, headers, href, filepath,
                     min_duration, max_duration, lock,
-                ))
+                )
+                for href, filepath, filename, task_cookies in tagged_tasks
+            ]
 
             for future in as_completed(futures):
                 if cancellation_callback and cancellation_callback():

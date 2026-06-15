@@ -672,6 +672,7 @@ function AuditProgressBar({
 function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const token = useAuthStore((s) => s.token)
   const [dialerUrl, setDialerUrl] = useState('https://resva.readymode.com/')
+  const [dialerUrl2, setDialerUrl2] = useState('')
   const [identifier, setIdentifier] = useState(mode === 'agent' ? 'All users' : '')
   const [maxCalls, setMaxCalls] = useState(500)
   const [startDate, setStartDate] = useState(todayISO())
@@ -705,6 +706,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const buildBody = useCallback((auditType: 'heavy' | 'lite'): DownloadRequest => {
     const body: DownloadRequest = {
       dialer_url: dialerUrl,
+      dialer_url_2: (!isCampaign && dialerUrl2.trim()) ? dialerUrl2.trim() : undefined,
       agent_name: isCampaign ? 'All users' : identifier.trim(),
       campaign_name: isCampaign ? identifier.trim() : undefined,
       max_calls: maxCalls,
@@ -720,7 +722,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
     if (durationFilter === 'gt_custom' || durationFilter === 'lt_custom')
       body.custom_duration_seconds = customDuration
     return body
-  }, [dialerUrl, isCampaign, identifier, maxCalls, startDate, endDate, useStartTime, startTimeHour, startTimeMinute, startTimeAmPm, dispositions, durationFilter, customDuration])
+  }, [dialerUrl, dialerUrl2, isCampaign, identifier, maxCalls, startDate, endDate, useStartTime, startTimeHour, startTimeMinute, startTimeAmPm, dispositions, durationFilter, customDuration])
 
   const notConfigured = rmStatus?.status === 'not_configured'
   const needsCustomDuration = durationFilter === 'gt_custom' || durationFilter === 'lt_custom'
@@ -767,6 +769,22 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                   className="w-full rounded-md border px-3 py-1.5 text-sm shadow-inner transition-all focus:ring-2 focus:ring-[rgba(0,102,204,0.2)] disabled:opacity-50"
                 />
               </div>
+              {!isCampaign && (
+                <div>
+                  <label className={labelClass} style={{ color: 'var(--t-label)' }}>
+                    Second Dialer URL <span style={{ color: 'var(--t-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={dialerUrl2}
+                    onChange={(e) => setDialerUrl2(e.target.value)}
+                    placeholder="https://resva6.readymode.com/ (leave blank to skip)"
+                    disabled={isRunning}
+                    style={{ ...inputBase, borderRadius: 6, padding: '6px 12px', fontSize: 14, outline: 'none' }}
+                    className="w-full rounded-md border px-3 py-1.5 text-sm shadow-inner transition-all focus:ring-2 focus:ring-[rgba(0,102,204,0.2)] disabled:opacity-50"
+                  />
+                </div>
+              )}
               <div>
                 <label className={labelClass} style={{ color: 'var(--t-label)' }}>{isCampaign ? 'Campaign Identifier' : 'Agent Identifier'}</label>
                 <input

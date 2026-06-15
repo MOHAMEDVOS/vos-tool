@@ -33,6 +33,7 @@ export const DURATION_FILTERS = [
 
 export interface DownloadRequest {
   dialer_url: string
+  dialer_url_2?: string  // agent audit only; each dialer gets max_calls independently
   agent_name: string
   campaign_name?: string
   max_calls: number
