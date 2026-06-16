@@ -57,18 +57,10 @@ async def bulk_create_users(
 
     result_queue: "queue.Queue[str | None]" = __import__("queue").Queue()
 
-    import io, backend.api.readymode as _rm_module
-    _thread_local = _rm_module._thread_local
-
-    class _QueueWriter(io.TextIOBase):
-        def write(self, s: str):
-            if s and s.strip():
-                result_queue.put(_sse("log", s.rstrip()))
-            return len(s)
-        def flush(self): pass
+    def log_callback(msg: str):
+        result_queue.put(_sse("log", msg.rstrip()))
 
     def worker():
-        _thread_local.queue_writer = _QueueWriter()
         try:
             from automation.create_readymode_users import create_users_multi_dialer
             results = create_users_multi_dialer(
@@ -76,6 +68,7 @@ async def bulk_create_users(
                 users=users_dicts,
                 readymode_user=create_user,
                 readymode_pass=create_pass,
+                log_callback=log_callback,
             )
             result_queue.put(_sse("done", results))
         except Exception as e:

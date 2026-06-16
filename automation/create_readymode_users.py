@@ -18,21 +18,24 @@ def create_users_on_dialer(
     readymode_user: str,
     readymode_pass: str,
     update_callback: Optional[Callable[[int, int], None]] = None,
+    log_callback: Optional[Callable[[str], None]] = None,
 ) -> list[dict]:
-    """Login to one dialer, create all users, return per-user results.
+    """Login to one dialer, create all users, return per-user results."""
+    def log(msg: str):
+        if log_callback:
+            log_callback(msg)
+        else:
+            print(msg)
 
-    Each result dict has: name, login_id, dialer, status ('created'|'failed'), detail.
-    Prints progress lines (picked up by SSE thread-local stdout proxy).
-    """
     dialer_name = dialer_url.rstrip("/").split("//")[-1].split(".")[0]
     results = []
 
     client = ReadyModeHTTPClient(dialer_url)
     try:
         client.login(readymode_user, readymode_pass)
-        print(f"SUCCESS Login OK on {dialer_name}")
+        log(f"SUCCESS Login OK on {dialer_name}")
     except ReadyModeLoginError as e:
-        print(f"ERROR Login failed on {dialer_name}: {e}")
+        log(f"ERROR Login failed on {dialer_name}: {e}")
         for u in users:
             results.append({
                 "name": u["name"], "login_id": u["login_id"],
@@ -51,13 +54,13 @@ def create_users_on_dialer(
         try:
             client.create_user(name=name, login_id=login_id, password=password,
                                ou=ou, folder=folder, ext=ext)
-            print(f"CREATED {dialer_name} | {name} ({login_id})")
+            log(f"CREATED {dialer_name} | {name} ({login_id})")
             results.append({
                 "name": name, "login_id": login_id,
                 "dialer": dialer_name, "status": "created", "detail": "",
             })
         except ReadyModeUserCreateError as e:
-            print(f"FAILED  {dialer_name} | {name} ({login_id}): {e}")
+            log(f"FAILED  {dialer_name} | {name} ({login_id}): {e}")
             results.append({
                 "name": name, "login_id": login_id,
                 "dialer": dialer_name, "status": "failed", "detail": str(e),
@@ -73,13 +76,18 @@ def create_users_multi_dialer(
     users: list[dict],
     readymode_user: str,
     readymode_pass: str,
+    log_callback: Optional[Callable[[str], None]] = None,
 ) -> list[dict]:
     """Create users on multiple dialers in parallel. Returns flat list of all results."""
     all_results: list[dict] = []
 
     with ThreadPoolExecutor(max_workers=len(dialer_urls)) as pool:
         futures = {
-            pool.submit(create_users_on_dialer, url, users, readymode_user, readymode_pass): url
+            pool.submit(
+                create_users_on_dialer, url, users,
+                readymode_user, readymode_pass,
+                None, log_callback,
+            ): url
             for url in dialer_urls
         }
         for future in as_completed(futures):
@@ -88,7 +96,10 @@ def create_users_multi_dialer(
             except Exception as e:
                 url = futures[future]
                 name = url.rstrip("/").split("//")[-1].split(".")[0]
-                print(f"ERROR Unexpected error on {name}: {e}")
+                if log_callback:
+                    log_callback(f"ERROR Unexpected error on {name}: {e}")
+                else:
+                    print(f"ERROR Unexpected error on {name}: {e}")
                 for u in users:
                     all_results.append({
                         "name": u["name"], "login_id": u["login_id"],
