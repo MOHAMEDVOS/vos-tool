@@ -45,9 +45,8 @@ export function UsersPage() {
   const [selectedDialers, setSelectedDialers] = useState<string[]>(['resva'])
   const [folder, setFolder] = useState('48-36-14')
   const [ou, setOu] = useState('4')
-  const [prefix, setPrefix] = useState('RES-')
-  const [startNum, setStartNum] = useState('001')
   const [namesText, setNamesText] = useState('')
+  const [loginIdsText, setLoginIdsText] = useState('')
   const [passwordsText, setPasswordsText] = useState('')
 
   // ── Running state ───────────────────────────────────────────────────────────
@@ -58,23 +57,27 @@ export function UsersPage() {
   // ── Derived preview ─────────────────────────────────────────────────────────
   const names = useMemo(() =>
     namesText.split('\n').map(s => s.trim()).filter(Boolean), [namesText])
+  const loginIds = useMemo(() =>
+    loginIdsText.split('\n').map(s => s.trim()).filter(Boolean), [loginIdsText])
   const passwords = useMemo(() =>
     passwordsText.split('\n').map(s => s.trim()).filter(Boolean), [passwordsText])
 
   const preview = useMemo(() => {
-    const padLen = Math.max(String(names.length + parseInt(startNum || '1', 10) - 1).length, 3)
     return names.map((name, i) => ({
       name,
-      login_id: `${prefix}${String(parseInt(startNum || '1', 10) + i).padStart(padLen, '0')}`,
+      login_id: loginIds[i] ?? '',
       password: passwords[i] ?? '',
       folder,
       ou,
     }))
-  }, [names, passwords, prefix, startNum, folder, ou])
+  }, [names, loginIds, passwords, folder, ou])
 
-  const mismatch = names.length > 0 && passwords.length > 0 && names.length !== passwords.length
+  const mismatch = names.length > 0 && (
+    (loginIds.length > 0 && loginIds.length !== names.length) ||
+    (passwords.length > 0 && passwords.length !== names.length)
+  )
   const canCreate = preview.length > 0 && !mismatch && selectedDialers.length > 0 && !running &&
-    preview.every(r => r.password)
+    preview.every(r => r.password && r.login_id)
 
   // ── Dialer toggle ───────────────────────────────────────────────────────────
   const toggleDialer = (d: string) =>
@@ -154,9 +157,12 @@ export function UsersPage() {
       </div>
 
       {/* ── Dialers ── */}
-      <section className="rounded-xl border border-b-subtle bg-surface-card p-4 space-y-3">
+      <section className="rounded-xl border border-b-subtle bg-surface-card p-4 space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold text-t-primary">Dialers</span>
+          <label className="text-sm font-semibold text-t-primary">
+            Dialers
+            <span className="ml-1 text-xs font-normal text-t-muted">(hold Ctrl / Cmd to select multiple)</span>
+          </label>
           <button
             onClick={toggleAll}
             className="text-xs font-semibold text-accent hover:underline"
@@ -164,27 +170,24 @@ export function UsersPage() {
             {allSelected ? 'Deselect All' : 'Select All'}
           </button>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {DIALER_NAMES.map(d => {
-            const active = selectedDialers.includes(d)
-            return (
-              <button
-                key={d}
-                onClick={() => toggleDialer(d)}
-                className={[
-                  'px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors',
-                  active
-                    ? 'bg-accent text-white border-accent'
-                    : 'bg-surface-soft text-t-muted border-b-subtle hover:border-accent hover:text-accent',
-                ].join(' ')}
-              >
-                {d}
-              </button>
-            )
-          })}
-        </div>
+        <select
+          multiple
+          value={selectedDialers}
+          onChange={e => setSelectedDialers(Array.from(e.target.selectedOptions, o => o.value))}
+          className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-1 text-sm text-t-primary focus:outline-none focus:border-accent"
+          size={DIALER_NAMES.length}
+        >
+          {DIALER_NAMES.map(d => (
+            <option key={d} value={d} className="py-1.5 px-1 cursor-pointer">
+              {d}
+            </option>
+          ))}
+        </select>
         {selectedDialers.length === 0 && (
           <p className="text-xs text-semantic-error">Select at least one dialer.</p>
+        )}
+        {selectedDialers.length > 0 && (
+          <p className="text-xs text-t-muted">{selectedDialers.length} dialer{selectedDialers.length !== 1 ? 's' : ''} selected: {selectedDialers.join(', ')}</p>
         )}
       </section>
 
@@ -216,31 +219,9 @@ export function UsersPage() {
         </div>
       </section>
 
-      {/* ── Login ID pattern ── */}
-      <section className="rounded-xl border border-b-subtle bg-surface-card p-4 grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Login ID Prefix</label>
-          <input
-            value={prefix}
-            onChange={e => setPrefix(e.target.value)}
-            placeholder="e.g. RES-"
-            className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Start Number</label>
-          <input
-            value={startNum}
-            onChange={e => setStartNum(e.target.value)}
-            placeholder="e.g. 001"
-            className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent"
-          />
-        </div>
-      </section>
-
       {/* ── Paste boxes ── */}
       <section className="rounded-xl border border-b-subtle bg-surface-card p-4 space-y-3">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div className="space-y-1">
             <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
               Agent Names <span className="normal-case font-normal">(one per line)</span>
@@ -253,6 +234,19 @@ export function UsersPage() {
               className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent resize-none font-mono"
             />
             <p className="text-xs text-t-muted">{names.length} names</p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
+              Login IDs <span className="normal-case font-normal">(one per line, same order)</span>
+            </label>
+            <textarea
+              value={loginIdsText}
+              onChange={e => setLoginIdsText(e.target.value)}
+              rows={8}
+              placeholder={"RES-014\nRES-015\nRES-016"}
+              className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent resize-none font-mono"
+            />
+            <p className="text-xs text-t-muted">{loginIds.length} login IDs</p>
           </div>
           <div className="space-y-1">
             <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
@@ -270,7 +264,7 @@ export function UsersPage() {
         </div>
         {mismatch && (
           <p className="text-xs text-semantic-error font-semibold">
-            Names ({names.length}) and passwords ({passwords.length}) count doesn't match.
+            All three columns must have the same number of lines (names: {names.length}, login IDs: {loginIds.length}, passwords: {passwords.length}).
           </p>
         )}
       </section>
@@ -298,7 +292,9 @@ export function UsersPage() {
                 {preview.map((row, i) => (
                   <tr key={i} className="border-t border-b-subtle hover:bg-surface-soft">
                     <td className="px-3 py-1.5 text-t-primary">{row.name}</td>
-                    <td className="px-3 py-1.5 font-mono text-accent">{row.login_id}</td>
+                    <td className="px-3 py-1.5 font-mono text-accent">
+                      {row.login_id || <span className="text-semantic-error">missing</span>}
+                    </td>
                     <td className="px-3 py-1.5 font-mono text-t-muted">
                       {row.password ? '••••••••' : <span className="text-semantic-error">missing</span>}
                     </td>
