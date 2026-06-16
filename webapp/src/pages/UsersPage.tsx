@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { READYMODE_DIALER_URLS } from '@/api/readymode'
 
@@ -73,7 +74,6 @@ export function UsersPage() {
 
   // ── Running state ───────────────────────────────────────────────────────────
   const [running, setRunning] = useState(false)
-  const [logs, setLogs] = useState<string[]>([])
   const [results, setResults] = useState<ResultRow[]>([])
 
   // ── Derived preview ─────────────────────────────────────────────────────────
@@ -170,7 +170,6 @@ export function UsersPage() {
   // ── Create ──────────────────────────────────────────────────────────────────
   const handleCreate = async () => {
     setRunning(true)
-    setLogs([])
     setResults([])
 
     const body = {
@@ -209,9 +208,8 @@ export function UsersPage() {
           if (!line.startsWith('data:')) continue
           try {
             const { event, data } = JSON.parse(line.slice(5).trim())
-            if (event === 'log') setLogs(prev => [...prev, data])
             if (event === 'done') setResults(data as ResultRow[])
-            if (event === 'error') setLogs(prev => [...prev, `ERROR: ${data}`])
+            if (event === 'error') setResults(prev => [...prev, { name: '—', login_id: '—', dialer: 'all', status: 'failed', detail: String(data) }])
           } catch { /* ignore malformed SSE */ }
         }
       }
@@ -221,10 +219,6 @@ export function UsersPage() {
       setRunning(false)
     }
   }
-
-  // ── Stats ───────────────────────────────────────────────────────────────────
-  const created = results.filter(r => r.status === 'created').length
-  const failed  = results.filter(r => r.status === 'failed').length
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-5xl mx-auto">
@@ -470,29 +464,46 @@ export function UsersPage() {
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-surface-soft">
                 <tr>
-                  {['Name', 'Login ID', 'Password', 'Folder', 'Role'].map(h => (
+                  {['Name', 'Login ID', 'Password', 'Folder', 'Role', 'Status'].map(h => (
                     <th key={h} className="px-3 py-2 text-left font-semibold text-t-muted">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {preview.map((row, i) => (
-                  <tr key={i} className="border-t border-b-subtle hover:bg-surface-soft">
-                    <td className="px-3 py-1.5 text-t-primary">{row.name}</td>
-                    <td className="px-3 py-1.5 font-mono text-accent">
-                      {row.login_id || <span className="text-semantic-error">missing</span>}
-                    </td>
-                    <td className="px-3 py-1.5 font-mono text-t-secondary">
-                      {row.password || <span className="text-semantic-error">missing</span>}
-                    </td>
-                    <td className="px-3 py-1.5 text-t-muted">
-                      {FOLDER_OPTIONS.find(f => f.value === row.folder)?.label ?? row.folder}
-                    </td>
-                    <td className="px-3 py-1.5 text-t-muted">
-                      {ROLE_OPTIONS.find(r => r.value === row.ou)?.label ?? row.ou}
-                    </td>
-                  </tr>
-                ))}
+                {preview.map((row, i) => {
+                  const userResults  = results.filter(r => r.login_id === row.login_id)
+                  const failedDialers = userResults.filter(r => r.status === 'failed').map(r => r.dialer)
+                  const allCreated   = userResults.length > 0 && failedDialers.length === 0
+                  return (
+                    <tr key={i} className="border-t border-b-subtle hover:bg-surface-soft">
+                      <td className="px-3 py-1.5 text-t-primary">{row.name}</td>
+                      <td className="px-3 py-1.5 font-mono text-accent">
+                        {row.login_id || <span className="text-semantic-error">missing</span>}
+                      </td>
+                      <td className="px-3 py-1.5 font-mono text-t-secondary">
+                        {row.password || <span className="text-semantic-error">missing</span>}
+                      </td>
+                      <td className="px-3 py-1.5 text-t-muted">
+                        {FOLDER_OPTIONS.find(f => f.value === row.folder)?.label ?? row.folder}
+                      </td>
+                      <td className="px-3 py-1.5 text-t-muted">
+                        {ROLE_OPTIONS.find(r => r.value === row.ou)?.label ?? row.ou}
+                      </td>
+                      <td className="px-3 py-1.5">
+                        {running && userResults.length === 0
+                          ? <Loader2 size={16} className="animate-spin text-t-muted" />
+                          : allCreated
+                            ? <CheckCircle2 size={16} className="text-semantic-success" />
+                            : failedDialers.length > 0
+                              ? <span className="flex items-center gap-1">
+                                  <XCircle size={16} className="text-semantic-error flex-shrink-0" />
+                                  <span className="text-xs text-semantic-error">{failedDialers.join(', ')}</span>
+                                </span>
+                              : null}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -515,38 +526,6 @@ export function UsersPage() {
           : `Create ${preview.length * selectedDialers.length} accounts on ${selectedDialers.length} dialer${selectedDialers.length !== 1 ? 's' : ''}`}
       </button>
 
-      {/* ── Live logs ── */}
-      {(logs.length > 0 || running) && (
-        <section className="rounded-xl border border-b-subtle bg-surface-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-b-subtle flex items-center justify-between">
-            <span className="text-sm font-semibold text-t-primary">Live Results</span>
-            {results.length > 0 && (
-              <span className="text-xs">
-                <span className="text-green-500 font-bold">{created} created</span>
-                {failed > 0 && <span className="text-semantic-error font-bold ml-2">{failed} failed</span>}
-              </span>
-            )}
-          </div>
-          <div className="p-4 space-y-1 max-h-72 overflow-y-auto font-mono text-xs">
-            {logs.map((l, i) => {
-              const isCreated = l.startsWith('CREATED')
-              const isFailed  = l.startsWith('FAILED') || l.startsWith('ERROR')
-              return (
-                <p key={i} className={
-                  isCreated ? 'text-green-500' :
-                  isFailed  ? 'text-semantic-error' :
-                  'text-t-muted'
-                }>
-                  {l}
-                </p>
-              )
-            })}
-            {running && (
-              <p className="text-t-muted animate-pulse">Running...</p>
-            )}
-          </div>
-        </section>
-      )}
     </div>
   )
 }
