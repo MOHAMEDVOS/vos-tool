@@ -71,16 +71,6 @@ export function UsersPage() {
 
   const [copied, setCopied] = useState(false)
 
-  // ── Auto-generate passwords when name count changes ──────────────────────────
-  useEffect(() => {
-    if (names.length === 0) return
-    const current = passwordsText.split('\n').map(s => s.trim())
-    const next = names.map((_, i) => current[i] || generatePassword())
-    if (next.join('\n') !== passwordsText) setPasswordsText(next.join('\n'))
-  }, [names.length]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const regenerateAll = () => setPasswordsText(names.map(() => generatePassword()).join('\n'))
-
   // ── Running state ───────────────────────────────────────────────────────────
   const [running, setRunning] = useState(false)
   const [logs, setLogs] = useState<string[]>([])
@@ -93,6 +83,16 @@ export function UsersPage() {
     loginIdsText.split('\n').map(s => s.trim()).filter(Boolean), [loginIdsText])
   const passwords = useMemo(() =>
     passwordsText.split('\n').map(s => s.trim()).filter(Boolean), [passwordsText])
+
+  // ── Auto-generate passwords when name count changes ──────────────────────────
+  useEffect(() => {
+    if (names.length === 0) return
+    const current = passwordsText.split('\n').map(s => s.trim())
+    const next = names.map((_, i) => current[i] || generatePassword())
+    if (next.join('\n') !== passwordsText) setPasswordsText(next.join('\n'))
+  }, [names.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const regenerateAll = () => setPasswordsText(names.map(() => generatePassword()).join('\n'))
 
   const preview = useMemo(() => {
     return names.map((name, i) => ({
