@@ -41,8 +41,8 @@ async def bulk_create_users(
 
     # Pull the shared creation-account credentials from env / config
     import os
-    create_user = os.environ.get("READYMODE_CREATE_USER", "u.creation2")
-    create_pass = os.environ.get("READYMODE_CREATE_PASSWORD", "")
+    create_user = os.environ.get("READYMODE_CREATE_USER", "UserCreation")
+    create_pass = os.environ.get("READYMODE_CREATE_PASSWORD", "RES370@370")
 
     if not create_pass:
         # Fallback: try the user's own ReadyMode credentials
