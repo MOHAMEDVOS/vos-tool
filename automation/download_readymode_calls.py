@@ -52,14 +52,16 @@ PASSWORD = os.getenv("READYMODE_PASSWORD")
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
-# Concurrent download configuration. Default 30 — benchmarked sweet spot for the pure-HTTP
-# downloader: 1000 files took ~125s @15, ~95s @30, ~91s @50 (server/bandwidth caps throughput
-# at ~10-11 files/sec, so 30->50 gains almost nothing). Override via MAX_CONCURRENT_DOWNLOADS.
-_max_downloads_env = os.getenv("MAX_CONCURRENT_DOWNLOADS", "30")
+# Concurrent download configuration. Default 15 — safe on a ~1GB Railway container.
+# Benchmark (1000 files): ~125s @15, ~95s @30, ~91s @50 — server/bandwidth caps throughput
+# at ~10-11 files/sec, so 15 already saturates the server while keeping peak memory + the
+# number of concurrent ffprobe subprocesses low (avoids OOM on big 2-dialer runs).
+# Bump via MAX_CONCURRENT_DOWNLOADS env if the host has more RAM headroom.
+_max_downloads_env = os.getenv("MAX_CONCURRENT_DOWNLOADS", "15")
 try:
     MAX_CONCURRENT_DOWNLOADS = int(_max_downloads_env)
 except ValueError:
-    MAX_CONCURRENT_DOWNLOADS = 30
+    MAX_CONCURRENT_DOWNLOADS = 15
 
 
 def _sanitize_path_component(value: str) -> str:
@@ -118,41 +120,66 @@ def extract_dialer_name_from_url(dialer_url: str) -> str:
 MIN_CALL_DURATION_S = 5
 
 
-def download_single_file(session, cookies, headers, href, filepath, min_duration, max_duration, lock):
-    """Download a single file; always discards calls under MIN_CALL_DURATION_S."""
+def _probe_duration_seconds(path):
+    """Read audio duration WITHOUT decoding the whole file.
+
+    Uses ffprobe metadata via pydub.utils.mediainfo (cheap — reads container header only,
+    no full PCM decode). Falls back to a full pydub decode only if metadata is missing,
+    so behaviour stays correct on odd files. Returns float seconds, or raises.
+    """
     try:
-        response = session.get(href, cookies=cookies, headers=headers, timeout=30)
-        if response.status_code != 200:
-            print(f"FAILED Download {href.split('/')[-1]} - Status {response.status_code}")
-            try:
-                snippet = response.text[:200].replace('\n', ' ')
-                print(f"DEBUG Response Snippet: {snippet}")
-            except Exception:
-                pass
-            return False, None, None
+        from pydub.utils import mediainfo
+        info = mediainfo(path) or {}
+        dur = float(info.get("duration") or 0.0)
+        if dur > 0:
+            return dur
+    except Exception:
+        pass
+    # Fallback: full decode (heavier — only hit when ffprobe gave no duration)
+    from pydub import AudioSegment
+    return AudioSegment.from_file(path, parameters=["-threads", "1"]).duration_seconds
 
-        # Verify we got an audio file, not an HTML error page
-        content_type = response.headers.get('Content-Type', '').lower()
-        if 'html' in content_type:
-            print(f"FAILED Download {href.split('/')[-1]} - Received HTML instead of audio (session expired?)")
-            try:
-                snippet = response.text[:200].replace('\n', ' ')
-                print(f"DEBUG HTML Snippet: {snippet}")
-            except Exception:
-                pass
-            return False, None, None
 
-        temp_filepath = filepath + ".tmp"
-        with open(temp_filepath, "wb") as f:
-            f.write(response.content)
+def download_single_file(session, cookies, headers, href, filepath, min_duration, max_duration, lock):
+    """Download a single file; always discards calls under MIN_CALL_DURATION_S.
+
+    Streams the body to disk in chunks (never holds the whole MP3 in RAM) and reads the
+    duration from container metadata via ffprobe (no full PCM decode). Both keep peak
+    memory tiny so large concurrent batches don't OOM the container.
+    """
+    temp_filepath = filepath + ".tmp"
+    try:
+        with session.get(href, cookies=cookies, headers=headers, timeout=30, stream=True) as response:
+            if response.status_code != 200:
+                print(f"FAILED Download {href.split('/')[-1]} - Status {response.status_code}")
+                try:
+                    snippet = response.text[:200].replace('\n', ' ')
+                    print(f"DEBUG Response Snippet: {snippet}")
+                except Exception:
+                    pass
+                return False, None, None
+
+            # Verify we got an audio file, not an HTML error page (headers only — body not read yet)
+            content_type = response.headers.get('Content-Type', '').lower()
+            if 'html' in content_type:
+                print(f"FAILED Download {href.split('/')[-1]} - Received HTML instead of audio (session expired?)")
+                try:
+                    snippet = response.text[:200].replace('\n', ' ')
+                    print(f"DEBUG HTML Snippet: {snippet}")
+                except Exception:
+                    pass
+                return False, None, None
+
+            with open(temp_filepath, "wb") as f:
+                for chunk in response.iter_content(chunk_size=65536):
+                    if chunk:
+                        f.write(chunk)
 
         # Duration filter after download - STRICT MODE (authoritative; same as before).
         # The MIN_CALL_DURATION_S floor always applies on top of whatever the caller asked for.
         effective_min_duration = max(min_duration, MIN_CALL_DURATION_S) if min_duration is not None else MIN_CALL_DURATION_S
         try:
-            from pydub import AudioSegment
-            audio = AudioSegment.from_file(temp_filepath, parameters=["-threads", "1"])
-            dur = audio.duration_seconds
+            dur = _probe_duration_seconds(temp_filepath)
 
             if dur < effective_min_duration or (max_duration is not None and dur > max_duration):
                 print(f"SKIPPED {os.path.basename(filepath)} - Duration {dur:.1f}s outside range")
@@ -169,9 +196,8 @@ def download_single_file(session, cookies, headers, href, filepath, min_duration
     except Exception as e:
         print(f"CRITICAL Error downloading {href}: {e}")
         try:
-            temp_path = filepath + ".tmp"
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+            if os.path.exists(temp_filepath):
+                os.remove(temp_filepath)
         except Exception:
             pass
         return False, None, None
