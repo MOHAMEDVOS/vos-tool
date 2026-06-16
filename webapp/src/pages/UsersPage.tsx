@@ -28,7 +28,11 @@ const ROLE_OPTIONS = [
   { value: '30', label: 'Team Leaders' },
 ]
 
-const DIALER_NAMES = Object.keys(READYMODE_DIALER_URLS)
+const LS_KEY = 'vos-custom-dialers'
+
+function loadCustomDialers(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? '{}') } catch { return {} }
+}
 
 type ResultRow = {
   name: string
@@ -79,6 +83,36 @@ export function UsersPage() {
   const canCreate = preview.length > 0 && !mismatch && selectedDialers.length > 0 && !running &&
     preview.every(r => r.password && r.login_id)
 
+  // ── Custom dialers (persisted to localStorage) ──────────────────────────────
+  const [customDialers, setCustomDialers] = useState<Record<string, string>>(loadCustomDialers)
+  const [newDialerName, setNewDialerName] = useState('')
+  const [newDialerUrl, setNewDialerUrl]   = useState('')
+
+  const allDialerUrls  = { ...READYMODE_DIALER_URLS, ...customDialers }
+  const allDialerNames = Object.keys(allDialerUrls)
+
+  const saveCustomDialers = (next: Record<string, string>) => {
+    setCustomDialers(next)
+    localStorage.setItem(LS_KEY, JSON.stringify(next))
+  }
+
+  const addCustomDialer = () => {
+    const name = newDialerName.trim()
+    let url = newDialerUrl.trim()
+    if (!name || !url) return
+    if (!url.endsWith('/')) url += '/'
+    saveCustomDialers({ ...customDialers, [name]: url })
+    setNewDialerName('')
+    setNewDialerUrl('')
+  }
+
+  const removeCustomDialer = (name: string) => {
+    const next = { ...customDialers }
+    delete next[name]
+    saveCustomDialers(next)
+    setSelectedDialers(prev => prev.filter(d => d !== name))
+  }
+
   // ── Dialer dropdown ─────────────────────────────────────────────────────────
   const [dialerOpen, setDialerOpen] = useState(false)
   const [dialerSearch, setDialerSearch] = useState('')
@@ -94,16 +128,16 @@ export function UsersPage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const filteredDialers = DIALER_NAMES.filter(d =>
+  const filteredDialers = allDialerNames.filter(d =>
     d.toLowerCase().includes(dialerSearch.toLowerCase()))
 
   const toggleDialer = (d: string) =>
     setSelectedDialers(prev =>
       prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])
 
-  const allSelected = selectedDialers.length === DIALER_NAMES.length
+  const allSelected = selectedDialers.length === allDialerNames.length
   const toggleAll = () =>
-    setSelectedDialers(allSelected ? [] : [...DIALER_NAMES])
+    setSelectedDialers(allSelected ? [] : [...allDialerNames])
 
   // ── Create ──────────────────────────────────────────────────────────────────
   const handleCreate = async () => {
@@ -112,7 +146,7 @@ export function UsersPage() {
     setResults([])
 
     const body = {
-      dialer_urls: selectedDialers.map(d => READYMODE_DIALER_URLS[d]),
+      dialer_urls: selectedDialers.map(d => allDialerUrls[d]),
       users: preview.map(r => ({
         name: r.name,
         login_id: r.login_id,
@@ -186,7 +220,7 @@ export function UsersPage() {
             <span className={selectedDialers.length === 0 ? 'text-t-muted' : ''}>
               {selectedDialers.length === 0
                 ? 'Select dialers…'
-                : selectedDialers.length === DIALER_NAMES.length
+                : selectedDialers.length === allDialerNames.length
                   ? 'All dialers selected'
                   : selectedDialers.join(', ')}
             </span>
@@ -222,24 +256,60 @@ export function UsersPage() {
               {/* Options */}
               <div className="max-h-52 overflow-y-auto">
                 {filteredDialers.map(d => {
-                  const checked = selectedDialers.includes(d)
+                  const checked   = selectedDialers.includes(d)
+                  const isCustom  = d in customDialers
                   return (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => toggleDialer(d)}
-                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-t-primary hover:bg-surface-soft transition-colors"
-                    >
-                      <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-accent border-accent' : 'border-b-subtle bg-surface-soft'}`}>
-                        {checked && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                      </span>
-                      {d}
-                    </button>
+                    <div key={d} className="flex items-center hover:bg-surface-soft transition-colors">
+                      <button
+                        type="button"
+                        onClick={() => toggleDialer(d)}
+                        className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-t-primary"
+                      >
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-accent border-accent' : 'border-b-subtle bg-surface-soft'}`}>
+                          {checked && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                        </span>
+                        <span>{d}</span>
+                        {isCustom && <span className="ml-auto text-xs text-t-muted font-mono pr-1">{customDialers[d]}</span>}
+                      </button>
+                      {isCustom && (
+                        <button
+                          type="button"
+                          onClick={() => removeCustomDialer(d)}
+                          className="pr-4 text-t-muted hover:text-semantic-error transition-colors text-lg leading-none"
+                          title="Remove dialer"
+                        >×</button>
+                      )}
+                    </div>
                   )
                 })}
                 {filteredDialers.length === 0 && (
                   <p className="px-4 py-3 text-sm text-t-muted">No dialers match.</p>
                 )}
+              </div>
+
+              {/* Add dialer */}
+              <div className="border-t border-b-subtle p-3 space-y-2">
+                <p className="text-xs font-semibold text-t-muted uppercase tracking-wide">Add dialer</p>
+                <div className="flex gap-2">
+                  <input
+                    value={newDialerName}
+                    onChange={e => setNewDialerName(e.target.value)}
+                    placeholder="Name (e.g. resva3)"
+                    className="w-28 rounded-lg border border-b-subtle bg-surface-soft px-2 py-1.5 text-xs text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
+                  />
+                  <input
+                    value={newDialerUrl}
+                    onChange={e => setNewDialerUrl(e.target.value)}
+                    placeholder="https://resva3.readymode.com/"
+                    className="flex-1 rounded-lg border border-b-subtle bg-surface-soft px-2 py-1.5 text-xs text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
+                  />
+                  <button
+                    type="button"
+                    onClick={addCustomDialer}
+                    disabled={!newDialerName.trim() || !newDialerUrl.trim()}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-white disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+                  >Add</button>
+                </div>
               </div>
             </div>
           )}
