@@ -75,9 +75,9 @@ Two concrete, reproducible bugs in `releasing_detection()`:
 ### Fix applied
 
 `audio_pipeline/detections.py` — `releasing_detection()`:
-- Removed the 5-second early-return; VAD now runs regardless of call length.
-- Replaced the `len(speech_segments) == 0` all-or-nothing check with a total-speech-duration floor: `RELEASING_MIN_TOTAL_SPEECH_MS = 300`. A call only loses the Releasing flag if total detected speech across the whole call reaches 300ms.
-- Re-validated against the same live data after the fix: previously-silent-but-short calls now correctly return `"Yes"` (3→6 in a 65-72 call sample), and the single-blip false negatives are resolved. No call with substantial real speech flipped to `"Yes"`.
+- Replaced the `len(speech_segments) == 0` all-or-nothing check with a total-speech-duration floor: `RELEASING_MIN_TOTAL_SPEECH_MS = 300`. For calls long enough to evaluate, a call only loses the Releasing flag if total detected speech across the whole call reaches 300ms.
+- **Correction (2026-06-16, same day):** initially also removed the 5-second minimum-duration gate, since 0%-speech calls under 5s were scoring "No". Re-instated per explicit product decision: calls under `app_settings.late_hello_time` (5s) are intentionally never flagged as Releasing regardless of content — too short to represent a meaningful "agent disengaged" event (dropped call, instant hangup, wrong number). Only the all-or-nothing noise-blip bug (bug #2) was actually a bug; the 5s floor was correct as originally written.
+- Re-validated against the same live data after the fix: the single-blip false negatives (calls ≥5s) are resolved; no call with substantial real speech flipped to `"Yes"`.
 
 No other module reimplements this logic — `optimized_audio_processor.py`, `fast_audio_processor.py`, `semantic_audio_processor.py`, and `audio_processor.py` all import `releasing_detection` from `detections.py`, so the fix applies everywhere automatically.
 

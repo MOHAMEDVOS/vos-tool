@@ -110,8 +110,14 @@ def extract_dialer_name_from_url(dialer_url: str) -> str:
         return "unknown"
 
 
+# Hard floor: calls shorter than this are never kept for scoring, regardless of any
+# user-selected duration filter. They're dropped connections / instant hangups, not
+# meaningful "agent disengaged" events for releasing/late-hello/rebuttal detection.
+MIN_CALL_DURATION_S = 5
+
+
 def download_single_file(session, cookies, headers, href, filepath, min_duration, max_duration, lock):
-    """Download a single file with optional duration filtering (unchanged from prior behavior)."""
+    """Download a single file; always discards calls under MIN_CALL_DURATION_S."""
     try:
         response = session.get(href, cookies=cookies, headers=headers, timeout=30)
         if response.status_code != 200:
@@ -138,22 +144,23 @@ def download_single_file(session, cookies, headers, href, filepath, min_duration
         with open(temp_filepath, "wb") as f:
             f.write(response.content)
 
-        # Duration filter after download - STRICT MODE (authoritative; same as before)
-        if min_duration is not None or max_duration is not None:
-            try:
-                from pydub import AudioSegment
-                audio = AudioSegment.from_file(temp_filepath)
-                dur = audio.duration_seconds
+        # Duration filter after download - STRICT MODE (authoritative; same as before).
+        # The MIN_CALL_DURATION_S floor always applies on top of whatever the caller asked for.
+        effective_min_duration = max(min_duration, MIN_CALL_DURATION_S) if min_duration is not None else MIN_CALL_DURATION_S
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_file(temp_filepath, parameters=["-threads", "1"])
+            dur = audio.duration_seconds
 
-                if (min_duration is not None and dur < min_duration) or (max_duration is not None and dur > max_duration):
-                    print(f"SKIPPED {os.path.basename(filepath)} - Duration {dur:.1f}s outside range")
-                    os.remove(temp_filepath)
-                    return False, None, dur
-            except Exception as e:
-                print(f"FAILED Duration check failed (strict mode): {e}")
-                if os.path.exists(temp_filepath):
-                    os.remove(temp_filepath)
-                return False, None, None
+            if dur < effective_min_duration or (max_duration is not None and dur > max_duration):
+                print(f"SKIPPED {os.path.basename(filepath)} - Duration {dur:.1f}s outside range")
+                os.remove(temp_filepath)
+                return False, None, dur
+        except Exception as e:
+            print(f"FAILED Duration check failed (strict mode): {e}")
+            if os.path.exists(temp_filepath):
+                os.remove(temp_filepath)
+            return False, None, None
 
         os.replace(temp_filepath, filepath)
         return True, filepath, None

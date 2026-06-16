@@ -218,8 +218,14 @@ RELEASING_MIN_TOTAL_SPEECH_MS = 300
 def releasing_detection(agent_segment):
     """
     Returns 'Yes' if agent channel contains no meaningful speech for the entire call.
+    Calls under app_settings.late_hello_time (5s) are never flagged — too short to be
+    a meaningful "agent disengaged" event (dropped call, instant hangup, wrong number),
+    regardless of how much or little speech is detected.
     """
     agent_channel = extract_left_channel(agent_segment)
+    call_duration_s = len(agent_channel) / 1000.0
+    if call_duration_s < app_settings.late_hello_time:
+        return "No"
 
     speech_segments = voice_activity_detection(
         agent_channel,
