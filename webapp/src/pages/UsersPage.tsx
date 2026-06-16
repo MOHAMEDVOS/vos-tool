@@ -231,7 +231,7 @@ export function UsersPage() {
 
           {/* Dropdown panel */}
           {dialerOpen && (
-            <div className="absolute z-50 mt-1 w-full rounded-xl border border-b-subtle bg-surface-card shadow-lg overflow-hidden">
+            <div className="absolute z-50 mt-1 w-full rounded-xl border border-b-medium bg-surface-card shadow-card overflow-hidden">
               {/* Search */}
               <div className="p-2 border-b border-b-subtle">
                 <input
@@ -248,8 +248,8 @@ export function UsersPage() {
                 onClick={toggleAll}
                 className="w-full flex items-center gap-3 px-4 py-3 text-sm text-t-primary hover:bg-surface-soft transition-colors border-b border-b-subtle"
               >
-                <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${allSelected ? 'bg-accent border-accent' : 'border-b-subtle bg-surface-soft'}`}>
-                  {allSelected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${allSelected ? 'bg-accent border-accent' : 'border-b-medium bg-surface-soft'}`}>
+                  {allSelected && <svg className="w-3 h-3 text-t-on-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                 </span>
                 <span className="font-semibold">Select all</span>
               </button>
@@ -265,8 +265,8 @@ export function UsersPage() {
                         onClick={() => toggleDialer(d)}
                         className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-t-primary"
                       >
-                        <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-accent border-accent' : 'border-b-subtle bg-surface-soft'}`}>
-                          {checked && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-accent border-accent' : 'border-b-medium bg-surface-soft'}`}>
+                          {checked && <svg className="w-3 h-3 text-t-on-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                         </span>
                         <span>{d}</span>
                         {isCustom && <span className="ml-auto text-xs text-t-muted font-mono pr-1">{customDialers[d]}</span>}
@@ -307,7 +307,7 @@ export function UsersPage() {
                     type="button"
                     onClick={addCustomDialer}
                     disabled={!newDialerName.trim() || !newDialerUrl.trim()}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-white disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-t-on-primary disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
                   >Add</button>
                 </div>
               </div>
@@ -447,7 +447,7 @@ export function UsersPage() {
         className={[
           'w-full rounded-xl py-3 text-sm font-bold tracking-wide transition-all',
           canCreate
-            ? 'bg-accent text-white hover:opacity-90 active:scale-[0.99]'
+            ? 'bg-accent text-t-on-primary hover:opacity-90 active:scale-[0.99]'
             : 'bg-surface-soft text-t-muted cursor-not-allowed',
         ].join(' ')}
       >
