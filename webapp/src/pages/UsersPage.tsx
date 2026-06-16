@@ -214,7 +214,7 @@ export function UsersPage() {
         }
       }
     } catch (e: any) {
-      setLogs(prev => [...prev, `Connection error: ${e.message}`])
+      setResults(prev => [...prev, { name: '—', login_id: '—', dialer: 'all', status: 'failed', detail: `Connection error: ${(e as Error).message}` }])
     } finally {
       setRunning(false)
     }
