@@ -205,16 +205,21 @@ def simple_energy_vad(audio_segment, energy_threshold=None):
         return []
 
 
+# Minimum total speech duration (ms) across the whole call before we count the agent
+# as having spoken. A single brief noise/static/click blip can pass the per-segment
+# VAD checks (>= vad_min_speech_duration) while still being well under this floor —
+# without it, any one blip anywhere in the call flips a genuinely-silent (Releasing)
+# call to "No". Confirmed live against production ReadyMode calls (2026-06): ~20% of
+# Dead Call/Unknown/Voicemail dispositions had only 1-2 segments under 700ms each and
+# were never flagged despite the agent channel being effectively silent.
+RELEASING_MIN_TOTAL_SPEECH_MS = 300
+
+
 def releasing_detection(agent_segment):
     """
-    Returns 'Yes' if agent channel contains no speech events for entire call duration.
+    Returns 'Yes' if agent channel contains no meaningful speech for the entire call.
     """
     agent_channel = extract_left_channel(agent_segment)
-    call_duration_s = len(agent_channel) / 1000.0
-    min_duration = app_settings.late_hello_time
-
-    if call_duration_s < min_duration:
-        return "No"
 
     speech_segments = voice_activity_detection(
         agent_channel,
@@ -223,7 +228,8 @@ def releasing_detection(agent_segment):
         use_adaptive=True
     )
 
-    return "Yes" if len(speech_segments) == 0 else "No"
+    total_speech_ms = sum(end - start for start, end in speech_segments)
+    return "Yes" if total_speech_ms < RELEASING_MIN_TOTAL_SPEECH_MS else "No"
 
 
 def late_hello_detection(agent_segment, customer_segment=None, debug=False):

@@ -52,14 +52,46 @@ import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ── Per-user cancellation flags ──────────────────────────────────────────────
-_cancel_flags: dict[str, threading.Event] = {}
+# ── Active-run tracking ────────────────────────────────────────────────────
+# Each /stream call gets its OWN cancel Event (never shared/reused across calls —
+# a previous bug reused one Event per username, so starting a second run cleared
+# the first run's pending cancellation before it was ever seen).
+#
+# Separately, ReadyMode only allows one active login per (account, dialer) — login
+# uses logout_other_sessions=on, so two concurrent runs hitting the same dialer with
+# the same ReadyMode account kick each other's session repeatedly (404s / "session
+# expired" mid-run). _dialer_locks rejects a second run on a dialer that's already busy.
+_active_runs: dict[str, list[dict]] = {}   # vos username -> [{"event": Event}, ...]
+_dialer_locks: dict[str, str] = {}          # f"{readymode_user}::{dialer_url}" -> vos username holding it
+_registry_lock = threading.Lock()
 
 
-def _get_cancel_event(username: str) -> threading.Event:
-    if username not in _cancel_flags:
-        _cancel_flags[username] = threading.Event()
-    return _cancel_flags[username]
+def _dialer_key(readymode_user: str, dialer_url: str) -> str:
+    return f"{readymode_user}::{(dialer_url or '').rstrip('/').lower()}"
+
+
+def _acquire_dialer_locks(username: str, readymode_user: str, dialer_urls: list[str]) -> None:
+    """Atomically claim every dialer this run needs, or 409 if any is already busy."""
+    urls = [d for d in dialer_urls if d]
+    keys = [_dialer_key(readymode_user, d) for d in urls]
+    with _registry_lock:
+        for key, durl in zip(keys, urls):
+            holder = _dialer_locks.get(key)
+            if holder and holder != username:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"{durl} is already running an audit (started by {holder}). "
+                           f"Wait for it to finish or cancel it before starting another on the same dialer.",
+                )
+        for key in keys:
+            _dialer_locks[key] = username
+
+
+def _release_dialer_locks(readymode_user: str, dialer_urls: list[str]) -> None:
+    with _registry_lock:
+        for d in dialer_urls:
+            if d:
+                _dialer_locks.pop(_dialer_key(readymode_user, d), None)
 
 
 # ── Duration filter resolver (shared) ────────────────────────────────────────
@@ -195,8 +227,13 @@ async def stream_readymode_audit(
     end_date   = _date.fromisoformat(request.end_date)   if request.end_date   else _date.today()
 
     username = current_user["username"]
-    cancel_event = _get_cancel_event(username)
-    cancel_event.clear()
+    dialer_urls = [dialer_url] + ([request.dialer_url_2] if request.dialer_url_2 else [])
+    _acquire_dialer_locks(username, readymode_user, dialer_urls)
+
+    cancel_event = threading.Event()  # fresh per run — never shared with any other call
+    run_entry = {"event": cancel_event}
+    with _registry_lock:
+        _active_runs.setdefault(username, []).append(run_entry)
 
     log_q: queue.Queue[Optional[str]] = queue.Queue()
     result_box: dict = {}
@@ -260,6 +297,13 @@ async def stream_readymode_audit(
         except Exception as e:
             result_box["error"] = str(e)
         finally:
+            _release_dialer_locks(readymode_user, dialer_urls)
+            with _registry_lock:
+                runs = _active_runs.get(username)
+                if runs and run_entry in runs:
+                    runs.remove(run_entry)
+                if runs is not None and not runs:
+                    _active_runs.pop(username, None)
             # Unregister this thread's writer so the thread is clean if reused
             _thread_local.queue_writer = None
             log_q.put(None)  # sentinel — signals event_stream to stop
@@ -321,13 +365,17 @@ async def stream_readymode_audit(
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# POST /cancel  — set cancel flag for current user
+# POST /cancel  — stop every audit currently running for this user
 # ═════════════════════════════════════════════════════════════════════════════
 @router.post("/cancel")
 async def cancel_audit(current_user: dict = Depends(get_current_user)):
-    """Signal the running audit for this user to stop."""
-    _get_cancel_event(current_user["username"]).set()
-    return {"status": "cancellation_requested"}
+    """Signal every currently-running audit for this user to stop."""
+    username = current_user["username"]
+    with _registry_lock:
+        runs = list(_active_runs.get(username, []))
+    for run in runs:
+        run["event"].set()
+    return {"status": "cancellation_requested", "runs_signalled": len(runs)}
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -354,9 +402,11 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
     elif isinstance(download_result, (str, Path)):
         download_path = Path(download_result)
         if download_path.exists():
+            # rglob, not iterdir: dual-dialer runs return a parent folder containing one
+            # subfolder per dialer (see download_all_call_recordings), not flat files.
             audio_exts = {".mp3", ".wav", ".m4a", ".ogg", ".flac"}
             downloaded_count = sum(
-                1 for item in download_path.iterdir()
+                1 for item in download_path.rglob("*")
                 if item.is_file() and item.suffix.lower() in audio_exts
             )
 

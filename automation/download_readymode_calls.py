@@ -319,16 +319,29 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
         display_name = agent
 
     counter = get_next_run_counter(display_name, username or "default", subfolder)
-    dialer_name = extract_dialer_name_from_url(dialer_url)
-    if dialer_url_2:
-        dialer_name = f"{dialer_name}+{extract_dialer_name_from_url(dialer_url_2)}"
     today = datetime.now().strftime('%Y-%m-%d')
     safe_display_name = format_agent_name_for_filename(display_name)
-    folder_name = f"{safe_display_name}-{today}_{counter:03d} {dialer_name}"
+    user_base = Path(RECORDINGS_ROOT) / subfolder / (username or "default")
 
-    DOWNLOAD_DIR = str(Path(RECORDINGS_ROOT) / subfolder / (username or "default") / folder_name)
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    print(f"DEBUG DOWNLOAD_DIR: {DOWNLOAD_DIR}")
+    if dialer_url_2:
+        # Two dialers -> two separate physical folders (never mixed), grouped under one
+        # parent so analysis (which globs recursively) still sees both as one run.
+        run_parent = user_base / f"{safe_display_name}-{today}_{counter:03d}"
+        DOWNLOAD_DIR = str(run_parent / extract_dialer_name_from_url(dialer_url))
+        DOWNLOAD_DIR_2 = str(run_parent / extract_dialer_name_from_url(dialer_url_2))
+        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+        os.makedirs(DOWNLOAD_DIR_2, exist_ok=True)
+        print(f"DEBUG DOWNLOAD_DIR: {DOWNLOAD_DIR}")
+        print(f"DEBUG DOWNLOAD_DIR_2: {DOWNLOAD_DIR_2}")
+        RESULT_DIR = str(run_parent)
+    else:
+        dialer_name = extract_dialer_name_from_url(dialer_url)
+        folder_name = f"{safe_display_name}-{today}_{counter:03d} {dialer_name}"
+        DOWNLOAD_DIR = str(user_base / folder_name)
+        DOWNLOAD_DIR_2 = None
+        os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+        print(f"DEBUG DOWNLOAD_DIR: {DOWNLOAD_DIR}")
+        RESULT_DIR = DOWNLOAD_DIR
 
     try:
         login_username = readymode_user or USERNAME
@@ -353,7 +366,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             login_username=login_username, login_password=login_password,
             start_str=start_str, end_str=end_str, start_dateonly=start_dateonly,
             agent=agent, campaign_name=campaign_name, disposition=disposition,
-            max_samples=max_samples, download_dir=DOWNLOAD_DIR,
+            max_samples=max_samples,
             cancellation_callback=cancellation_callback,
         )
 
@@ -364,8 +377,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
             futures_map = {}
             with _TPE(max_workers=2) as col_exec:
-                f1 = col_exec.submit(_collect_tasks_for_dialer, dialer_url,  **shared_args, task_offset=0)
-                f2 = col_exec.submit(_collect_tasks_for_dialer, dialer_url_2, **shared_args, task_offset=0)
+                f1 = col_exec.submit(_collect_tasks_for_dialer, dialer_url,  **shared_args, download_dir=DOWNLOAD_DIR, task_offset=0)
+                f2 = col_exec.submit(_collect_tasks_for_dialer, dialer_url_2, **shared_args, download_dir=DOWNLOAD_DIR_2, task_offset=0)
                 futures_map[f1] = dialer_url
                 futures_map[f2] = dialer_url_2
 
@@ -383,7 +396,7 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 except KeyboardInterrupt:
                     raise
         else:
-            tasks, cookies = _collect_tasks_for_dialer(dialer_url, **shared_args, task_offset=0)
+            tasks, cookies = _collect_tasks_for_dialer(dialer_url, **shared_args, download_dir=DOWNLOAD_DIR, task_offset=0)
             for href, filepath, filename in tasks:
                 tagged_tasks.append((href, filepath, filename, cookies))
 
@@ -437,8 +450,8 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
         if update_callback:
             update_callback(total_count, total_count)
 
-        print(f"DOWNLOAD_COMPLETE: {downloaded_count} files downloaded to {DOWNLOAD_DIR}")
-        return DOWNLOAD_DIR
+        print(f"DOWNLOAD_COMPLETE: {downloaded_count} files downloaded to {RESULT_DIR}")
+        return RESULT_DIR
 
     except KeyboardInterrupt:
         print("Download cancelled by user")
