@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { READYMODE_DIALER_URLS } from '@/api/readymode'
 
@@ -79,7 +79,24 @@ export function UsersPage() {
   const canCreate = preview.length > 0 && !mismatch && selectedDialers.length > 0 && !running &&
     preview.every(r => r.password && r.login_id)
 
-  // ── Dialer toggle ───────────────────────────────────────────────────────────
+  // ── Dialer dropdown ─────────────────────────────────────────────────────────
+  const [dialerOpen, setDialerOpen] = useState(false)
+  const [dialerSearch, setDialerSearch] = useState('')
+  const dialerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dialerRef.current && !dialerRef.current.contains(e.target as Node)) {
+        setDialerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filteredDialers = DIALER_NAMES.filter(d =>
+    d.toLowerCase().includes(dialerSearch.toLowerCase()))
+
   const toggleDialer = (d: string) =>
     setSelectedDialers(prev =>
       prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d])
@@ -158,36 +175,77 @@ export function UsersPage() {
 
       {/* ── Dialers ── */}
       <section className="rounded-xl border border-b-subtle bg-surface-card p-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-semibold text-t-primary">
-            Dialers
-            <span className="ml-1 text-xs font-normal text-t-muted">(hold Ctrl / Cmd to select multiple)</span>
-          </label>
+        <span className="text-sm font-semibold text-t-primary">Dialers</span>
+        <div ref={dialerRef} className="relative">
+          {/* Trigger */}
           <button
-            onClick={toggleAll}
-            className="text-xs font-semibold text-accent hover:underline"
+            type="button"
+            onClick={() => setDialerOpen(o => !o)}
+            className="w-full flex items-center justify-between rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary hover:border-accent focus:outline-none focus:border-accent transition-colors"
           >
-            {allSelected ? 'Deselect All' : 'Select All'}
+            <span className={selectedDialers.length === 0 ? 'text-t-muted' : ''}>
+              {selectedDialers.length === 0
+                ? 'Select dialers…'
+                : selectedDialers.length === DIALER_NAMES.length
+                  ? 'All dialers selected'
+                  : selectedDialers.join(', ')}
+            </span>
+            <svg className={`w-4 h-4 text-t-muted transition-transform ${dialerOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
           </button>
+
+          {/* Dropdown panel */}
+          {dialerOpen && (
+            <div className="absolute z-50 mt-1 w-full rounded-xl border border-b-subtle bg-surface-card shadow-lg overflow-hidden">
+              {/* Search */}
+              <div className="p-2 border-b border-b-subtle">
+                <input
+                  autoFocus
+                  value={dialerSearch}
+                  onChange={e => setDialerSearch(e.target.value)}
+                  placeholder="Search…"
+                  className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
+                />
+              </div>
+              {/* Select All */}
+              <button
+                type="button"
+                onClick={toggleAll}
+                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-t-primary hover:bg-surface-soft transition-colors border-b border-b-subtle"
+              >
+                <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${allSelected ? 'bg-accent border-accent' : 'border-b-subtle bg-surface-soft'}`}>
+                  {allSelected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                </span>
+                <span className="font-semibold">Select all</span>
+              </button>
+              {/* Options */}
+              <div className="max-h-52 overflow-y-auto">
+                {filteredDialers.map(d => {
+                  const checked = selectedDialers.includes(d)
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => toggleDialer(d)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-t-primary hover:bg-surface-soft transition-colors"
+                    >
+                      <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-accent border-accent' : 'border-b-subtle bg-surface-soft'}`}>
+                        {checked && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                      </span>
+                      {d}
+                    </button>
+                  )
+                })}
+                {filteredDialers.length === 0 && (
+                  <p className="px-4 py-3 text-sm text-t-muted">No dialers match.</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-        <select
-          multiple
-          value={selectedDialers}
-          onChange={e => setSelectedDialers(Array.from(e.target.selectedOptions, o => o.value))}
-          className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-1 text-sm text-t-primary focus:outline-none focus:border-accent"
-          size={DIALER_NAMES.length}
-        >
-          {DIALER_NAMES.map(d => (
-            <option key={d} value={d} className="py-1.5 px-1 cursor-pointer">
-              {d}
-            </option>
-          ))}
-        </select>
         {selectedDialers.length === 0 && (
           <p className="text-xs text-semantic-error">Select at least one dialer.</p>
-        )}
-        {selectedDialers.length > 0 && (
-          <p className="text-xs text-t-muted">{selectedDialers.length} dialer{selectedDialers.length !== 1 ? 's' : ''} selected: {selectedDialers.join(', ')}</p>
         )}
       </section>
 
