@@ -5,7 +5,7 @@ import { useUnreadCount } from '@/store/badgeStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Mic, Flag, PlayCircle, BookOpen, Settings, LogOut,
-  ChevronLeft, ChevronRight, Sun, Moon,
+  ChevronLeft, ChevronRight, Sun, Moon, UserPlus,
 } from 'lucide-react'
 import { UsageCard } from './UsageCard'
 import { useAuditStore } from '@/store/auditStore'
@@ -19,6 +19,7 @@ const ALL_ITEMS: NavItem[] = [
   { id: 'Actions',           label: 'Actions',     icon: <Flag size={15} /> },
   { id: 'Call Review',       label: 'Call Review', icon: <PlayCircle size={15} /> },
   { id: 'Dashboard',         label: 'Dashboard',   icon: <LayoutDashboard size={15} /> },
+  { id: 'Users',             label: 'Users',       icon: <UserPlus size={15} />, roles: ['Owner', 'Admin'] },
   { id: 'Phrase Management', label: 'Phrases',     icon: <BookOpen size={15} />, roles: ['Owner'] },
   { id: 'Settings',          label: 'Settings',    icon: <Settings size={15} />, roles: ['Owner', 'Admin'] },
 ]

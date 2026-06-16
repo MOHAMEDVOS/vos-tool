@@ -146,6 +146,21 @@ class ReadyModeStatus(BaseModel):
     message: Optional[str] = None
 
 
+# Bulk user creation schemas
+class BulkUserRow(BaseModel):
+    name: str
+    login_id: str
+    password: str
+    folder: str = "48-36-14"   # Agents folder by default
+    ou: str = "4"              # Sales role by default
+    ext: str = ""
+
+
+class BulkUserCreateRequest(BaseModel):
+    dialer_urls: List[str]      # one or more dialer URLs
+    users: List[BulkUserRow]
+
+
 # System health
 class SystemHealth(BaseModel):
     cpu: float

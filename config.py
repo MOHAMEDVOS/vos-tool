@@ -40,7 +40,6 @@ READY_MODE_URLS = {
     "resva5":   "https://resva5.readymode.com/",
     "resva6":   "https://resva6.readymode.com/",
     "resva7":   "https://resva7.readymode.com/",
-    "gfcl":     "https://gfcl.readymode.com/",
 }
 
 # ────────────── Download directory alias ──────────────

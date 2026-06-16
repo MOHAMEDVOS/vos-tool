@@ -27,6 +27,10 @@ class ReadyModeNoCallsError(Exception):
     """No matching campaign/agent, or no recordings for the given filters."""
 
 
+class ReadyModeUserCreateError(Exception):
+    """User creation failed (login ID taken, invalid folder, server error, etc.)."""
+
+
 # Disposition label -> report[types][] id  (from the call_log page <select name="report[types][]">).
 DISPOSITION_TYPE_IDS = {
     "influencer": 144, "dnc - unknown": 145, "dnc - decision maker": 146,
@@ -139,6 +143,49 @@ class ReadyModeHTTPClient:
                 f"Report endpoint did not return JSON (session expired?). "
                 f"status={r.status_code} body={snippet!r}"
             )
+
+    # ── user creation ─────────────────────────────────────────────────────────
+    def create_user(self, *, name: str, login_id: str, password: str,
+                    ou: str = "4", folder: str = "48-36-14", ext: str = "") -> dict:
+        """POST Team/ManageUsers/createUser/save for a single user.
+
+        One user per request so each can carry its own password (bulkpw is batch-shared
+        on the ReadyMode side but we submit one row at a time).
+
+        Returns the success dict from ReadyMode: {uid, userName, groupId, ...}.
+        Raises ReadyModeUserCreateError on any failure.
+        """
+        params = [
+            ("saveData[0][u_name]",    name),
+            ("saveData[0][u_account]", login_id),
+            ("saveData[0][u_ext]",     ext),
+            ("saveData[0][folder]",    folder),
+            ("saveData[0][ou]",        ou),
+            ("saveData[0][idx]",       "0"),
+            ("bulkpw",                 password),
+            ("questDisplay",           "false"),
+        ]
+        r = self.session.post(
+            f"{self.dialer}/Team/ManageUsers/createUser/save",
+            data=params,
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Referer": f"{self.dialer}/Team/ManageUsers/createUser",
+            },
+            timeout=30,
+        )
+        try:
+            body = r.json()
+        except ValueError:
+            raise ReadyModeUserCreateError(
+                f"Non-JSON response from ReadyMode (status={r.status_code}): {r.text[:200]}"
+            )
+        if body.get("error"):
+            raise ReadyModeUserCreateError(str(body["error"]))
+        if not body.get("success"):
+            raise ReadyModeUserCreateError(f"Unexpected response: {body}")
+        return body["success"][0]
 
     @property
     def cookies(self) -> dict:

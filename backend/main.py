@@ -26,7 +26,7 @@ setup_backend_logging()
 logger = logging.getLogger(__name__)
 
 # Import routers (database initialization happens in lifespan)
-from backend.api import auth, audio, dashboard, settings as settings_api, readymode, user_data, jobs, phrases, quota, sharing, system as system_api, reports
+from backend.api import auth, audio, dashboard, settings as settings_api, readymode, readymode_users, user_data, jobs, phrases, quota, sharing, system as system_api, reports
 
 
 @asynccontextmanager
@@ -115,6 +115,7 @@ app.include_router(audio.router, prefix="/api/audio", tags=["Audio Processing"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(settings_api.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(readymode.router, prefix="/api/readymode", tags=["ReadyMode"])
+app.include_router(readymode_users.router, prefix="/api/readymode-users", tags=["ReadyMode Users"])
 app.include_router(user_data.router, prefix="/api/user", tags=["User Data"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(phrases.router, prefix="/api/phrases", tags=["Phrases"])

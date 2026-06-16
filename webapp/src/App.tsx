@@ -16,6 +16,7 @@ import { CallReviewPage } from '@/pages/CallReviewPage'
 import { AuditPage }      from '@/pages/AuditPage'
 import { PhrasesPage }    from '@/pages/PhrasesPage'
 import { SettingsPage }   from '@/pages/SettingsPage'
+import { UsersPage }      from '@/pages/UsersPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,8 +27,9 @@ const queryClient = new QueryClient({
 import { useAuthStore } from '@/store/authStore'
 
 const TAB_ROLES: Partial<Record<string, string[]>> = {
+  'Users':             ['Owner', 'Admin'],
   'Phrase Management': ['Owner'],
-  'Settings': ['Owner', 'Admin'],
+  'Settings':          ['Owner', 'Admin'],
 }
 
 function InnerApp() {
@@ -70,6 +72,7 @@ function InnerApp() {
       {activeTab === 'Actions'           && <ActionsPage />}
       {activeTab === 'Call Review'       && <CallReviewPage />}
       {activeTab === 'Dashboard'         && <DashboardPage />}
+      {activeTab === 'Users'             && <UsersPage />}
       {activeTab === 'Phrase Management' && <PhrasesPage />}
       {activeTab === 'Settings'          && <SettingsPage />}
     </AppShell>
