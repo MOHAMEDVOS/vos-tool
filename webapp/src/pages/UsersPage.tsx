@@ -34,6 +34,22 @@ function loadCustomDialers(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(LS_KEY) ?? '{}') } catch { return {} }
 }
 
+function generatePassword(): string {
+  const upper   = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const lower   = 'abcdefghjkmnpqrstuvwxyz'
+  const digits  = '23456789'
+  const symbols = '@#!$'
+  const all     = upper + lower + digits + symbols
+  const guaranteed = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+    symbols[Math.floor(Math.random() * symbols.length)],
+  ]
+  for (let i = 4; i < 10; i++) guaranteed.push(all[Math.floor(Math.random() * all.length)])
+  return guaranteed.sort(() => Math.random() - 0.5).join('')
+}
+
 type ResultRow = {
   name: string
   login_id: string
@@ -52,6 +68,18 @@ export function UsersPage() {
   const [namesText, setNamesText] = useState('')
   const [loginIdsText, setLoginIdsText] = useState('')
   const [passwordsText, setPasswordsText] = useState('')
+
+  const [copied, setCopied] = useState(false)
+
+  // ── Auto-generate passwords when name count changes ──────────────────────────
+  useEffect(() => {
+    if (names.length === 0) return
+    const current = passwordsText.split('\n').map(s => s.trim())
+    const next = names.map((_, i) => current[i] || generatePassword())
+    if (next.join('\n') !== passwordsText) setPasswordsText(next.join('\n'))
+  }, [names.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const regenerateAll = () => setPasswordsText(names.map(() => generatePassword()).join('\n'))
 
   // ── Running state ───────────────────────────────────────────────────────────
   const [running, setRunning] = useState(false)
@@ -377,14 +405,24 @@ export function UsersPage() {
             <p className="text-xs text-t-muted">{loginIds.length} login IDs</p>
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
-              Passwords <span className="normal-case font-normal">(one per line, same order)</span>
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
+                Passwords <span className="normal-case font-normal">(auto-generated)</span>
+              </label>
+              <button
+                type="button"
+                onClick={regenerateAll}
+                disabled={names.length === 0}
+                className="text-xs font-semibold text-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Regenerate All
+              </button>
+            </div>
             <textarea
               value={passwordsText}
               onChange={e => setPasswordsText(e.target.value)}
               rows={8}
-              placeholder={"Xp!9kwQ2\nMn@4rTz8\nQw#7vLp3"}
+              placeholder="Paste names to auto-generate…"
               className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent resize-none font-mono"
             />
             <p className="text-xs text-t-muted">{passwords.length} passwords</p>
@@ -402,10 +440,25 @@ export function UsersPage() {
         <section className="rounded-xl border border-b-subtle bg-surface-card overflow-hidden">
           <div className="px-4 py-3 border-b border-b-subtle flex items-center justify-between">
             <span className="text-sm font-semibold text-t-primary">Preview</span>
-            <span className="text-xs text-t-muted">
-              {preview.length} users × {selectedDialers.length} dialer{selectedDialers.length !== 1 ? 's' : ''} ={' '}
-              <span className="font-bold text-t-primary">{preview.length * selectedDialers.length} accounts</span>
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-t-muted">
+                {preview.length} users × {selectedDialers.length} dialer{selectedDialers.length !== 1 ? 's' : ''} ={' '}
+                <span className="font-bold text-t-primary">{preview.length * selectedDialers.length} accounts</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const header = 'Name\tLogin ID\tPassword'
+                  const rows = preview.map(r => `${r.name}\t${r.login_id}\t${r.password}`).join('\n')
+                  navigator.clipboard.writeText(`${header}\n${rows}`)
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 2000)
+                }}
+                className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg border border-b-medium bg-surface-soft text-t-primary hover:border-accent hover:text-accent transition-colors"
+              >
+                {copied ? '✓ Copied' : '⎘ Copy'}
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto max-h-56 overflow-y-auto">
             <table className="w-full text-xs">
@@ -423,8 +476,8 @@ export function UsersPage() {
                     <td className="px-3 py-1.5 font-mono text-accent">
                       {row.login_id || <span className="text-semantic-error">missing</span>}
                     </td>
-                    <td className="px-3 py-1.5 font-mono text-t-muted">
-                      {row.password ? '••••••••' : <span className="text-semantic-error">missing</span>}
+                    <td className="px-3 py-1.5 font-mono text-t-secondary">
+                      {row.password || <span className="text-semantic-error">missing</span>}
                     </td>
                     <td className="px-3 py-1.5 text-t-muted">
                       {FOLDER_OPTIONS.find(f => f.value === row.folder)?.label ?? row.folder}
