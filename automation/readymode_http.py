@@ -15,6 +15,7 @@ Key facts (see spec for detail):
 
 import re
 import requests
+from html import unescape
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
@@ -31,7 +32,14 @@ class ReadyModeUserCreateError(Exception):
     """User creation failed (login ID taken, invalid folder, server error, etc.)."""
 
 
-# Disposition label -> report[types][] id  (from the call_log page <select name="report[types][]">).
+# Fallback disposition label -> report[types][] id, captured from ONE dialer (resva2) on
+# 2026-06-15. ReadyMode disposition IDs are configured per-dialer/tenant, NOT shared across
+# the account — e.g. id 96 is "Spanish Speaker" on resva2 but "Decision Maker - NYI" on
+# resva3. Confirmed live 2026-06-16 (DOM dump of resva3's own <select name="report[types][]">
+# showed a completely different id set: 143=Unknown, 145=Sold, 140=Influencer, 96=Decision
+# Maker - NYI, 63=Dead Call, 84=Voicemail, etc). This dict is now ONLY a last-resort fallback
+# for when the live per-dialer fetch (ReadyModeHTTPClient.init_call_log) fails — always
+# prefer the live mapping.
 DISPOSITION_TYPE_IDS = {
     "influencer": 144, "dnc - unknown": 145, "dnc - decision maker": 146,
     "unknown": 147, "agent": 143, "decision maker - lead": 138, "voicemail": 139,
@@ -39,11 +47,10 @@ DISPOSITION_TYPE_IDS = {
     "decision maker - nyi": 2, "dead call": 140, "prank voicemail": 148,
     "sold": 151, "listed property": 149,
 }
-# Base type always sent in addition to any selected dispositions (observed in capture).
+# Base type always sent in addition to any selected dispositions (observed in capture;
+# this one IS a constant sentinel, not a per-tenant disposition — it appears as a hidden
+# form field on every dialer, never as a visible <option>).
 BASE_TYPE = 6
-# Full default type set sent when NO disposition filter is applied (captured unfiltered).
-DEFAULT_TYPES = [6, 144, 145, 146, 147, 143, 138, 139, 96, 1, 5, 2, 140, 148, 151, 149,
-                 "User,%", "Queue,1", "Queue,12", "Queue,13", "Queue,14", "Queue,15"]
 
 
 class ReadyModeHTTPClient:
@@ -53,6 +60,7 @@ class ReadyModeHTTPClient:
         self.dialer = (dialer_url or "").rstrip("/")
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": UA})
+        self._disposition_map: dict | None = None  # this dialer's own label.lower() -> id
 
     # ── auth ──────────────────────────────────────────────────────────────────
     def _browser_headers(self) -> dict:
@@ -94,15 +102,37 @@ class ReadyModeHTTPClient:
                 f"(no stationId cookie; status={r.status_code}). Response: {snippet!r}"
             )
 
-    def init_call_log(self) -> None:
-        """Mirror the browser: POST the call_log page once to initialize report state."""
+    def init_call_log(self) -> dict:
+        """Mirror the browser: POST the call_log page once to initialize report state, and
+        parse THIS dialer's own report[types][] <select> options while we have the HTML.
+
+        Disposition IDs are per-dialer custom config in ReadyMode, not shared across the
+        account (confirmed live 2026-06-16 — e.g. id 96 means "Spanish Speaker" on resva2
+        but "Decision Maker - NYI" on resva3). Returns {label.lower(): value}, cached after
+        the first call. Empty dict on failure — callers should fall back to the static
+        DISPOSITION_TYPE_IDS guess in that case.
+        """
+        if self._disposition_map is not None:
+            return self._disposition_map
+        mapping: dict = {}
         try:
-            self.session.post(
+            r = self.session.post(
                 f"{self.dialer}/CCS Reports/call_log",
                 headers={"X-Requested-With": "XMLHttpRequest"}, timeout=30,
             )
+            html = r.text or ""
+            # ReadyMode's markup uses single-quoted attributes (name='report[types][]'),
+            # not double — match either.
+            m = re.search(r'''<select[^>]*name=["']report\[types\]\[\]["'][^>]*>(.*?)</select>''', html, re.DOTALL)
+            if m:
+                for opt in re.finditer(r'''<option[^>]*value=["']([^"']*)["'][^>]*>([^<]*)</option>''', m.group(1)):
+                    value, label = opt.group(1), unescape(opt.group(2)).strip()
+                    if label:
+                        mapping[label.lower()] = value
         except Exception:
-            pass  # best effort; the update endpoint works without it once logged in
+            pass  # best effort; caller falls back to the static map if this is empty
+        self._disposition_map = mapping
+        return mapping
 
     # ── data ──────────────────────────────────────────────────────────────────
     def fetch_report(self, *, time_from: str, time_to: str,
@@ -113,7 +143,10 @@ class ReadyModeHTTPClient:
 
         JSON keys: campaignlist, userlist, pages, page, results (dict of 25 rows).
         """
-        types = DEFAULT_TYPES if types is None else types
+        # Caller should always resolve a concrete list via init_call_log()'s live per-dialer
+        # map (see disposition_type_ids / download_readymode_calls). This static fallback
+        # only fires if that lookup totally failed.
+        types = [BASE_TYPE, *DISPOSITION_TYPE_IDS.values()] if types is None else types
         params = [("update", "1")]
         for t in types:
             params.append(("report[types][]", str(t)))
@@ -224,17 +257,34 @@ def resolve_agent_id(userlist: dict, name: str):
     return None, None
 
 
-def disposition_type_ids(dispositions) -> list:
-    """Map disposition labels -> report[types][] ids: base type 6 + each matched id."""
+def disposition_type_ids(dispositions, dialer_map: dict | None = None) -> list:
+    """Map disposition labels -> report[types][] ids: base type 6 + each matched id.
+
+    Prefers ``dialer_map`` (this dialer's own live label->id mapping from
+    ``ReadyModeHTTPClient.init_call_log()``) since disposition IDs are per-dialer custom
+    config, not shared across the account. Falls back to the static, possibly-wrong
+    ``DISPOSITION_TYPE_IDS`` guess only when no live mapping is available.
+    """
+    lookup = dialer_map if dialer_map else DISPOSITION_TYPE_IDS
     ids = [BASE_TYPE]
     for d in dispositions or []:
         key = re.sub(r"\s+", " ", str(d).strip().lower())
-        tid = DISPOSITION_TYPE_IDS.get(key)
+        tid = lookup.get(key)
         if tid is None:  # tolerant contains-match (e.g. "Unknown / dead call" spacing variants)
-            for label, v in DISPOSITION_TYPE_IDS.items():
+            for label, v in lookup.items():
                 if key and (key in label or label in key):
                     tid = v
                     break
         if tid is not None and tid not in ids:
             ids.append(tid)
+    return ids
+
+
+def all_type_ids(dialer_map: dict) -> list:
+    """All ids for this dialer (used when no disposition filter is requested) — mirrors
+    selecting every checkbox in the UI, scoped correctly to this specific dialer."""
+    ids = [BASE_TYPE]
+    for v in dialer_map.values():
+        if v not in ids:
+            ids.append(v)
     return ids

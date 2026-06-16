@@ -31,6 +31,7 @@ try:  # support both "automation.download_readymode_calls" and bare "download_re
         resolve_campaign_id,
         resolve_agent_id,
         disposition_type_ids,
+        all_type_ids,
     )
 except ImportError:  # pragma: no cover
     from readymode_http import (
@@ -40,6 +41,7 @@ except ImportError:  # pragma: no cover
         resolve_campaign_id,
         resolve_agent_id,
         disposition_type_ids,
+        all_type_ids,
     )
 
 logger = logging.getLogger(__name__)
@@ -192,7 +194,10 @@ def _collect_tasks_for_dialer(
     client = ReadyModeHTTPClient(dialer_url)
     client.login(login_username, login_password)
     print(f"SUCCESS Login successful (HTTP) on {client.dialer}")
-    client.init_call_log()
+    dialer_map = client.init_call_log()
+    if not dialer_map:
+        print(f"WARNING Could not load {client.dialer}'s own disposition list — "
+              f"falling back to the (possibly wrong, per-dialer-mismatched) static guess")
 
     probe = client.fetch_report(time_from=start_str, time_to=end_str,
                                 time_from_dateonly=start_dateonly)
@@ -213,9 +218,11 @@ def _collect_tasks_for_dialer(
         restrict_uid = uid
         print(f"SUCCESS Agent filter resolved: {label} (uid={uid}) on {client.dialer}")
 
-    types = disposition_type_ids(disposition) if disposition else None
     if disposition:
+        types = disposition_type_ids(disposition, dialer_map)
         print(f"INFO Disposition filter on {client.dialer}: {disposition} -> types {types}")
+    else:
+        types = all_type_ids(dialer_map) if dialer_map else None
 
     tasks = []
     seen_links = set()
