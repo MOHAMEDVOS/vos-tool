@@ -796,22 +796,26 @@ def extract_dialer_name_from_path(file_path: Path) -> str:
     try:
         # Get parent directory (folder containing the file)
         parent_dir = file_path.parent.name
-        
-        # Pattern: {agent}-{date}_{counter} {dialer_name}
-        # Look for space in folder name - dialer name is after the LAST space
-        # This handles cases like "users-2025-12-12_005 resva3" -> "resva3"
+
+        # Single-dialer layout: "{agent}-{date}_{counter} {dialer_name}"
+        # Dialer name is the token after the LAST space.
+        # e.g. "users-2025-12-12_005 resva3" -> "resva3"
         if ' ' in parent_dir:
-            # Split on all spaces and take the last part (dialer name)
             parts = parent_dir.rsplit(' ', 1)  # Split on last space only
             if len(parts) == 2:
-                dialer_name = parts[1].strip()
-                # Remove any trailing path separators or special characters
-                dialer_name = dialer_name.rstrip('/\\')
+                dialer_name = parts[1].strip().rstrip('/\\')
                 if dialer_name:
                     return dialer_name
+
+        # Dual-dialer layout: "{run_parent}/{dialer_name}/file.mp3" — files live in a
+        # per-dialer SUBFOLDER (no space). The immediate parent folder name IS the dialer
+        # (e.g. "resva", "resva6"), as long as it isn't itself a run folder
+        # ("{name}-{date}_{counter}").
+        elif parent_dir and not re.search(r'-\d{4}-\d{2}-\d{2}_\d+$', parent_dir):
+            return parent_dir.strip().rstrip('/\\')
     except Exception as e:
         logger.debug(f"Error extracting dialer name from path {file_path}: {e}")
-    
+
     return ""
 
 
@@ -1142,8 +1146,11 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
         # Format timestamp for display
         timestamp = format_timestamp_for_display(timestamp)
         
-        # Extract dialer name from file path folder structure
+        # Extract dialer name from file path folder structure (per-file; correct for dual-dialer).
+        # Fall back to the run-level dialer only if the path gave nothing (single-dialer safety net).
         dialer_name = extract_dialer_name_from_path(file_path)
+        if not dialer_name and additional_metadata:
+            dialer_name = additional_metadata.get("Dialer Name", "") or ""
 
         # Load audio file - OPTIMIZED for lite processing speed
         # Strategy: Load full file once, then slice for late hello (which only needs first portion)
@@ -1239,9 +1246,12 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             "File Path": str(file_path)
         }
 
-        # Add metadata if provided
+        # Add metadata if provided — but never let a run-level "Dialer Name" overwrite the
+        # per-file value derived from the folder path (wrong for dual-dialer runs).
         if additional_metadata:
             for key, value in additional_metadata.items():
+                if key == "Dialer Name":
+                    continue
                 result[key] = value
 
         return result

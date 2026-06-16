@@ -420,6 +420,18 @@ class AudioProcessor:
             # Fallback: if rebuttal_detection is a string (e.g., 'Error'), try to get transcript from classification
             transcription = classification.get('transcript', '')
         
+        # Per-file dialer name from the folder path (authoritative for dual-dialer runs,
+        # where each dialer's files live in their own subfolder). Deferred import avoids a
+        # circular import with processing.batch_engine.
+        try:
+            from processing.batch_engine import extract_dialer_name_from_path
+            dialer_name = extract_dialer_name_from_path(file_path)
+        except Exception:
+            dialer_name = ''
+        # Fallback to the run-level dialer only if the path gave nothing (single-dialer safety net)
+        if not dialer_name and additional_metadata:
+            dialer_name = additional_metadata.get("Dialer Name", "") or ""
+
         result = {
             'agent_name': agent_name,
             'phone_number': phone_number,
@@ -431,11 +443,13 @@ class AudioProcessor:
             'releasing_detection': classification['releasing_detection'],
             'late_hello_detection': classification['late_hello_detection'],
             'rebuttal_detection': classification['rebuttal_detection'],
-            'transcription': transcription
+            'transcription': transcription,
+            'dialer_name': dialer_name
         }
 
         if additional_metadata:
-            result.update(additional_metadata)
+            # Don't let a run-level "Dialer Name" overwrite the per-file value above.
+            result.update({k: v for k, v in additional_metadata.items() if k != "Dialer Name"})
 
         if classification['error']:
             result['error'] = classification['error']
