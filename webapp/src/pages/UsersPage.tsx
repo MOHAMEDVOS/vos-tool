@@ -69,7 +69,6 @@ export function UsersPage() {
   const [namesText, setNamesText] = useState('')
   const [loginIdsText, setLoginIdsText] = useState('')
   const [passwordsText, setPasswordsText] = useState('')
-
   const [copied, setCopied] = useState(false)
 
   // ── Running state ───────────────────────────────────────────────────────────
@@ -167,6 +166,21 @@ export function UsersPage() {
   const toggleAll = () =>
     setSelectedDialers(allSelected ? [] : [...allDialerNames])
 
+  // ── Copy handler ─────────────────────────────────────────────────────────────
+  const handleCopy = () => {
+    const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length))
+    const nameW = Math.max(4, ...preview.map(r => r.name.length))
+    const idW   = Math.max(8, ...preview.map(r => r.login_id.length))
+    const header  = `${pad('Name', nameW)}  ${pad('Login ID', idW)}  Password`
+    const divider = `${'-'.repeat(nameW)}  ${'-'.repeat(idW)}  ----------`
+    const rows = preview.map(r =>
+      `${pad(r.name, nameW)}  ${pad(r.login_id, idW)}  ${r.password}`
+    ).join('\n')
+    navigator.clipboard.writeText(`${header}\n${divider}\n${rows}`)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   // ── Create ──────────────────────────────────────────────────────────────────
   const handleCreate = async () => {
     setRunning(true)
@@ -220,312 +234,338 @@ export function UsersPage() {
     }
   }
 
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-5xl mx-auto">
+    <div className="flex flex-col gap-5 p-6">
+
+      {/* Page header */}
       <div>
         <h1 className="text-xl font-bold text-t-primary">Create Dialer Users</h1>
         <p className="text-sm text-t-muted mt-0.5">
-          Paste names &amp; passwords, pick dialers, create all accounts in one click.
+          Paste names &amp; login IDs, pick dialers, create all accounts in one click.
         </p>
       </div>
 
-      {/* ── Dialers ── */}
-      <section className="rounded-xl border border-b-subtle bg-surface-card p-4 space-y-2">
-        <span className="text-sm font-semibold text-t-primary">Dialers</span>
-        <div ref={dialerRef} className="relative">
-          {/* Trigger */}
-          <button
-            type="button"
-            onClick={() => setDialerOpen(o => !o)}
-            className="w-full flex items-center justify-between rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary hover:border-accent focus:outline-none focus:border-accent transition-colors"
-          >
-            <span className={selectedDialers.length === 0 ? 'text-t-muted' : ''}>
-              {selectedDialers.length === 0
-                ? 'Select dialers…'
-                : selectedDialers.length === allDialerNames.length
-                  ? 'All dialers selected'
-                  : selectedDialers.join(', ')}
-            </span>
-            <svg className={`w-4 h-4 text-t-muted transition-transform ${dialerOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
+      {/* ── Two-panel grid ── */}
+      <div className="grid grid-cols-[300px_1fr] gap-4 items-start">
 
-          {/* Dropdown panel */}
-          {dialerOpen && (
-            <div className="absolute z-50 mt-1 w-full rounded-xl border border-b-medium bg-surface-card shadow-card overflow-hidden">
-              {/* Search */}
-              <div className="p-2 border-b border-b-subtle">
-                <input
-                  autoFocus
-                  value={dialerSearch}
-                  onChange={e => setDialerSearch(e.target.value)}
-                  placeholder="Search…"
-                  className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
-                />
-              </div>
-              {/* Select All */}
+        {/* ════════════════════════════════════════
+            LEFT PANEL — config + summary + create
+        ════════════════════════════════════════ */}
+        <div className="sticky top-6 rounded-xl border border-b-subtle bg-surface-card p-4 flex flex-col gap-4">
+
+          {/* Dialers */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Dialers</label>
+            <div ref={dialerRef} className="relative">
               <button
                 type="button"
-                onClick={toggleAll}
-                className="w-full flex items-center gap-3 px-4 py-3 text-sm text-t-primary hover:bg-surface-soft transition-colors border-b border-b-subtle"
+                onClick={() => setDialerOpen(o => !o)}
+                className="w-full flex items-center justify-between rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary hover:border-accent focus:outline-none focus:border-accent transition-colors"
               >
-                <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${allSelected ? 'bg-accent border-accent' : 'border-b-medium bg-surface-soft'}`}>
-                  {allSelected && <svg className="w-3 h-3 text-t-on-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                <span className={selectedDialers.length === 0 ? 'text-t-muted' : ''}>
+                  {selectedDialers.length === 0
+                    ? 'Select dialers…'
+                    : selectedDialers.length === allDialerNames.length
+                      ? 'All dialers selected'
+                      : selectedDialers.join(', ')}
                 </span>
-                <span className="font-semibold">Select all</span>
+                <svg className={`w-4 h-4 text-t-muted transition-transform flex-shrink-0 ${dialerOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
-              {/* Options */}
-              <div className="max-h-52 overflow-y-auto">
-                {filteredDialers.map(d => {
-                  const checked   = selectedDialers.includes(d)
-                  const isCustom  = d in customDialers
-                  return (
-                    <div key={d} className="flex items-center hover:bg-surface-soft transition-colors">
-                      <button
-                        type="button"
-                        onClick={() => toggleDialer(d)}
-                        className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-t-primary"
-                      >
-                        <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-accent border-accent' : 'border-b-medium bg-surface-soft'}`}>
-                          {checked && <svg className="w-3 h-3 text-t-on-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                        </span>
-                        <span>{d}</span>
-                        {isCustom && <span className="ml-auto text-xs text-t-muted font-mono pr-1">{customDialers[d]}</span>}
-                      </button>
-                      {isCustom && (
-                        <button
-                          type="button"
-                          onClick={() => removeCustomDialer(d)}
-                          className="pr-4 text-t-muted hover:text-semantic-error transition-colors text-lg leading-none"
-                          title="Remove dialer"
-                        >×</button>
-                      )}
-                    </div>
-                  )
-                })}
-                {filteredDialers.length === 0 && (
-                  <p className="px-4 py-3 text-sm text-t-muted">No dialers match.</p>
-                )}
-              </div>
 
-              {/* Add dialer */}
-              <div className="border-t border-b-subtle p-3 space-y-2">
-                <p className="text-xs font-semibold text-t-muted uppercase tracking-wide">Add dialer</p>
-                <div className="flex gap-2">
-                  <input
-                    value={newDialerName}
-                    onChange={e => setNewDialerName(e.target.value)}
-                    placeholder="Name (e.g. resva3)"
-                    className="w-28 rounded-lg border border-b-subtle bg-surface-soft px-2 py-1.5 text-xs text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
-                  />
-                  <input
-                    value={newDialerUrl}
-                    onChange={e => setNewDialerUrl(e.target.value)}
-                    placeholder="https://resva3.readymode.com/"
-                    className="flex-1 rounded-lg border border-b-subtle bg-surface-soft px-2 py-1.5 text-xs text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
-                  />
+              {dialerOpen && (
+                <div className="absolute z-50 mt-1 w-full rounded-xl border border-b-medium bg-surface-card shadow-card overflow-hidden">
+                  <div className="p-2 border-b border-b-subtle">
+                    <input
+                      autoFocus
+                      value={dialerSearch}
+                      onChange={e => setDialerSearch(e.target.value)}
+                      placeholder="Search…"
+                      className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
+                    />
+                  </div>
                   <button
                     type="button"
-                    onClick={addCustomDialer}
-                    disabled={!newDialerName.trim() || !newDialerUrl.trim()}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-t-on-primary disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
-                  >Add</button>
+                    onClick={toggleAll}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-t-primary hover:bg-surface-soft transition-colors border-b border-b-subtle"
+                  >
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${allSelected ? 'bg-accent border-accent' : 'border-b-medium bg-surface-soft'}`}>
+                      {allSelected && <svg className="w-3 h-3 text-t-on-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                    </span>
+                    <span className="font-semibold">Select all</span>
+                  </button>
+                  <div className="max-h-48 overflow-y-auto">
+                    {filteredDialers.map(d => {
+                      const checked  = selectedDialers.includes(d)
+                      const isCustom = d in customDialers
+                      return (
+                        <div key={d} className="flex items-center hover:bg-surface-soft transition-colors">
+                          <button
+                            type="button"
+                            onClick={() => toggleDialer(d)}
+                            className="flex-1 flex items-center gap-3 px-4 py-3 text-sm text-t-primary"
+                          >
+                            <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-accent border-accent' : 'border-b-medium bg-surface-soft'}`}>
+                              {checked && <svg className="w-3 h-3 text-t-on-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                            </span>
+                            <span>{d}</span>
+                            {isCustom && <span className="ml-auto text-xs text-t-muted font-mono pr-1 truncate max-w-[100px]">{customDialers[d]}</span>}
+                          </button>
+                          {isCustom && (
+                            <button
+                              type="button"
+                              onClick={() => removeCustomDialer(d)}
+                              className="pr-4 text-t-muted hover:text-semantic-error transition-colors text-lg leading-none"
+                              title="Remove dialer"
+                            >×</button>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {filteredDialers.length === 0 && (
+                      <p className="px-4 py-3 text-sm text-t-muted">No dialers match.</p>
+                    )}
+                  </div>
+                  <div className="border-t border-b-subtle p-3 space-y-2">
+                    <p className="text-xs font-semibold text-t-muted uppercase tracking-wide">Add dialer</p>
+                    <div className="flex gap-2">
+                      <input
+                        value={newDialerName}
+                        onChange={e => setNewDialerName(e.target.value)}
+                        placeholder="Name"
+                        className="w-24 rounded-lg border border-b-subtle bg-surface-soft px-2 py-1.5 text-xs text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
+                      />
+                      <input
+                        value={newDialerUrl}
+                        onChange={e => setNewDialerUrl(e.target.value)}
+                        placeholder="https://…readymode.com/"
+                        className="flex-1 rounded-lg border border-b-subtle bg-surface-soft px-2 py-1.5 text-xs text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
+                      />
+                      <button
+                        type="button"
+                        onClick={addCustomDialer}
+                        disabled={!newDialerName.trim() || !newDialerUrl.trim()}
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-t-on-primary disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+                      >Add</button>
+                    </div>
+                  </div>
                 </div>
+              )}
+            </div>
+            {selectedDialers.length === 0 && (
+              <p className="text-xs text-semantic-error">Select at least one dialer.</p>
+            )}
+          </div>
+
+          {/* Folder */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Folder</label>
+            <select
+              value={folder}
+              onChange={e => setFolder(e.target.value)}
+              className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent"
+            >
+              {FOLDER_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Role */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Role</label>
+            <select
+              value={ou}
+              onChange={e => setOu(e.target.value)}
+              className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent"
+            >
+              {ROLE_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-b-subtle" />
+
+          {/* Summary */}
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-t-muted uppercase tracking-wide">Summary</p>
+            <div className="rounded-lg border border-b-subtle bg-surface-soft p-3 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-t-muted">Users</span>
+                <span className="font-semibold text-t-primary">{names.length}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-t-muted">Dialers</span>
+                <span className="font-semibold text-t-primary">{selectedDialers.length} selected</span>
+              </div>
+              <div className="border-t border-b-subtle pt-2 flex justify-between">
+                <span className="text-t-muted">Total accounts</span>
+                <span className={`font-bold ${names.length * selectedDialers.length > 0 ? 'text-accent' : 'text-t-muted'}`}>
+                  {names.length * selectedDialers.length}
+                </span>
               </div>
             </div>
-          )}
-        </div>
-        {selectedDialers.length === 0 && (
-          <p className="text-xs text-semantic-error">Select at least one dialer.</p>
-        )}
-      </section>
-
-      {/* ── Role & Folder ── */}
-      <section className="rounded-xl border border-b-subtle bg-surface-card p-4 grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Folder</label>
-          <select
-            value={folder}
-            onChange={e => setFolder(e.target.value)}
-            className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent"
-          >
-            {FOLDER_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Role</label>
-          <select
-            value={ou}
-            onChange={e => setOu(e.target.value)}
-            className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent"
-          >
-            {ROLE_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-      </section>
-
-      {/* ── Paste boxes ── */}
-      <section className="rounded-xl border border-b-subtle bg-surface-card p-4 space-y-3">
-        <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
-              Agent Names <span className="normal-case font-normal">(one per line)</span>
-            </label>
-            <textarea
-              value={namesText}
-              onChange={e => setNamesText(e.target.value)}
-              rows={8}
-              placeholder={"Ahmed Hassan\nSara Mohamed\nKhaled Ali"}
-              className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent resize-none font-mono"
-            />
-            <p className="text-xs text-t-muted">{names.length} names</p>
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
-              Login IDs <span className="normal-case font-normal">(one per line, same order)</span>
-            </label>
-            <textarea
-              value={loginIdsText}
-              onChange={e => setLoginIdsText(e.target.value)}
-              rows={8}
-              placeholder={"RES-014\nRES-015\nRES-016"}
-              className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent resize-none font-mono"
-            />
-            <p className="text-xs text-t-muted">{loginIds.length} login IDs</p>
-          </div>
-          <div className="space-y-1">
+
+          {/* Create button */}
+          <button
+            onClick={handleCreate}
+            disabled={!canCreate}
+            className={[
+              'w-full rounded-xl py-3 text-sm font-bold tracking-wide transition-all',
+              canCreate
+                ? 'bg-accent text-t-on-primary hover:opacity-90 active:scale-[0.99]'
+                : 'bg-surface-soft text-t-muted cursor-not-allowed',
+            ].join(' ')}
+          >
+            {running
+              ? <span className="flex items-center justify-center gap-2"><Loader2 size={14} className="animate-spin" /> Creating…</span>
+              : `Create ${preview.length * selectedDialers.length || ''} accounts`}
+          </button>
+        </div>
+
+        {/* ════════════════════════════════════════
+            RIGHT PANEL — user data + preview table
+        ════════════════════════════════════════ */}
+        <div className="flex flex-col gap-4">
+
+          {/* Textareas */}
+          <section className="rounded-xl border border-b-subtle bg-surface-card p-4 space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
-                Passwords <span className="normal-case font-normal">(auto-generated)</span>
-              </label>
+              <span className="text-sm font-semibold text-t-primary">User Data</span>
               <button
                 type="button"
                 onClick={regenerateAll}
                 disabled={names.length === 0}
                 className="text-xs font-semibold text-accent hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Regenerate All
+                ↻ Regenerate All Passwords
               </button>
             </div>
-            <textarea
-              value={passwordsText}
-              onChange={e => setPasswordsText(e.target.value)}
-              rows={8}
-              placeholder="Paste names to auto-generate…"
-              className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent resize-none font-mono"
-            />
-            <p className="text-xs text-t-muted">{passwords.length} passwords</p>
-          </div>
-        </div>
-        {mismatch && (
-          <p className="text-xs text-semantic-error font-semibold">
-            All three columns must have the same number of lines (names: {names.length}, login IDs: {loginIds.length}, passwords: {passwords.length}).
-          </p>
-        )}
-      </section>
 
-      {/* ── Preview table ── */}
-      {preview.length > 0 && (
-        <section className="rounded-xl border border-b-subtle bg-surface-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-b-subtle flex items-center justify-between">
-            <span className="text-sm font-semibold text-t-primary">Preview</span>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-t-muted">
-                {preview.length} users × {selectedDialers.length} dialer{selectedDialers.length !== 1 ? 's' : ''} ={' '}
-                <span className="font-bold text-t-primary">{preview.length * selectedDialers.length} accounts</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length))
-                  const nameW = Math.max(4, ...preview.map(r => r.name.length))
-                  const idW   = Math.max(8, ...preview.map(r => r.login_id.length))
-                  const header = `${pad('Name', nameW)}  ${pad('Login ID', idW)}  Password`
-                  const divider = `${'-'.repeat(nameW)}  ${'-'.repeat(idW)}  ----------`
-                  const rows = preview.map(r =>
-                    `${pad(r.name, nameW)}  ${pad(r.login_id, idW)}  ${r.password}`
-                  ).join('\n')
-                  navigator.clipboard.writeText(`${header}\n${divider}\n${rows}`)
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 2000)
-                }}
-                className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg border border-b-medium bg-surface-soft text-t-primary hover:border-accent hover:text-accent transition-colors"
-              >
-                {copied ? '✓ Copied' : '⎘ Copy'}
-              </button>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
+                  Agent Names <span className="normal-case font-normal">(one per line)</span>
+                </label>
+                <textarea
+                  value={namesText}
+                  onChange={e => setNamesText(e.target.value)}
+                  rows={9}
+                  placeholder={"Ahmed Hassan\nSara Mohamed\nKhaled Ali"}
+                  className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent resize-none font-mono"
+                />
+                <p className="text-xs text-t-muted">{names.length} names</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
+                  Login IDs <span className="normal-case font-normal">(same order)</span>
+                </label>
+                <textarea
+                  value={loginIdsText}
+                  onChange={e => setLoginIdsText(e.target.value)}
+                  rows={9}
+                  placeholder={"RES-014\nRES-015\nRES-016"}
+                  className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent resize-none font-mono"
+                />
+                <p className="text-xs text-t-muted">{loginIds.length} login IDs</p>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">
+                  Passwords <span className="normal-case font-normal">(auto-generated)</span>
+                </label>
+                <textarea
+                  value={passwordsText}
+                  onChange={e => setPasswordsText(e.target.value)}
+                  rows={9}
+                  placeholder="Paste names to auto-generate…"
+                  className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent resize-none font-mono"
+                />
+                <p className="text-xs text-t-muted">{passwords.length} passwords</p>
+              </div>
             </div>
-          </div>
-          <div className="overflow-x-auto max-h-56 overflow-y-auto">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-surface-soft">
-                <tr>
-                  {['Name', 'Login ID', 'Password', 'Folder', 'Role', 'Status'].map(h => (
-                    <th key={h} className="px-3 py-2 text-left font-semibold text-t-muted">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {preview.map((row, i) => {
-                  const userResults  = results.filter(r => r.login_id === row.login_id)
-                  const failedDialers = userResults.filter(r => r.status === 'failed').map(r => r.dialer)
-                  const allCreated   = userResults.length > 0 && failedDialers.length === 0
-                  return (
-                    <tr key={i} className="border-t border-b-subtle hover:bg-surface-soft">
-                      <td className="px-3 py-1.5 text-t-primary">{row.name}</td>
-                      <td className="px-3 py-1.5 font-mono text-accent">
-                        {row.login_id || <span className="text-semantic-error">missing</span>}
-                      </td>
-                      <td className="px-3 py-1.5 font-mono text-t-secondary">
-                        {row.password || <span className="text-semantic-error">missing</span>}
-                      </td>
-                      <td className="px-3 py-1.5 text-t-muted">
-                        {FOLDER_OPTIONS.find(f => f.value === row.folder)?.label ?? row.folder}
-                      </td>
-                      <td className="px-3 py-1.5 text-t-muted">
-                        {ROLE_OPTIONS.find(r => r.value === row.ou)?.label ?? row.ou}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        {running && userResults.length === 0
-                          ? <Loader2 size={16} className="animate-spin text-t-muted" />
-                          : allCreated
-                            ? <CheckCircle2 size={16} className="text-semantic-success" />
-                            : failedDialers.length > 0
-                              ? <span className="flex items-center gap-1">
-                                  <XCircle size={16} className="text-semantic-error flex-shrink-0" />
-                                  <span className="text-xs text-semantic-error">{failedDialers.join(', ')}</span>
-                                </span>
-                              : null}
-                      </td>
+
+            {mismatch && (
+              <p className="text-xs text-semantic-error font-semibold">
+                All three columns must have the same number of lines (names: {names.length}, login IDs: {loginIds.length}, passwords: {passwords.length}).
+              </p>
+            )}
+          </section>
+
+          {/* Preview table */}
+          {preview.length > 0 && (
+            <section className="rounded-xl border border-b-subtle bg-surface-card overflow-hidden">
+              <div className="px-4 py-3 border-b border-b-subtle flex items-center justify-between">
+                <span className="text-sm font-semibold text-t-primary">Preview</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-t-muted">
+                    {preview.length} users × {selectedDialers.length} dialer{selectedDialers.length !== 1 ? 's' : ''} ={' '}
+                    <span className="font-bold text-t-primary">{preview.length * selectedDialers.length} accounts</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg border border-b-medium bg-surface-soft text-t-primary hover:border-accent hover:text-accent transition-colors"
+                  >
+                    {copied ? '✓ Copied' : '⎘ Copy'}
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-surface-soft">
+                    <tr>
+                      {['Name', 'Login ID', 'Password', 'Folder', 'Role', 'Status'].map(h => (
+                        <th key={h} className="px-3 py-2 text-left font-semibold text-t-muted">{h}</th>
+                      ))}
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* ── Create button ── */}
-      <button
-        onClick={handleCreate}
-        disabled={!canCreate}
-        className={[
-          'w-full rounded-xl py-3 text-sm font-bold tracking-wide transition-all',
-          canCreate
-            ? 'bg-accent text-t-on-primary hover:opacity-90 active:scale-[0.99]'
-            : 'bg-surface-soft text-t-muted cursor-not-allowed',
-        ].join(' ')}
-      >
-        {running
-          ? 'Creating...'
-          : `Create ${preview.length * selectedDialers.length} accounts on ${selectedDialers.length} dialer${selectedDialers.length !== 1 ? 's' : ''}`}
-      </button>
-
+                  </thead>
+                  <tbody>
+                    {preview.map((row, i) => {
+                      const userResults   = results.filter(r => r.login_id === row.login_id)
+                      const failedDialers = userResults.filter(r => r.status === 'failed').map(r => r.dialer)
+                      const allCreated    = userResults.length > 0 && failedDialers.length === 0
+                      return (
+                        <tr key={i} className="border-t border-b-subtle hover:bg-surface-soft">
+                          <td className="px-3 py-1.5 text-t-primary">{row.name}</td>
+                          <td className="px-3 py-1.5 font-mono text-accent">
+                            {row.login_id || <span className="text-semantic-error">missing</span>}
+                          </td>
+                          <td className="px-3 py-1.5 font-mono text-t-secondary">
+                            {row.password || <span className="text-semantic-error">missing</span>}
+                          </td>
+                          <td className="px-3 py-1.5 text-t-muted">
+                            {FOLDER_OPTIONS.find(f => f.value === row.folder)?.label ?? row.folder}
+                          </td>
+                          <td className="px-3 py-1.5 text-t-muted">
+                            {ROLE_OPTIONS.find(r => r.value === row.ou)?.label ?? row.ou}
+                          </td>
+                          <td className="px-3 py-1.5">
+                            {running && userResults.length === 0
+                              ? <Loader2 size={16} className="animate-spin text-t-muted" />
+                              : allCreated
+                                ? <CheckCircle2 size={16} className="text-semantic-success" />
+                                : failedDialers.length > 0
+                                  ? <span className="flex items-center gap-1">
+                                      <XCircle size={16} className="text-semantic-error flex-shrink-0" />
+                                      <span className="text-xs text-semantic-error">{failedDialers.join(', ')}</span>
+                                    </span>
+                                  : null}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
