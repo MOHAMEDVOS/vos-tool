@@ -448,9 +448,15 @@ export function UsersPage() {
               <button
                 type="button"
                 onClick={() => {
-                  const header = 'Name\tLogin ID\tPassword'
-                  const rows = preview.map(r => `${r.name}\t${r.login_id}\t${r.password}`).join('\n')
-                  navigator.clipboard.writeText(`${header}\n${rows}`)
+                  const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length))
+                  const nameW = Math.max(4, ...preview.map(r => r.name.length))
+                  const idW   = Math.max(8, ...preview.map(r => r.login_id.length))
+                  const header = `${pad('Name', nameW)}  ${pad('Login ID', idW)}  Password`
+                  const divider = `${'-'.repeat(nameW)}  ${'-'.repeat(idW)}  ----------`
+                  const rows = preview.map(r =>
+                    `${pad(r.name, nameW)}  ${pad(r.login_id, idW)}  ${r.password}`
+                  ).join('\n')
+                  navigator.clipboard.writeText(`${header}\n${divider}\n${rows}`)
                   setCopied(true)
                   setTimeout(() => setCopied(false), 2000)
                 }}
