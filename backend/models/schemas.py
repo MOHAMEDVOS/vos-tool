@@ -151,7 +151,7 @@ class BulkUserRow(BaseModel):
     name: str
     login_id: str
     password: str
-    folder: str = "48-36-14"   # Agents folder by default
+    folder: str = "Agents"     # folder NAME; resolved to each dialer's own id at creation
     ou: str = "4"              # Sales role by default
     ext: str = ""
 

@@ -3,14 +3,18 @@ import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { READYMODE_DIALER_URLS } from '@/api/readymode'
 
-// ── Folder & Role option maps (from ReadyMode HTML) ──────────────────────────
+// ── Folder & Role option maps ────────────────────────────────────────────────
+// Folder is sent by NAME, not id: folder IDs are per-dialer (e.g. 'Agents' is
+// 48-36-14 on resva but 54-109- on resva4), so the backend resolves the name to
+// each dialer's own id at creation time. Admin/Agents/Team Leaders exist on every
+// dialer; the rest only on some (resolution fails cleanly where absent).
 const FOLDER_OPTIONS = [
-  { value: '46-33-2',    label: 'Admin' },
-  { value: '48-36-14',  label: 'Agents' },
-  { value: '55-1570-14',label: 'Client A' },
-  { value: '57-3772-',  label: 'Delegates' },
-  { value: '54-null-2', label: 'Spanish Speakers' },
-  { value: '56-3667-20',label: 'Team Leaders' },
+  { value: 'Agents',           label: 'Agents' },
+  { value: 'Team Leaders',     label: 'Team Leaders' },
+  { value: 'Admin',            label: 'Admin' },
+  { value: 'Client A',         label: 'Client A' },
+  { value: 'Delegates',        label: 'Delegates' },
+  { value: 'Spanish Speakers', label: 'Spanish Speakers' },
 ]
 
 const ROLE_OPTIONS = [
@@ -64,7 +68,7 @@ export function UsersPage() {
 
   // ── Form state ──────────────────────────────────────────────────────────────
   const [selectedDialers, setSelectedDialers] = useState<string[]>(['resva'])
-  const [folder, setFolder] = useState('48-36-14')
+  const [folder, setFolder] = useState('Agents')
   const [ou, setOu] = useState('4')
   const [namesText, setNamesText] = useState('')
   const [loginIdsText, setLoginIdsText] = useState('')

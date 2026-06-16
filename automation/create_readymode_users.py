@@ -44,16 +44,34 @@ def create_users_on_dialer(
             })
         return results
 
+    # Folder IDs are per-dialer (e.g. 'Agents' = 48-36-14 on resva but 54-109- on
+    # resva4), so resolve the requested folder NAME to THIS dialer's id once up front.
+    folder_map = client.get_writable_folders()
+
     for i, u in enumerate(users, 1):
         name     = u["name"]
         login_id = u["login_id"]
         password = u["password"]
-        folder   = u.get("folder", "48-36-14")
+        folder   = u.get("folder", "Agents")
         ou       = u.get("ou", "4")
         ext      = u.get("ext", "")
+
+        folder_id = client.resolve_folder(folder)
+        if not folder_id:
+            available = ", ".join(sorted(folder_map)) or "none"
+            log(f"FAILED  {dialer_name} | {name} ({login_id}): folder '{folder}' not found on this dialer (available: {available})")
+            results.append({
+                "name": name, "login_id": login_id,
+                "dialer": dialer_name, "status": "failed",
+                "detail": f"Folder '{folder}' not found on {dialer_name} (available: {available})",
+            })
+            if update_callback:
+                update_callback(i, len(users))
+            continue
+
         try:
             client.create_user(name=name, login_id=login_id, password=password,
-                               ou=ou, folder=folder, ext=ext)
+                               ou=ou, folder=folder_id, ext=ext)
             log(f"CREATED {dialer_name} | {name} ({login_id})")
             results.append({
                 "name": name, "login_id": login_id,

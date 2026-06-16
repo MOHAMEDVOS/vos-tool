@@ -14,6 +14,7 @@ Key facts (see spec for detail):
 """
 
 import re
+import json
 import requests
 from html import unescape
 
@@ -61,6 +62,7 @@ class ReadyModeHTTPClient:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": UA})
         self._disposition_map: dict | None = None  # this dialer's own label.lower() -> id
+        self._folder_map: dict | None = None        # this dialer's own folder name.lower() -> id
 
     # ── auth ──────────────────────────────────────────────────────────────────
     def _browser_headers(self) -> dict:
@@ -178,6 +180,53 @@ class ReadyModeHTTPClient:
             )
 
     # ── user creation ─────────────────────────────────────────────────────────
+    def get_writable_folders(self) -> dict:
+        """This dialer's writable folders as {name.lower(): id}. Cached.
+
+        Folder IDs are PER-INSTANCE — 'Agents' is 48-36-14 on resva/resva2/resva3,
+        but 54-109- on resva4, 54-105-14 on resva5, 48-36-4 on resva6/resva7
+        (confirmed live 2026-06-16). The createUser <select name='folder'> is
+        JS-populated from a ``tmp.uMgmtWritableFolders = [{"name","id"},...]`` blob
+        embedded in the page, so we parse that blob rather than the empty <select>.
+        Empty dict on failure — callers should surface a clear per-user error.
+        """
+        if self._folder_map is not None:
+            return self._folder_map
+        mapping: dict = {}
+        try:
+            r = self.session.get(
+                f"{self.dialer}/Team/ManageUsers/createUser",
+                headers={"Referer": f"{self.dialer}/", "X-Requested-With": "XMLHttpRequest"},
+                timeout=30,
+            )
+            m = re.search(r"uMgmtWritableFolders\s*=\s*(\[.*?\]);", r.text or "", re.DOTALL)
+            if m:
+                for f in json.loads(m.group(1)):
+                    nm = str(f.get("name", "")).strip().lower()
+                    fid = f.get("id")
+                    if nm and fid:
+                        mapping[nm] = fid
+        except Exception:
+            pass  # best effort; caller reports "folder not found" with the (empty) list
+        self._folder_map = mapping
+        return mapping
+
+    def resolve_folder(self, folder: str) -> str | None:
+        """Resolve a folder NAME (e.g. 'Agents') to THIS dialer's id.
+
+        Accepts a name (preferred) or an already-correct id for this dialer.
+        Returns None if it can't be resolved (unknown name / page parse failed).
+        """
+        folders = self.get_writable_folders()
+        if not folders:
+            return None
+        key = (folder or "").strip().lower()
+        if key in folders:
+            return folders[key]
+        if folder in folders.values():  # an id was passed straight through
+            return folder
+        return None
+
     def create_user(self, *, name: str, login_id: str, password: str,
                     ou: str = "4", folder: str = "48-36-14", ext: str = "") -> dict:
         """POST Team/ManageUsers/createUser/save for a single user.
