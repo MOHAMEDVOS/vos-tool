@@ -287,7 +287,7 @@ export function UsersPage() {
                       value={dialerSearch}
                       onChange={e => setDialerSearch(e.target.value)}
                       placeholder="Search…"
-                      className="w-full rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
+                      className="w-full rounded-lg border border-b-medium bg-surface-soft px-3 py-2 text-sm text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent transition-colors"
                     />
                   </div>
                   <button
@@ -305,7 +305,7 @@ export function UsersPage() {
                       const checked  = selectedDialers.includes(d)
                       const isCustom = d in customDialers
                       return (
-                        <div key={d} className="flex items-center hover:bg-surface-soft transition-colors">
+                        <div key={d} className={`flex items-center transition-colors ${checked ? 'bg-[var(--selected-bg)]' : 'hover:bg-surface-soft'}`}>
                           <button
                             type="button"
                             onClick={() => toggleDialer(d)}
@@ -314,7 +314,7 @@ export function UsersPage() {
                             <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${checked ? 'bg-accent border-accent' : 'border-b-medium bg-surface-soft'}`}>
                               {checked && <svg className="w-3 h-3 text-t-on-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                             </span>
-                            <span>{d}</span>
+                            <span className={checked ? 'font-medium' : ''}>{d}</span>
                             {isCustom && <span className="ml-auto text-xs text-t-muted font-mono pr-1 truncate max-w-[100px]">{customDialers[d]}</span>}
                           </button>
                           {isCustom && (
@@ -332,26 +332,26 @@ export function UsersPage() {
                       <p className="px-4 py-3 text-sm text-t-muted">No dialers match.</p>
                     )}
                   </div>
-                  <div className="border-t border-b-subtle p-3 space-y-2">
-                    <p className="text-xs font-semibold text-t-muted uppercase tracking-wide">Add dialer</p>
+                  <div className="border-t border-b-medium bg-surface-soft p-3 space-y-2">
+                    <p className="text-[11px] font-semibold text-t-secondary uppercase tracking-wide">Add dialer</p>
                     <div className="flex gap-2">
                       <input
                         value={newDialerName}
                         onChange={e => setNewDialerName(e.target.value)}
                         placeholder="Name"
-                        className="w-24 rounded-lg border border-b-subtle bg-surface-soft px-2 py-1.5 text-xs text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
+                        className="w-24 rounded-lg border border-b-medium bg-surface-card px-2 py-1.5 text-xs text-t-primary placeholder:text-t-placeholder focus:outline-none focus:border-accent transition-colors"
                       />
                       <input
                         value={newDialerUrl}
                         onChange={e => setNewDialerUrl(e.target.value)}
                         placeholder="https://…readymode.com/"
-                        className="flex-1 rounded-lg border border-b-subtle bg-surface-soft px-2 py-1.5 text-xs text-t-primary placeholder:text-t-muted focus:outline-none focus:border-accent"
+                        className="flex-1 min-w-0 rounded-lg border border-b-medium bg-surface-card px-2 py-1.5 text-xs text-t-primary placeholder:text-t-placeholder focus:outline-none focus:border-accent transition-colors"
                       />
                       <button
                         type="button"
                         onClick={addCustomDialer}
                         disabled={!newDialerName.trim() || !newDialerUrl.trim()}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-t-on-primary disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
+                        className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-t-on-primary disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
                       >Add</button>
                     </div>
                   </div>
