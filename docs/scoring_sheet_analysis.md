@@ -93,6 +93,12 @@ O Tonality · P dispositions errors? · Q technical issues? · R Notes · S Perf
 So the same `5` threshold gates both "red flag" and "use flagged numbers". (Verified in
 `lib/scoring_sampler.score_agents`.)
 
+### Heavy-releasing scoring block (10+ releasing samples)
+An agent with **≥ 10 releasing-flagged numbers** in the row gets a distinct scoring block
+(in `append_scoring_rows`): `H=AE, I=Yes, J=Yes, K=Yes, L=Yes, M=Yes, N=Yes, O=Sleepy, P=No`
+(I=Yes intentionally also reads as late-hello). Everyone else keeps the standard block
+(`H=OH … O=Active`) with only I (late-hello) and M (releasing) toggled by their flags.
+
 ## Fill logic — DECIDED ✅
 **Row format:** one row per agent, 5 phones space-joined in col D.
 **Target tab:** auto, via a **login → tab** map (VOS only knows `username`/login, no full name, so

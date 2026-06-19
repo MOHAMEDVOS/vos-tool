@@ -445,15 +445,24 @@ def append_scoring_rows(sheets, spreadsheet_id: str, tab_name: str, score_rows: 
 
     cd_block, gr_block = [], []
     for r in score_rows:
+        row_phones = r.get("phones") or []
         # phones stacked one-per-line inside the single Phone Number cell (newline = in-cell break)
-        phones = "\n".join(p.get("phone", "") for p in (r.get("phones") or []) if p.get("phone"))
+        phones = "\n".join(p.get("phone", "") for p in row_phones if p.get("phone"))
         flags = set(r.get("flag_types") or [])
-        late = "Yes" if "Late Hello" in flags else "No"
-        rel = "Yes" if "Releasing" in flags else "No"
         dialer = str(r.get("dialer") or "").upper()
         cd_block.append([r.get("agent", ""), phones])
-        # G  H    I     J     K     L     M    N     O        P     Q   R
-        gr_block.append([dialer, "OH", late, "Yes", "Yes", "Yes", rel, "No", "Active", "No", "", ""])
+
+        releasing_n = sum(1 for p in row_phones if "Releasing" in (p.get("flags") or []))
+        if releasing_n >= 10:
+            # Heavy-releasing agent (10+ releasing samples) gets a distinct scoring block.
+            # H=AE, intro all Yes, sound-low + sound-cutting Yes, Tonality=Sleepy.
+            # G   H     I      J      K      L      M      N      O         P     Q   R
+            gr_block.append([dialer, "AE", "Yes", "Yes", "Yes", "Yes", "Yes", "Yes", "Sleepy", "No", "", ""])
+        else:
+            late = "Yes" if "Late Hello" in flags else "No"
+            rel = "Yes" if "Releasing" in flags else "No"
+            # G   H     I     J      K      L      M    N     O         P     Q   R
+            gr_block.append([dialer, "OH", late, "Yes", "Yes", "Yes", rel, "No", "Active", "No", "", ""])
 
     end = start + len(score_rows) - 1
     sheets.spreadsheets().values().batchUpdate(
