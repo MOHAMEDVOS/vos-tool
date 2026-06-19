@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-type NavTab = 'Audit' | 'Actions' | 'Call Review' | 'Dashboard' | 'Phrase Management' | 'Settings' | 'Users'
+type NavTab = 'Audit' | 'Actions' | 'Call Review' | 'Dashboard' | 'Scoring' | 'Phrase Management' | 'Settings' | 'Users'
 type Theme = 'light' | 'dark'
 
 interface UiState {

@@ -36,6 +36,7 @@ READY_MODE_URLS = {
     "default": "https://resva.readymode.com/",
     "resva":    "https://resva.readymode.com/",
     "resva2":   "https://resva2.readymode.com/",
+    "resva3":   "https://resva3.readymode.com/",
     "resva4":   "https://resva4.readymode.com/",
     "resva5":   "https://resva5.readymode.com/",
     "resva6":   "https://resva6.readymode.com/",

@@ -179,6 +179,57 @@ class ReadyModeHTTPClient:
                 f"status={r.status_code} body={snippet!r}"
             )
 
+    def export_call_log_csv(self, *, time_from: str, time_to: str,
+                            time_from_dateonly: str = "1", time_to_dateonly: str = "1",
+                            restrict_uid=0, restrict_campaign=0, types=None, dispositions=None,
+                            duration_filter="-1",
+                            fields=(("CCS_Profile.phone", "Phone"), ("u.u_name", "Agent name"))) -> bytes:
+        """Download the whole-day call-log CSV in ONE request and return the raw bytes.
+
+        Mirrors the browser's "Export -> Download CSV": the template dropdown is irrelevant on
+        the server side — the only thing that drives the output columns is the explicit
+        ``fieldList`` we POST. Rows are scoped by the session's report-filter state, so we seed
+        it first via :meth:`fetch_report` (date range + dispositions), exactly like the UI.
+
+        This is the right primitive for "pull everything for a day": the JSON ``fetch_report``
+        path returns 25 rows/page (hundreds of pages/dialer), whereas this returns the full set
+        in a single GET-equivalent POST. See ``docs/READYMODE_HTTP_SPEC.md §7``.
+        """
+        # seed session report state (date range + dispositions) like the browser
+        dmap = self.init_call_log()
+        if types is None:
+            if dispositions:
+                # Resolve the requested disposition labels to THIS dialer's own ids (per-dialer).
+                types = disposition_type_ids(dispositions, dmap)
+            elif dmap:
+                # No filter -> ALL of this dialer's ids (mirrors ticking every checkbox), so the
+                # export contains every call for the day, not the static-guess subset.
+                types = all_type_ids(dmap)
+        self.fetch_report(
+            time_from=time_from, time_to=time_to,
+            time_from_dateonly=time_from_dateonly, time_to_dateonly=time_to_dateonly,
+            restrict_uid=restrict_uid, restrict_campaign=restrict_campaign,
+            types=types, duration_filter=duration_filter, page=0,
+        )
+        body = []
+        for key, name in fields:
+            body.append(("fieldList[keys][]", key))
+            body.append(("fieldList[names][]", name))
+        r = self.session.post(
+            f"{self.dialer}/CCS Reports/call_log/ExportMenu/CL.csv",
+            data=body,
+            headers={"Referer": f"{self.dialer}/", "Origin": self.dialer},
+            timeout=120,
+        )
+        ctype = (r.headers.get("Content-Type") or "").lower()
+        if r.status_code != 200 or "csv" not in ctype:
+            snippet = (r.text or "")[:160].replace("\n", " ")
+            raise ReadyModeLoginError(
+                f"CSV export failed on {self.dialer} (status={r.status_code}, ctype={ctype!r}). "
+                f"Session expired or no permission? Body: {snippet!r}"
+            )
+        return r.content
+
     # ── user creation ─────────────────────────────────────────────────────────
     def get_writable_folders(self) -> dict:
         """This dialer's writable folders as {name.lower(): id}. Cached.

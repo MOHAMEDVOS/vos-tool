@@ -117,3 +117,56 @@ server-side pre-filtering too.
 - Page loop: read `pages`, request `page=0..N` until `max_samples` collected.
 - Per-dialer login (each dialer is a separate tenant; campaign "Vida" lives on a different dialer than agent "Omar").
 ```
+
+## 7. CSV export (call log report)  ✅ PROVEN live on resva6 2026-06-18
+
+The "Export → Download CSV" dialog is **not** required as a separate step — the template
+dropdown only pre-fills the field list client-side. The actual download is one POST with an
+explicit field list. Rows are scoped by the **session** report-filter state (date range,
+agent, campaign, dispositions) seeded exactly like §2 (`/update`).
+
+**Full flow:**
+```
+POST /CCS Reports/call_log               (X-Requested-With: XMLHttpRequest)   # init report state
+GET  /CCS Reports/call_log/update?...    (the §2 report[...] params)          # set date/agent/etc filter in session
+POST /CCS Reports/call_log/ExportMenu/CL.csv
+  Content-Type: application/x-www-form-urlencoded
+  body (repeatable keys, paired in order):
+    fieldList[keys][]  = <fieldKey>      fieldList[names][] = <column header>
+→ 200  Content-Type: text/csv;charset=UTF-8
+       Content-Disposition: attachment; filename="call_log_report_<Mon D YYYY>.csv"
+```
+
+**Phone + Agent name only** (matches saved template "RESVA6" id 39 — the minimal one; id 13 is
+a different, wide RESVA6 template):
+```
+fieldList[keys][]=CCS_Profile.phone & fieldList[names][]=Phone
+fieldList[keys][]=u.u_name          & fieldList[names][]=Agent name
+```
+Output header: `Phone,"Agent name"`. NOTE: each data row has a **trailing comma**
+(`5408911559,"Agent Name",`) — a ReadyMode quirk; a tolerant CSV parser ignores the empty
+trailing field.
+
+**Field keys** (from the dialog's `li[fieldKey]`; send key + chosen header name as a pair):
+| fieldKey | default label |
+|----------|---------------|
+| `CCS_Profile.phone` | Phone |
+| `u.u_name` | Agent name |
+| `u.u_account` | User: Login ID |
+| `Call Log ID` | Call Log ID |
+| `Log Time` | Log Time |
+| `Log Type` | Log Type |
+| `Recording ID` | Recording ID |
+| `CCS_Profile.firstName` / `.lastName` / `.city` / `.state` / `.email` | First/Last/City/State/Email |
+| `CCS_Profile.phone:0:3` / `CCS_Profile.phone:3` | Phone (Area Code) / (Without Area Code) |
+
+The dropdown order is irrelevant; the only thing that drives output columns is the
+`fieldList` you POST. Saved templates (id → fields) are just convenience and can be
+read via `GET /CCS Reports/call_log/ExportMenu/load_ajax?id=<id>` (JSON) if you ever
+want to mirror a named template instead of hardcoding keys.
+
+**Building the matching API:** wrap `ReadyModeHTTPClient` — add e.g.
+`export_call_log_csv(time_from, time_to, fields=[("CCS_Profile.phone","Phone"),("u.u_name","Agent name")], restrict_uid=0, restrict_campaign=0) -> bytes`.
+It logs in, calls `init_call_log()`, `fetch_report(...)` to seed the filter, then POSTs
+`CL.csv` and returns `r.content`. Recon scripts: `scratch/readymode-recon/probe_export.py`
+(dialog/templates) and `probe_export2.py` (live CSV pull).

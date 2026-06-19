@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOS Scoring — CSV Gather Flow</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#30363d;
+    --txt:#e6edf3; --muted:#8b949e; --accent:#2f81f7; --green:#3fb950;
+    --amber:#d29922; --red:#f85149; --mono:'SF Mono',Consolas,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5;padding:32px}
+  h1{font-size:24px;font-weight:800;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 28px;font-size:14px}
+  .lane{display:flex;align-items:stretch;gap:0;margin-bottom:14px;border:1px solid var(--line);
+    border-radius:12px;overflow:hidden;background:var(--panel)}
+  .tag{flex:0 0 150px;display:flex;align-items:center;justify-content:center;text-align:center;
+    font-weight:700;font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+    padding:14px;color:#fff}
+  .tag.fe{background:#1f6feb}.tag.be{background:#238636}.tag.client{background:#8957e5}
+  .tag.rm{background:#bb8009}.tag.store{background:#1f6feb}
+  .body{flex:1;padding:16px 18px}
+  .body h3{margin:0 0 6px;font-size:14px}
+  .body p{margin:0 0 8px;color:var(--muted);font-size:13px}
+  code{font-family:var(--mono);font-size:12px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:#9ad1ff}
+  .arrow{text-align:center;color:var(--muted);font-size:20px;margin:-6px 0 8px}
+  .steps{counter-reset:s;margin:8px 0 0;padding:0;list-style:none}
+  .steps li{counter-increment:s;position:relative;padding:8px 10px 8px 40px;margin-bottom:6px;
+    background:var(--panel2);border:1px solid var(--line);border-radius:8px;font-size:13px}
+  .steps li::before{content:counter(s);position:absolute;left:10px;top:8px;width:20px;height:20px;
+    border-radius:50%;background:var(--amber);color:#000;font-weight:800;font-size:12px;
+    display:flex;align-items:center;justify-content:center}
+  .steps b{color:var(--txt)} .steps .m{font-family:var(--mono);font-size:12px;color:#9ad1ff}
+  .why{color:var(--green);font-size:12px}
+  .note{margin-top:24px;padding:14px 16px;border-left:3px solid var(--accent);
+    background:var(--panel);border-radius:0 8px 8px 0;font-size:13px}
+  .note b{color:var(--accent)}
+  .pills{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .pill{font-size:11px;font-family:var(--mono);background:#2d1b00;border:1px solid #5c4400;
+    color:var(--amber);border-radius:20px;padding:2px 10px}
+</style>
+</head>
+<body>
+  <h1>Scoring — how the CSV gets pulled</h1>
+  <p class="sub">One click → 7 dialers pulled in parallel → cached under a run_id. Below is one dialer's path.</p>
+
+  <div class="lane">
+    <div class="tag fe">Frontend<br>ScoringPage</div>
+    <div class="body">
+      <h3>1 · You click "Gather Data"</h3>
+      <p><code>POST /api/scoring/gather</code> with the chosen date. Opens an SSE stream to show
+        live progress (<span class="m">n/7 dialers</span>).</p>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="lane">
+    <div class="tag be">Backend<br>scoring.py</div>
+    <div class="body">
+      <h3>2 · Fan out to all dialers</h3>
+      <p>Loads your ReadyMode creds, converts date → <code>MM/DD/YYYY</code>, then a thread pool
+        runs one <code>_pull_dialer()</code> per dialer at the same time.</p>
+      <div class="pills">
+        <span class="pill">resva</span><span class="pill">resva2</span><span class="pill">resva3</span>
+        <span class="pill">resva4</span><span class="pill">resva5</span><span class="pill">resva6</span>
+        <span class="pill">resva7</span>
+      </div>
+    </div>
+  </div>
+  <div class="arrow">▼ &nbsp;(per dialer)</div>
+
+  <div class="lane">
+    <div class="tag client">HTTP Client<br>readymode_http</div>
+    <div class="body">
+      <h3>3 · Four HTTP calls to ReadyMode — this is the CSV mechanic</h3>
+      <ol class="steps">
+        <li><b>Login.</b> <span class="m">GET /</span> (seed cookies) → <span class="m">POST /login_new</span>
+          with browser headers + <span class="m">logout_other_sessions=on</span>.
+          <span class="why">→ gets the <code>stationId</code> cookie = logged in.</span></li>
+        <li><b>Read disposition map.</b> <span class="m">POST /CCS Reports/call_log</span> (init_call_log).
+          <span class="why">→ this dialer's own ids: Wrong Number=5, Decision Maker-NYI=2.</span></li>
+        <li><b>Seed the filter.</b> <span class="m">GET /CCS Reports/call_log/update?report[...]</span>
+          with date + those 2 disposition ids.
+          <span class="why">→ sets the session's report filter on the server. Decides WHICH rows.</span></li>
+        <li><b>Download CSV.</b> <span class="m">POST /CCS Reports/call_log/ExportMenu/CL.csv</span>
+          body <span class="m">fieldList[keys][]=CCS_Profile.phone &amp; u.u_name</span>.
+          <span class="why">→ returns CSV bytes. Decides WHICH columns. Rows come from step 3's filter.</span></li>
+      </ol>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="lane">
+    <div class="tag rm">ReadyMode<br>server</div>
+    <div class="body">
+      <h3>Returns CSV</h3>
+      <p><code>Phone,"Agent name"</code> — only Wrong Number + Decision Maker-NYI calls for that day.
+        ~5k rows on a busy dialer.</p>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="lane">
+    <div class="tag be">Backend<br>scoring_sampler</div>
+    <div class="body">
+      <h3>4 · Parse &amp; index</h3>
+      <p><code>parse_phone_agent_csv</code> → <span class="m">[(agent, phone)]</span> →
+        <code>build_agent_index</code> → <span class="m">{agent: {dialer: [phones]}}</span>.</p>
+    </div>
+  </div>
+  <div class="arrow">▼</div>
+
+  <div class="lane">
+    <div class="tag store">Cache<br>Redis</div>
+    <div class="body">
+      <h3>5 · Add flagged calls + cache under run_id</h3>
+      <p><code>get_flagged_calls</code> (your audit data, same date) → flagged index. Both maps saved
+        in Redis under a <code>run_id</code> (1h). SSE emits <span class="m">done</span> with the counts.</p>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>The one trick to remember:</b> <code>CL.csv</code> carries no filter of its own. It just returns
+    whatever the session filter was set to in step 3 (<code>/update</code>). So <b>/update decides the
+    rows, CL.csv decides the columns.</b> That's why we always seed the filter right before downloading.
+  </div>
+
+  <div class="note">
+    <b>What happens next (separate clicks):</b> you paste agent names → <code>/generate</code> reads the
+    cached maps by <code>run_id</code> (no re-pull) → for each agent: flagged numbers if any, else 5 random
+    from their busiest dialer → table. Optional <code>/export-sheet</code> → Google Sheet.
+  </div>
+</body>
+</html>

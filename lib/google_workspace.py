@@ -282,6 +282,188 @@ def create_spreadsheet(
     return sheet_id, sheet_url
 
 
+def create_scoring_spreadsheet(
+    drive,
+    sheets,
+    name: str,
+    rows: List[Dict[str, Any]],
+    folder_id: str,
+) -> Tuple[str, str]:
+    """Create a Google Sheet for the Scoring section (one row per sampled number).
+
+    ``rows`` are the objects returned by ``lib.scoring_sampler.score_agents`` — each has
+    ``agent``, ``phones`` (``[{phone, flags}]``), ``note``, ``red_flag``. The agent name repeats
+    on each of its number rows; ``Note`` / ``Red Flag`` show only on the agent's first row.
+    Returns ``(sheet_id, sheet_url)``.
+    """
+    columns = ["Agent name", "Phone", "Flag", "Note", "Red Flag"]
+    FLAG_I, REDFLAG_I = 2, 4
+
+    data: List[List[str]] = []
+    flag_cells: List[int] = []      # data-row indexes (0-based within data) that carry a flag
+    redflag_cells: List[int] = []   # data-row indexes whose Red Flag == Yes
+    for r in rows:
+        phones = r.get("phones") or [None]
+        first = True
+        for p in phones:
+            phone = (p or {}).get("phone", "") if p else ""
+            flags = (p or {}).get("flags", []) if p else []
+            flag_txt = ", ".join(flags)
+            data.append([
+                r.get("agent", ""),
+                phone,
+                flag_txt,
+                r.get("note", "") if first else "",
+                ("Yes" if r.get("red_flag") else "No") if first else "",
+            ])
+            if flag_txt:
+                flag_cells.append(len(data) - 1)
+            if first and r.get("red_flag"):
+                redflag_cells.append(len(data) - 1)
+            first = False
+
+    body = {
+        "name": f"{name} – scoring",
+        "mimeType": "application/vnd.google-apps.spreadsheet",
+        "parents": [folder_id],
+    }
+    spreadsheet = drive.files().create(body=body, supportsAllDrives=True).execute()
+    sheet_id = spreadsheet["id"]
+
+    sheets.spreadsheets().values().update(
+        spreadsheetId=sheet_id,
+        range="Sheet1!A1",
+        valueInputOption="RAW",
+        body={"values": [columns] + data},
+    ).execute()
+
+    fmt_requests = [
+        {  # header row: dark green, white bold, frozen
+            "repeatCell": {
+                "range": {"sheetId": 0, "startRowIndex": 0, "endRowIndex": 1,
+                          "startColumnIndex": 0, "endColumnIndex": len(columns)},
+                "cell": {"userEnteredFormat": {
+                    "backgroundColor": _HEADER_BG,
+                    "textFormat": {"foregroundColor": _HEADER_FG, "bold": True},
+                    "horizontalAlignment": "CENTER",
+                }},
+                "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+            }
+        },
+        {"updateSheetProperties": {
+            "properties": {"sheetId": 0, "gridProperties": {"frozenRowCount": 1}},
+            "fields": "gridProperties.frozenRowCount",
+        }},
+    ]
+
+    def _red_cell(row_i: int, col_i: int):
+        return {"repeatCell": {
+            "range": {"sheetId": 0, "startRowIndex": row_i + 1, "endRowIndex": row_i + 2,
+                      "startColumnIndex": col_i, "endColumnIndex": col_i + 1},
+            "cell": {"userEnteredFormat": {
+                "backgroundColor": _RED_BG,
+                "textFormat": {"foregroundColor": _DETECT_FG, "bold": True},
+            }},
+            "fields": "userEnteredFormat(backgroundColor,textFormat)",
+        }}
+
+    fmt_requests += [_red_cell(i, FLAG_I) for i in flag_cells]
+    fmt_requests += [_red_cell(i, REDFLAG_I) for i in redflag_cells]
+
+    if fmt_requests:
+        sheets.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id, body={"requests": fmt_requests}
+        ).execute()
+
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
+    return sheet_id, sheet_url
+
+
+def append_scoring_rows(sheets, spreadsheet_id: str, tab_name: str, score_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Append one row per agent to an auditor tab of the company "Auditors-Scoring MOP" sheet.
+
+    The sheet is built on ARRAYFORMULAs anchored at row 3 (verified live): cols A(Date),
+    B(RES-ID), E(TL Name), F(Assigned Auditor), S(Performance Index%) auto-fill off Agent Name
+    (col C) — we MUST NOT write them. We write only C,D and G:R (two contiguous blocks that skip
+    the formula columns). Only two scoring columns are VOS-driven; the rest are fixed defaults:
+      I "Did the homeowner have to say hello first?"  = Yes if agent late-hello-flagged else No
+      M "Agent's sound is low?"                       = Yes if agent releasing-flagged else No
+
+    A runtime header guard refuses to write if the template's columns ever move, so a layout
+    change can never drop a value into the wrong scoring cell. Returns a small status dict.
+    """
+    meta = sheets.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+    sheet = next((s for s in meta["sheets"]
+                  if s["properties"]["title"].strip().lower() == tab_name.strip().lower()), None)
+    if not sheet:
+        raise ValueError(f"Tab {tab_name!r} not found in the scoring sheet")
+    title = sheet["properties"]["title"]
+    gid = sheet["properties"]["sheetId"]
+
+    # Header guard: combine header rows 1+2 per column and assert the columns are where we expect.
+    hdr = sheets.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id, range=f"'{title}'!A1:T2").execute().get("values", [])
+
+    def htext(col: int) -> str:
+        return " ".join(str(r[col]) for r in hdr if col < len(r)).lower()
+
+    def guard(col: int, *needles: str):
+        h = htext(col)
+        if not all(n in h for n in needles):
+            raise ValueError(
+                f"Scoring sheet layout changed (tab {title!r}, col index {col} = {h!r}); "
+                f"expected to contain {needles}. Aborting to avoid writing to the wrong column."
+            )
+
+    guard(2, "agent")                 # C Agent Name
+    guard(3, "phone")                 # D Phone Number
+    guard(6, "dialer")                # G Dialer Name
+    guard(8, "homeowner", "hello")    # I Late Hello
+    guard(12, "sound", "low")         # M Releasing
+
+    # Append point = first empty row in col C (data starts at row 3).
+    col_c = sheets.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id, range=f"'{title}'!C3:C").execute().get("values", [])
+    start = 3 + len(col_c)
+
+    cd_block, gr_block = [], []
+    for r in score_rows:
+        # phones stacked one-per-line inside the single Phone Number cell (newline = in-cell break)
+        phones = "\n".join(p.get("phone", "") for p in (r.get("phones") or []) if p.get("phone"))
+        flags = set(r.get("flag_types") or [])
+        late = "Yes" if "Late Hello" in flags else "No"
+        rel = "Yes" if "Releasing" in flags else "No"
+        dialer = str(r.get("dialer") or "").upper()
+        cd_block.append([r.get("agent", ""), phones])
+        # G  H    I     J     K     L     M    N     O        P     Q   R
+        gr_block.append([dialer, "OH", late, "Yes", "Yes", "Yes", rel, "No", "Active", "No", "", ""])
+
+    end = start + len(score_rows) - 1
+    sheets.spreadsheets().values().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={"valueInputOption": "RAW", "data": [
+            {"range": f"'{title}'!C{start}:D{end}", "values": cd_block},
+            {"range": f"'{title}'!G{start}:R{end}", "values": gr_block},
+        ]},
+    ).execute()
+
+    # Wrap the Phone Number cells (col D, index 3) so the stacked numbers display one-per-line.
+    sheets.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={"requests": [{
+            "repeatCell": {
+                "range": {"sheetId": gid, "startRowIndex": start - 1, "endRowIndex": end,
+                          "startColumnIndex": 3, "endColumnIndex": 4},
+                "cell": {"userEnteredFormat": {"wrapStrategy": "WRAP", "verticalAlignment": "TOP"}},
+                "fields": "userEnteredFormat(wrapStrategy,verticalAlignment)",
+            }
+        }]},
+    ).execute()
+
+    sheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit#gid={gid}"
+    return {"tab": title, "rows_added": len(score_rows), "start_row": start, "sheet_url": sheet_url}
+
+
 def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str, str, int, int]]) -> None:
     """Add a second sheet tab 'Agent Issues Summary' with a grouped issue table."""
 
