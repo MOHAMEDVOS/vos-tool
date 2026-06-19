@@ -68,6 +68,11 @@ class GenerateRequest(BaseModel):
     agent_names: List[str]
 
 
+class AuditRequest(BaseModel):
+    run_id: str
+    agent_names: List[str]
+
+
 class ExportSheetRequest(BaseModel):
     rows: List[dict]
     title: Optional[str] = None
@@ -242,6 +247,174 @@ async def generate(request: GenerateRequest, current_user: dict = Depends(get_cu
     result = score_agents(run.get("rand_index", {}), run.get("flagged_index", {}), request.agent_names)
     result["date"] = run.get("date")
     return result
+
+
+# ── POST /audit (SSE) ────────────────────────────────────────────────────────────
+@router.post("/audit")
+async def audit(request: AuditRequest, current_user: dict = Depends(get_current_user)):
+    """Heavy-audit each pasted agent (5 samples, 20s+) and majority-vote the 5 scoring points.
+
+    Reuses a prior /gather run for the agent->busiest-dialer index and the Actions-page
+    flagged_index. Per agent: download 5 samples (>=20s, same as Heavy Audit) from the busiest
+    dialer, transcribe + detect, then fold into one scoring row via lib.scoring_audit.aggregate_agent
+    (Actions-page calls add late-hello/releasing votes). Streams per-agent progress.
+
+    Results are NOT persisted to any dashboard/DB — they're streamed back for the table and
+    /export-sheet, exactly like a normal heavy audit that the auditor scores by hand.
+    """
+    username = current_user["username"]
+
+    run = _load_run(request.run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Gather run not found or expired — gather again.")
+
+    from config import get_user_readymode_credentials
+    rm_user, rm_pass = get_user_readymode_credentials(username)
+    if not rm_user or not rm_pass:
+        raise HTTPException(status_code=400, detail="ReadyMode credentials not configured")
+
+    rand_index = run.get("rand_index", {})
+    flagged_index = run.get("flagged_index", {})
+    run_date = run.get("date")
+    day = _date.fromisoformat(run_date) if run_date else _date.today()
+
+    dialer_urls = {name: url for name, url in _dialer_list()}
+    rand_keys = set(rand_index.keys())
+    flagged_keys = set(flagged_index.keys())
+
+    names = [str(n).strip() for n in (request.agent_names or []) if str(n).strip()]
+    total = len(names)
+
+    cancel_event = threading.Event()
+    log_q: "queue.Queue[Optional[tuple]]" = queue.Queue()
+    result_box: dict = {}
+
+    _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac"}
+
+    def _prog(i: int, name: str, phase: str, **extra):
+        log_q.put(("progress", json.dumps({"agent_idx": i, "total": total, "agent": name,
+                                           "phase": phase, **extra})))
+
+    def worker():
+        from lib.scoring_sampler import _match_key
+        from lib.scoring_audit import aggregate_agent
+        from automation.download_readymode_calls import download_all_call_recordings
+        from processing import batch_analyze_folder_fast
+        from backend.services.user_service import get_user_settings
+
+        user_api_key = (get_user_settings(username) or {}).get("assemblyai_api_key")
+
+        rows, skipped = [], []
+        try:
+            for i, name in enumerate(names, start=1):
+                if cancel_event.is_set():
+                    break
+
+                rk = _match_key(rand_keys, name)
+                dmap = rand_index.get(rk, {}) if rk else {}
+                action_calls = flagged_index.get(_match_key(flagged_keys, name) or "", [])
+
+                # No dialer presence AND no flagged history → nothing to score.
+                if not dmap and not action_calls:
+                    skipped.append(name)
+                    _prog(i, name, "skipped")
+                    continue
+
+                fresh_rows = []
+                dialer_name = max(dmap, key=lambda d: len(dmap[d])) if dmap else ""
+                dialer_url = dialer_urls.get(dialer_name) if dialer_name else None
+
+                if dialer_url:
+                    try:
+                        _prog(i, name, "download")
+                        folder = download_all_call_recordings(
+                            dialer_url=dialer_url,
+                            agent=name,
+                            start_date=day,
+                            end_date=day,
+                            max_samples=5,
+                            min_duration=20,
+                            disposition=SCORING_DISPOSITIONS,  # keep the 2-disposition rule (matches Gather)
+                            username=username,
+                            readymode_user=rm_user,
+                            readymode_pass=rm_pass,
+                            cancellation_callback=cancel_event.is_set,
+                            update_callback=lambda dl, tot, _i=i, _n=name: _prog(
+                                _i, _n, "download", downloaded=dl, dl_total=tot),
+                        )
+                        if cancel_event.is_set():
+                            break
+                        folder_path = Path(folder) if isinstance(folder, (str, Path)) else None
+                        has_audio = bool(folder_path and folder_path.exists() and any(
+                            p.is_file() and p.suffix.lower() in _AUDIO_EXTS
+                            for p in folder_path.rglob("*")))
+                        if has_audio:
+                            _prog(i, name, "analyze")
+                            df = batch_analyze_folder_fast(
+                                str(folder_path),
+                                additional_metadata={"Dialer Name": dialer_name.upper()},
+                                show_all_results=True,
+                                use_async=True,
+                                username=username,
+                                user_api_key=user_api_key,
+                            )
+                            if df is not None and not df.empty:
+                                fresh_rows = df.to_dict("records")
+                    except Exception as e:
+                        # One agent's download/analysis failure shouldn't kill the whole run.
+                        logger.warning(f"Scoring audit: {name} download/analyze failed: {e}")
+                        log_q.put(("log", f"{name}: {e}"))
+
+                if not fresh_rows and not action_calls:
+                    skipped.append(name)
+                    _prog(i, name, "skipped")
+                    continue
+
+                rows.append(aggregate_agent(name, fresh_rows, action_calls,
+                                            dialer=dialer_name.upper()))
+                _prog(i, name, "done")
+
+            # Always keep whatever completed so a cancel still returns partial rows.
+            result_box["done"] = {"rows": rows, "skipped": skipped, "date": run_date}
+            if cancel_event.is_set():
+                result_box["cancelled"] = True
+        except Exception as e:
+            logger.error(f"Scoring audit failed: {e}", exc_info=True)
+            result_box["error"] = str(e)
+        finally:
+            log_q.put(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        try:
+            yield _sse("start", f"Auditing {total} agent(s)")
+            while True:
+                try:
+                    item = log_q.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.2)
+                    yield ": ping\n\n"
+                    continue
+                if item is None:
+                    break
+                yield _sse(item[0], item[1])
+            if result_box.get("cancelled"):
+                yield _sse("cancelled", json.dumps(result_box.get("done") or {"rows": [], "skipped": []}))
+            elif "error" in result_box:
+                yield _sse("error", result_box["error"])
+            else:
+                yield _sse("done", json.dumps(result_box.get("done", {"rows": [], "skipped": []})))
+        except (asyncio.CancelledError, GeneratorExit):
+            cancel_event.set()
+            logger.info(f"Scoring audit SSE disconnected for {username}")
+            raise
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ── POST /export-sheet ──────────────────────────────────────────────────────────

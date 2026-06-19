@@ -1,10 +1,41 @@
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
-import { scoringApi, type GatherResult, type ScoreRow } from '@/api/scoring'
+import { scoringApi, type GatherResult, type ScoreRow, type AuditProgress, type AuditScores } from '@/api/scoring'
 import { Copy, Check, AlertTriangle } from 'lucide-react'
 
 const labelClass = 'text-[10px] font-black uppercase tracking-[0.1em] mb-2 block'
+
+// The 5 scored points and which value counts as an issue (drives the red/green badge).
+const SCORE_DEFS: { key: keyof AuditScores; label: string; issue: string; title: string }[] = [
+  { key: 'late_hello', label: 'Hello', issue: 'Yes', title: 'Homeowner had to say "hello" first (Late Hello)' },
+  { key: 'releasing', label: 'Releasing', issue: 'Yes', title: "Agent's sound is low (Releasing)" },
+  { key: 'rebuttal_ok', label: 'Rebuttal', issue: 'No', title: 'Used rebuttals correctly' },
+  { key: 'agent_intro', label: 'Intro', issue: 'No', title: 'Said his name (Agent Intro)' },
+  { key: 'reason', label: 'Reason', issue: 'No', title: 'Stated the reason for calling' },
+]
+
+function ScoreBadges({ scores }: { scores: AuditScores }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {SCORE_DEFS.map(({ key, label, issue, title }) => {
+        const isIssue = scores[key] === issue
+        return (
+          <span
+            key={key}
+            title={`${title}: ${scores[key]}`}
+            className="rounded px-1.5 py-0.5 text-[10px] font-bold"
+            style={isIssue
+              ? { background: '#c0392b', color: '#fff' }
+              : { background: 'rgba(39,174,96,0.15)', color: 'var(--t-muted)' }}
+          >
+            {label}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
 
 function today(): string {
   // Local date (not UTC) — toISOString() rolls to the next day in the evening for UTC+ zones.
@@ -27,6 +58,11 @@ export function ScoringPage() {
   const [generating, setGenerating] = useState(false)
   const [rows, setRows] = useState<ScoreRow[] | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
+
+  // ── audit-&-score phase (heavy audit per agent) ──
+  const [auditing, setAuditing] = useState(false)
+  const [auditProgress, setAuditProgress] = useState<AuditProgress | null>(null)
+  const auditAbortRef = useRef<AbortController | null>(null)
 
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -72,6 +108,31 @@ export function ScoringPage() {
     }
   }
 
+  const runAudit = async () => {
+    if (!gatherResult) return
+    const agentNames = names.split('\n').map((s) => s.trim()).filter(Boolean)
+    if (agentNames.length === 0) { setError('Paste at least one agent name'); return }
+    setError(null); setRows(null); setSkipped([]); setSent(false)
+    setAuditing(true); setAuditProgress(null)
+    auditAbortRef.current = new AbortController()
+    try {
+      const res = await scoringApi.auditStream(
+        gatherResult.run_id,
+        agentNames,
+        (p) => setAuditProgress(p),
+        auditAbortRef.current.signal,
+      )
+      setRows(res.rows)
+      setSkipped(res.skipped)
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') setError(e?.message || 'Audit failed')
+    } finally {
+      setAuditing(false)
+    }
+  }
+
+  const cancelAudit = () => auditAbortRef.current?.abort()
+
   const buildTsv = (data: ScoreRow[]): string => {
     const lines = ['Agent name\tPhone\tFlag\tNote\tRed Flag']
     for (const r of data) {
@@ -109,6 +170,8 @@ export function ScoringPage() {
       setExporting(false)
     }
   }
+
+  const hasScores = !!rows?.some((r) => r.scores)
 
   return (
     <div className="mx-auto max-w-[1600px] px-6 py-6">
@@ -154,11 +217,35 @@ export function ScoringPage() {
                 style={{ color: 'var(--t-primary)' }}
               />
             </div>
-            <Button variant="action" onClick={runGenerate} disabled={!gatherResult || generating}>
+            <Button variant="action" onClick={runGenerate} disabled={!gatherResult || generating || auditing}>
               {generating ? 'Generating…' : 'Generate'}
             </Button>
+            {auditing ? (
+              <Button variant="secondary" onClick={cancelAudit}>Cancel</Button>
+            ) : (
+              <Button variant="action" onClick={runAudit} disabled={!gatherResult || generating}>
+                Audit &amp; Score
+              </Button>
+            )}
           </div>
         </div>
+
+        {/* audit progress */}
+        {auditing && (
+          <div className="mt-2 flex items-center gap-2 text-xs" style={{ color: 'var(--t-primary)' }}>
+            <Spinner />
+            {auditProgress ? (
+              <span>
+                Agent <strong>{auditProgress.agent_idx}/{auditProgress.total}</strong> — {auditProgress.agent}
+                {' · '}{auditProgress.phase}
+                {auditProgress.phase === 'download' && auditProgress.dl_total
+                  ? ` ${auditProgress.downloaded ?? 0}/${auditProgress.dl_total}` : ''}
+              </span>
+            ) : (
+              <span>Starting audit… (downloads + transcription — this can take a while for many agents)</span>
+            )}
+          </div>
+        )}
 
         {/* status / hint line */}
         {gatherResult ? (
@@ -200,7 +287,7 @@ export function ScoringPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left" style={{ color: 'var(--t-label)' }}>
-                  {['Agent', 'Numbers', 'Note', 'Red Flag'].map((h) => (
+                  {(hasScores ? ['Agent', 'Numbers', 'Scores', 'Note', 'Red Flag'] : ['Agent', 'Numbers', 'Note', 'Red Flag']).map((h) => (
                     <th key={h} className="sticky top-0 z-10 px-4 py-2.5 font-black uppercase text-[10px] tracking-wider"
                         style={{ background: 'var(--surface-card)' }}>{h}</th>
                   ))}
@@ -223,7 +310,12 @@ export function ScoringPage() {
                       ))}
                       {r.phones.length === 0 && <span style={{ color: 'var(--t-muted)' }}>—</span>}
                     </td>
-                    <td className="px-4 py-2.5" style={{ color: r.source === 'flagged' ? 'var(--semantic-error)' : 'var(--t-muted)' }}>
+                    {hasScores && (
+                      <td className="px-4 py-2.5">
+                        {r.scores ? <ScoreBadges scores={r.scores} /> : <span style={{ color: 'var(--t-muted)' }}>—</span>}
+                      </td>
+                    )}
+                    <td className="px-4 py-2.5" style={{ color: r.source === 'flagged' || r.source === 'audited' ? 'var(--semantic-error)' : 'var(--t-muted)' }}>
                       {r.note}
                     </td>
                     <td className="px-4 py-2.5">

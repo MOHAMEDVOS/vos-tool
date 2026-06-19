@@ -385,9 +385,16 @@ def append_scoring_rows(sheets, spreadsheet_id: str, tab_name: str, score_rows: 
     The sheet is built on ARRAYFORMULAs anchored at row 3 (verified live): cols A(Date),
     B(RES-ID), E(TL Name), F(Assigned Auditor), S(Performance Index%) auto-fill off Agent Name
     (col C) — we MUST NOT write them. We write only C,D and G:R (two contiguous blocks that skip
-    the formula columns). Only two scoring columns are VOS-driven; the rest are fixed defaults:
-      I "Did the homeowner have to say hello first?"  = Yes if agent late-hello-flagged else No
-      M "Agent's sound is low?"                       = Yes if agent releasing-flagged else No
+    the formula columns).
+
+    A row may carry a ``scores`` dict (from the heavy-audit "Audit & Score" flow). When present we
+    fill FIVE scoring columns from real detections; otherwise we fall back to the legacy defaults
+    (only I + M VOS-driven, J/K/L fixed "Yes"):
+      I "Did the homeowner have to say hello first?"        = Yes if late_hello issue
+      J "Did the caller say his name and the purpose...?"   = No  if agent_intro missing
+      K "Was the introduction delivered with energy...?"    = No  if reason missing
+      L "Did the agent use rebutalls correctly?"            = No  if rebuttals not used correctly
+      M "Agent's sound is low?"                             = Yes if releasing issue
 
     A runtime header guard refuses to write if the template's columns ever move, so a layout
     change can never drop a value into the wrong scoring cell. Returns a small status dict.
@@ -419,6 +426,9 @@ def append_scoring_rows(sheets, spreadsheet_id: str, tab_name: str, score_rows: 
     guard(3, "phone")                 # D Phone Number
     guard(6, "dialer")                # G Dialer Name
     guard(8, "homeowner", "hello")    # I Late Hello
+    guard(9, "name", "purpose")       # J Agent Intro (name + purpose)
+    guard(10, "energy")               # K Reason / intro energy + focus
+    guard(11, "rebut")                # L Rebuttals correctly ("rebutalls" in the sheet)
     guard(12, "sound", "low")         # M Releasing
 
     # Append point = first empty row in col C (data starts at row 3).
@@ -453,11 +463,21 @@ def append_scoring_rows(sheets, spreadsheet_id: str, tab_name: str, score_rows: 
         cd_block.append([r.get("agent", ""), phones])
 
         releasing_n = sum(1 for p in row_phones if "Releasing" in (p.get("flags") or []))
+        scores = r.get("scores")
         if releasing_n >= 10:
             # Heavy-releasing agent (10+ releasing samples) gets a distinct scoring block.
             # H=AE, intro all Yes, sound-low + sound-cutting Yes, Tonality=Sleepy.
             # G   H     I      J      K      L      M      N      O         P     Q   R
             gr_block.append([dialer, "AE", "Yes", "Yes", "Yes", "Yes", "Yes", "Yes", "Sleepy", "No", "", ""])
+        elif scores:
+            # Heavy-audit "Audit & Score" row: I/J/K/L/M all come from real majority-vote detections.
+            late = "Yes" if str(scores.get("late_hello")) == "Yes" else "No"
+            rel = "Yes" if str(scores.get("releasing")) == "Yes" else "No"
+            j = "Yes" if str(scores.get("agent_intro")) == "Yes" else "No"   # No = intro missing
+            k = "Yes" if str(scores.get("reason")) == "Yes" else "No"        # No = reason missing
+            l = "Yes" if str(scores.get("rebuttal_ok")) == "Yes" else "No"   # No = rebuttals not correct
+            # G   H     I     J  K  L  M    N     O         P     Q   R
+            gr_block.append([dialer, "OH", late, j, k, l, rel, "No", "Active", "No", "", ""])
         else:
             late = "Yes" if "Late Hello" in flags else "No"
             rel = "Yes" if "Releasing" in flags else "No"
