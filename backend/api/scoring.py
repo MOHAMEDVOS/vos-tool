@@ -57,6 +57,11 @@ LOGIN_TO_TAB = {
     "zeinab@res-va.com": "Zizi",
 }
 
+# Scoring pools the Actions-tab (flagged) data of ALL these auditors so an agent's flags are found
+# no matter who audited them. Each auditor's own dashboard view stays private/separate — only the
+# scoring gather reads across all three.
+SCORING_USERS = list(LOGIN_TO_TAB.keys())
+
 
 # ── request models ───────────────────────────────────────────────────────────
 class GatherRequest(BaseModel):
@@ -181,9 +186,19 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
 
             rand_index = build_agent_index(records_by_dialer)
 
-            # flagged calls from VOS's own audit data for the same day
+            # Flagged (Actions-tab) calls for the same day, pooled across ALL scoring auditors so
+            # an agent's flags surface regardless of who audited them. Deduped defensively in case
+            # the auditors ever share a dashboard group (today they don't — views stay separate).
             from backend.services.dashboard_service import get_flagged_calls
-            flagged = get_flagged_calls(username, day, day)
+            flagged, seen_calls = [], set()
+            for scoring_user in SCORING_USERS:
+                for call in get_flagged_calls(scoring_user, day, day):
+                    key = (str(call.get("Agent Name", "")), str(call.get("Phone Number", "")),
+                           str(call.get("Timestamp", "")), str(call.get("File Name", "")))
+                    if key in seen_calls:
+                        continue
+                    seen_calls.add(key)
+                    flagged.append(call)
             flagged_index = build_flagged_index(flagged)
 
             run_id = uuid.uuid4().hex
