@@ -426,6 +426,23 @@ def append_scoring_rows(sheets, spreadsheet_id: str, tab_name: str, score_rows: 
         spreadsheetId=spreadsheet_id, range=f"'{title}'!C3:C").execute().get("values", [])
     start = 3 + len(col_c)
 
+    # Snapshot the row-3 array-formula anchors (A/B/E/F/S). These auto-fill Date/RES-ID/TL/
+    # Auditor/Performance-Index off Agent Name and must never be lost. We never write them, but
+    # this lets us *guarantee* it: if anything clobbers them during the write, we put them back.
+    _FORMULA_CELLS = ["A3", "B3", "E3", "F3", "S3"]
+
+    def _read_formula_cells() -> dict:
+        vrs = sheets.spreadsheets().values().batchGet(
+            spreadsheetId=spreadsheet_id, ranges=[f"'{title}'!{c}" for c in _FORMULA_CELLS],
+            valueRenderOption="FORMULA").execute().get("valueRanges", [])
+        out = {}
+        for cell, vr in zip(_FORMULA_CELLS, vrs):
+            vals = vr.get("values") or [[""]]
+            out[cell] = vals[0][0] if (vals and vals[0]) else ""
+        return out
+
+    formula_snapshot = _read_formula_cells()
+
     cd_block, gr_block = [], []
     for r in score_rows:
         # phones stacked one-per-line inside the single Phone Number cell (newline = in-cell break)
@@ -460,8 +477,62 @@ def append_scoring_rows(sheets, spreadsheet_id: str, tab_name: str, score_rows: 
         }]},
     ).execute()
 
+    # Guarantee: restore any anchor formula that lost its "=" during the write.
+    after = _read_formula_cells()
+    restore = [
+        {"range": f"'{title}'!{cell}", "values": [[formula_snapshot[cell]]]}
+        for cell in _FORMULA_CELLS
+        if str(formula_snapshot.get(cell, "")).startswith("=")
+        and not str(after.get(cell, "")).startswith("=")
+    ]
+    restored_cells = [r["range"].split("!")[-1] for r in restore]
+    if restore:
+        sheets.spreadsheets().values().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body={"valueInputOption": "USER_ENTERED", "data": restore},
+        ).execute()
+        logger.warning("append_scoring_rows: restored %d clobbered formula(s) in tab %r: %s",
+                       len(restore), title, restored_cells)
+
     sheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit#gid={gid}"
-    return {"tab": title, "rows_added": len(score_rows), "start_row": start, "sheet_url": sheet_url}
+    return {"tab": title, "rows_added": len(score_rows), "start_row": start,
+            "sheet_url": sheet_url, "formulas_restored": restored_cells}
+
+
+SCORING_FORMULA_CELLS = ["A3", "B3", "E3", "F3", "S3"]
+
+
+def restore_scoring_formulas(sheets, spreadsheet_id: str, target_tab: str,
+                             source_tab: str = "Aya") -> Dict[str, Any]:
+    """Repair a wiped auditor tab by copying its row-3 array-formulas (A/B/E/F/S) from a
+    healthy sibling tab. All auditor tabs share the same template and the formulas use
+    sheet-local refs (``C3:C``, ``$F$2``, ``'DATA Validation'!E:F``, ``Settings!D2``), so the
+    text copies across correctly. Only restores a target cell that is currently NOT a formula.
+    Returns {restored: [cells], source: tab}.
+    """
+    src = sheets.spreadsheets().values().batchGet(
+        spreadsheetId=spreadsheet_id, ranges=[f"'{source_tab}'!{c}" for c in SCORING_FORMULA_CELLS],
+        valueRenderOption="FORMULA").execute().get("valueRanges", [])
+    tgt = sheets.spreadsheets().values().batchGet(
+        spreadsheetId=spreadsheet_id, ranges=[f"'{target_tab}'!{c}" for c in SCORING_FORMULA_CELLS],
+        valueRenderOption="FORMULA").execute().get("valueRanges", [])
+
+    def cell_val(vr):
+        vals = vr.get("values") or [[""]]
+        return vals[0][0] if (vals and vals[0]) else ""
+
+    data = []
+    for cell, svr, tvr in zip(SCORING_FORMULA_CELLS, src, tgt):
+        s, t = str(cell_val(svr)), str(cell_val(tvr))
+        if s.startswith("=") and not t.startswith("="):
+            data.append({"range": f"'{target_tab}'!{cell}", "values": [[s]]})
+    if data:
+        sheets.spreadsheets().values().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body={"valueInputOption": "USER_ENTERED", "data": data}).execute()
+    restored = [d["range"].split("!")[-1] for d in data]
+    logger.info("restore_scoring_formulas: %r <- %r restored %s", target_tab, source_tab, restored)
+    return {"restored": restored, "source": source_tab}
 
 
 def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str, str, int, int]]) -> None:
