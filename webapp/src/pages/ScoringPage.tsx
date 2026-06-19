@@ -19,7 +19,6 @@ export function ScoringPage() {
   const [date, setDate] = useState(today())
   const [gathering, setGathering] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
-  const [logs, setLogs] = useState<string[]>([])
   const [gatherResult, setGatherResult] = useState<GatherResult | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -35,7 +34,7 @@ export function ScoringPage() {
   const [sent, setSent] = useState(false)
 
   const runGather = async () => {
-    setError(null); setLogs([]); setProgress(null); setGatherResult(null)
+    setError(null); setProgress(null); setGatherResult(null)
     setRows(null); setSkipped([]); setSent(false)
     setGathering(true)
     abortRef.current = new AbortController()
@@ -43,8 +42,7 @@ export function ScoringPage() {
       const result = await scoringApi.gatherStream(
         date,
         (event, data) => {
-          if (event === 'log') setLogs((l) => [...l, data])
-          else if (event === 'progress') {
+          if (event === 'progress') {
             try { setProgress(JSON.parse(data)) } catch { /* ignore */ }
           }
         },
@@ -114,11 +112,7 @@ export function ScoringPage() {
 
   return (
     <div className="mx-auto max-w-[1600px] px-6 py-6">
-      <h1 className="text-2xl font-black tracking-tight mb-1" style={{ color: 'var(--t-primary)' }}>Scoring</h1>
-      <p className="text-sm mb-4" style={{ color: 'var(--t-muted)' }}>
-        Pull phone + agent data from all dialers (Wrong Number &amp; Decision Maker - NYI only), then
-        paste agent names to get their sampling list — flagged calls first, otherwise 5 random.
-      </p>
+      <h1 className="text-2xl font-black tracking-tight mb-4" style={{ color: 'var(--t-primary)' }}>Scoring</h1>
 
       {/* ── Sticky toolbar: Gather + Names in one slim bar ── */}
       <div className="sticky top-0 z-20 -mx-6 mb-4 border-b border-b-subtle px-6 py-3 bg-c-base">
@@ -170,7 +164,6 @@ export function ScoringPage() {
         {gatherResult ? (
           <div className="mt-2 text-xs" style={{ color: 'var(--t-primary)' }}>
             ✓ <strong>{gatherResult.agent_count}</strong> agents ({gatherResult.flagged_agent_count} flagged, {gatherResult.total_rows} calls)
-            {' '}· OK: {gatherResult.dialers_ok.join(', ') || 'none'}
             {gatherResult.dialers_failed.length > 0 && (
               <span style={{ color: 'var(--semantic-error)' }}> · Failed: {gatherResult.dialers_failed.join(', ')}</span>
             )}
@@ -179,13 +172,6 @@ export function ScoringPage() {
           !gathering && <div className="mt-2 text-xs" style={{ color: 'var(--t-muted)' }}>Gather data first, then paste agent names and Generate.</div>
         )}
       </div>
-
-      {/* gather logs (while gathering) */}
-      {logs.length > 0 && (
-        <div className="mb-4 max-h-28 overflow-y-auto rounded-md bg-black/5 p-3 text-xs font-mono" style={{ color: 'var(--t-muted)' }}>
-          {logs.map((l, i) => <div key={i}>{l}</div>)}
-        </div>
-      )}
 
       {error && (
         <div className="mb-6 rounded-md p-3 text-sm" style={{ background: 'rgba(192,57,43,0.1)', color: 'var(--semantic-error)' }}>
