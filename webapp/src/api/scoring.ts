@@ -12,6 +12,8 @@ export interface GatherResult {
 export interface ScorePhone {
   phone: string
   flags: string[]
+  /** true = random filler number from the agent's CSV (not audited/scored). */
+  padded?: boolean
 }
 
 /** Per-point verdicts from the heavy-audit "Audit & Score" flow. Each is "Yes"/"No".

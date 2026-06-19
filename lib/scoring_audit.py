@@ -19,9 +19,11 @@ Voting:
   * late_hello and releasing also count the agent's Actions-page (already-flagged) calls — each
     such call votes by whether it tripped that flag. The other three points use the fresh samples
     only, because Actions-page rows don't carry intro / reason / rebuttal signal we trust here.
+  * REBUTTAL is the exception to majority: cleared only when 2+ audited samples used a rebuttal,
+    flagged otherwise (a rebuttal isn't required on every call). Intro/reason stay on majority.
 """
 
-from collections import defaultdict
+import random
 
 from lib.scoring_sampler import (
     FLAG_RELEASING,
@@ -62,7 +64,8 @@ def _detected_flags(row: dict) -> list:
     return flags
 
 
-def aggregate_agent(agent: str, fresh_rows: list, action_calls: list, dialer: str = "") -> dict:
+def aggregate_agent(agent: str, fresh_rows: list, action_calls: list, dialer: str = "",
+                    pad_pool: list = None, pad_to: int = 5) -> dict:
     """Fold an agent's fresh samples + Actions-page calls into one scoring row.
 
     Args:
@@ -70,6 +73,10 @@ def aggregate_agent(agent: str, fresh_rows: list, action_calls: list, dialer: st
         fresh_rows:   per-call dicts from ``batch_analyze_folder_fast`` for this agent's samples.
         action_calls: this agent's entries from the gather ``flagged_index`` -> ``[{phone, flags, dialer}]``.
         dialer:       busiest dialer the samples came from (col G), upper-cased by the caller is fine.
+        pad_pool:     the agent's CSV call numbers (raw). When fewer than ``pad_to`` real numbers
+                      were audited, the phone cell is topped up with random unused numbers from this
+                      pool. Padded numbers are display/sheet fill only — they do NOT affect scoring.
+        pad_to:       target number of phone numbers in the row (default 5).
 
     Returns a row consumed by both the UI table and ``append_scoring_rows``::
 
@@ -111,11 +118,14 @@ def aggregate_agent(agent: str, fresh_rows: list, action_calls: list, dialer: st
     rel_issue = _majority(rel_yes, rel_total)
 
     # ── rebuttal / intro / reason: fresh samples only ──
-    reb_total, _, reb_no = _yes_no_valid("Rebuttal Detection", "rebuttal_detection")
+    reb_total, reb_yes, reb_no = _yes_no_valid("Rebuttal Detection", "rebuttal_detection")
     intro_total, _, intro_no = _yes_no_valid("Agent Intro", "agent_intro")
     reason_total, _, reason_no = _yes_no_valid("Reason for calling", "Reason for Calling", "reason_for_calling")
 
-    rebuttal_bad = _majority(reb_no, reb_total)     # majority "No" -> rebuttals not used correctly
+    # Rebuttal is the exception — not majority. A rebuttal isn't needed on every call, so the agent
+    # is cleared as soon as TWO audited samples used one; flagged otherwise (incl. small batches
+    # that never rebutted). No rebuttal data at all (reb_total == 0) is never penalised.
+    rebuttal_bad = reb_total > 0 and reb_yes < 2
     intro_missing = _majority(intro_no, intro_total)
     reason_missing = _majority(reason_no, reason_total)
 
@@ -149,6 +159,23 @@ def aggregate_agent(agent: str, fresh_rows: list, action_calls: list, dialer: st
         for d in order
     ]
 
+    # Top up to `pad_to` with random unused numbers from the agent's CSV calls. The 20s+/2-dispo
+    # filter often yields <5 audited samples; these fillers complete the sheet's Phone cell but are
+    # NOT scored (no detections ran on them), so the majority verdict above is unchanged.
+    padded_count = 0
+    if pad_pool and len(phones) < pad_to:
+        seen = set(by_number.keys())
+        candidates = []
+        for raw in pad_pool:
+            d = normalize_digits(raw)
+            if d and d not in seen:
+                seen.add(d)
+                candidates.append(d)
+        need = pad_to - len(phones)
+        picks = candidates if len(candidates) <= need else random.sample(candidates, need)
+        phones.extend({"phone": format_phone_us(d), "flags": [], "padded": True} for d in picks)
+        padded_count = len(picks)
+
     # Human-readable issue summary for the table.
     issues = []
     if late_issue:
@@ -171,13 +198,14 @@ def aggregate_agent(agent: str, fresh_rows: list, action_calls: list, dialer: st
         "flag_types": flag_types,
         "sample_count": len(valid_rows),
         "action_count": len(action_calls),
+        "padded_count": padded_count,
         "red_flag": bool(issues),
         "source": "audited",
         "dialer": dialer,
         "tallies": {
             "late_hello": {"yes": lh_yes, "total": lh_total},
             "releasing": {"yes": rel_yes, "total": rel_total},
-            "rebuttal_no": {"no": reb_no, "total": reb_total},
+            "rebuttal": {"yes": reb_yes, "no": reb_no, "total": reb_total},
             "agent_intro_no": {"no": intro_no, "total": intro_total},
             "reason_no": {"no": reason_no, "total": reason_total},
         },

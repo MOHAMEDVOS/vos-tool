@@ -299,8 +299,11 @@ export function ScoringPage() {
                     <td className="whitespace-nowrap px-4 py-2.5 font-medium" style={{ color: 'var(--t-primary)' }}>{r.agent}</td>
                     <td className="px-4 py-2.5 font-mono">
                       {r.phones.map((p, j) => (
-                        <div key={j} style={{ color: 'var(--t-primary)' }}>
+                        <div key={j} style={{ color: p.padded ? 'var(--t-muted)' : 'var(--t-primary)' }}>
                           {p.phone}
+                          {p.padded && (
+                            <span className="ml-2 text-[10px] font-sans" style={{ color: 'var(--t-muted)' }}>fill</span>
+                          )}
                           {p.flags.length > 0 && (
                             <span className="ml-2 text-[10px] font-sans font-bold" style={{ color: 'var(--semantic-error)' }}>
                               {p.flags.join(', ')}

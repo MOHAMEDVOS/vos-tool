@@ -370,8 +370,11 @@ async def audit(request: AuditRequest, current_user: dict = Depends(get_current_
                     _prog(i, name, "skipped")
                     continue
 
+                # pad the phone cell up to 5 with random unused numbers from this agent's CSV
+                # calls on the busiest dialer (fillers only — not scored).
                 rows.append(aggregate_agent(name, fresh_rows, action_calls,
-                                            dialer=dialer_name.upper()))
+                                            dialer=dialer_name.upper(),
+                                            pad_pool=dmap.get(dialer_name, [])))
                 _prog(i, name, "done")
 
             # Always keep whatever completed so a cancel still returns partial rows.
