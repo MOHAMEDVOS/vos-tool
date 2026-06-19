@@ -19,8 +19,9 @@ Voting:
   * late_hello and releasing also count the agent's Actions-page (already-flagged) calls — each
     such call votes by whether it tripped that flag. The other three points use the fresh samples
     only, because Actions-page rows don't carry intro / reason / rebuttal signal we trust here.
-  * REBUTTAL is the exception to majority: cleared only when 2+ audited samples used a rebuttal,
-    flagged otherwise (a rebuttal isn't required on every call). Intro/reason stay on majority.
+  * REBUTTAL is the exception to majority and intentionally conservative: flagged only when a full
+    set of 5 samples was scored AND fewer than 2 used a rebuttal; fewer than 5 scored samples are
+    never flagged. Intro/reason stay on majority.
 """
 
 import random
@@ -33,6 +34,10 @@ from lib.scoring_sampler import (
     normalize_digits,
     format_phone_us,
 )
+
+
+# Rebuttal is only judged when a full set of samples was scored — never flag a thin batch.
+REBUTTAL_MIN_SAMPLES = 5
 
 
 def _get(row: dict, *keys):
@@ -122,10 +127,11 @@ def aggregate_agent(agent: str, fresh_rows: list, action_calls: list, dialer: st
     intro_total, _, intro_no = _yes_no_valid("Agent Intro", "agent_intro")
     reason_total, _, reason_no = _yes_no_valid("Reason for calling", "Reason for Calling", "reason_for_calling")
 
-    # Rebuttal is the exception — not majority. A rebuttal isn't needed on every call, so the agent
-    # is cleared as soon as TWO audited samples used one; flagged otherwise (incl. small batches
-    # that never rebutted). No rebuttal data at all (reb_total == 0) is never penalised.
-    rebuttal_bad = reb_total > 0 and reb_yes < 2
+    # Rebuttal is the exception — not majority, and deliberately conservative: flagged only when a
+    # FULL set of 5 samples was scored AND fewer than 2 of them used a rebuttal. Anything thinner
+    # (<5 scored samples) is never flagged — a rebuttal isn't required on every call and a small
+    # batch can't fairly judge it.
+    rebuttal_bad = reb_total >= REBUTTAL_MIN_SAMPLES and reb_yes < 2
     intro_missing = _majority(intro_no, intro_total)
     reason_missing = _majority(reason_no, reason_total)
 
