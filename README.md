@@ -15,14 +15,14 @@ VOS doesn't just look for keywords. It understands the context of sales conversa
 
 1.  **Exact Match**: Lightning-fast identification of high-confidence rebuttal phrases.
 2.  **Semantic Match**: Uses `Sentence Transformers` to identify conceptually similar objections even when the exact wording differs.
-3.  **LLM Fallback**: Utilizes `Groq / Llama 3.1` for complex linguistic analysis of ambiguous interactions, ensuring 99% detection accuracy.
+3.  **LLM Fallback**: Utilizes `Groq / Llama 3.3 (70B)` for complex linguistic analysis of ambiguous interactions, ensuring 99% detection accuracy.
 
 ---
 
 ## ✨ Core Features
 
 ### 📡 ReadyMode Integration
-*   **Automated Downloads**: Playwright-based automation logs into ReadyMode dialers to fetch recordings.
+*   **Automated Downloads**: Pure-HTTP automation (`requests`) logs into ReadyMode dialers to fetch recordings — no browser driver.
 *   **Session Persistence**: Handles authentication and secure session management automatically.
 *   **Intelligent Filtering**: Downloads calls based on duration, disposition, and campaign.
 
@@ -46,11 +46,12 @@ VOS doesn't just look for keywords. It understands the context of sales conversa
 
 | Component | Technology |
 | :--- | :--- |
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Geist/Stitch Design |
+| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS, Geist Design, Zustand, TanStack Query/Table, ag-grid, Recharts |
 | **Backend** | FastAPI, Python 3.11, Pydantic v2 |
+| **Auth** | JWT (PyJWT) + Google OAuth |
 | **Database** | PostgreSQL (Primary), Redis (Caching/Jobs) |
-| **AI/ML** | AssemblyAI (Transcription), Sentence Transformers, Llama 3.1 (via Groq) |
-| **Automation** | Playwright (Chromium) |
+| **AI/ML** | AssemblyAI (Transcription), Sentence Transformers, Llama 3.3 70B (via Groq) |
+| **Automation** | ReadyMode via pure HTTP (`requests`) |
 | **Infrastructure** | Docker, Celery (Background Tasks), Railway (Deployment) |
 
 ---
@@ -96,7 +97,7 @@ webapp/           # Modern React frontend (Vite + Tailwind)
 lib/              # Core business logic: Quota, User, and Session Managers
 analyzer/         # The 3-layer Rebuttal Detection engine
 audio_pipeline/   # Transcription and audio processing workflows
-automation/       # Playwright scripts for ReadyMode integration
+automation/       # Pure-HTTP ReadyMode integration (requests)
 migrations/       # Database schema and migration scripts
 docs/             # Technical documentation and architecture diagrams
 ```
@@ -109,11 +110,6 @@ Copy `.env.example` to `.env` and configure your API keys:
 *   `GROQ_API_KEY`: For LLM-powered semantic analysis.
 *   `DATABASE_URL`: PostgreSQL connection string.
 *   `GOOGLE_CLIENT_ID`: For OAuth authentication.
-
----
-
-## ⚠️ Legacy Notice
-The legacy Streamlit-based interface (`app.py`) has been sunset and is no longer maintained. Please use the modern React dashboard for all operations.
 
 ---
 **VOS** — *Transforming voice data into operational intelligence.*

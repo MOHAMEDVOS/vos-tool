@@ -48,24 +48,24 @@ Built to automatically analyze Egyptian real estate sales calls:
 ## Architecture at a Glance
 
 ```
-Frontend (Streamlit)  ←→  Backend (FastAPI)  ←→  PostgreSQL
-   app.py                   port 8000             on Railway
-  3098 lines
-                                ↓
-                        lib/ (core logic)
+Frontend (React 19)   ←→  Backend (FastAPI)  ←→  PostgreSQL
+  webapp/ (Vite+TS)        port 8000             on Railway
+  served via nginx              ↓
+                        lib/ + backend/ (core logic)
                         - audio_pipeline/
                         - analyzer/ (3-layer detection)
-                        - automation/ (Playwright)
+                        - automation/ (pure HTTP)
                         - dashboard_manager.py
                         
 External Services:
 - AssemblyAI (transcription)
-- Groq/Llama 3.1 (LLM fallback)
+- Groq / Llama 3.3 70B (LLM fallback)
 - Sentence Transformers (semantic matching)
-- ReadyMode dialers (call downloads)
+- ReadyMode dialers (call downloads, pure HTTP)
+- Google OAuth / Drive / Docs
 ```
 
-**Deployment:** 5 services on Railway (Frontend:8501, Backend:8000, PostgreSQL, Redis, Celery Worker)
+**Deployment:** Railway via Docker — Backend (8000), Frontend (React/nginx), PostgreSQL. Redis + Celery are configured in the codebase for background jobs.
 
 ---
 
@@ -73,11 +73,12 @@ External Services:
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `app.py` | Main Streamlit entry (3098 lines, monolith) | Critical, needs splitting |
+| `webapp/` | React 19 + Vite + TS frontend (SPA, served via nginx) | Active UI |
+| `backend/main.py` | FastAPI app — routers, CORS, lifespan | Critical |
 | `lib/dashboard_manager.py` | Core data manager (~2000 lines) | Critical, god-class |
 | `lib/analyzer/rebuttal_detection.py` | 3-layer detection logic | Brilliant optimization |
 | `lib/phrase_learning.py` | Auto-learn new rebuttals | Working well |
-| `automation/download_readymode_calls.py` | Playwright call downloader | Working well |
+| `automation/readymode_http.py` | ReadyMode pure-HTTP client (login, fetch, download) | Working well |
 | `docs/ARCHITECTURE.md` | Architecture reference | Up-to-date |
 | `docs/DETECTION_WORKFLOW.md` | 3-layer detection explained | Up-to-date |
 | `docs/IMPROVEMENTS.md` | Suggestion list (no changes yet) | Reference only |
@@ -144,14 +145,13 @@ Don't suggest changes that break these metrics.
 ### 5. Critical Infrastructure
 
 **Don't touch without explicit approval:**
-- `app.py` navigation/auth flow
+- `webapp/` auth/routing shell + `backend/api/auth.py` (Google OAuth + JWT flow)
 - `lib/dashboard_manager.py` user/audit/quota logic
 - Database schema (unless migrating with Alembic)
 - Password hashing (currently using two systems — needs consolidation)
 
 **Safe to improve:**
-- Add rate limiting (disabled currently)
-- Split `app.py` into pages/ (with plan first)
+- Add rate limiting (slowapi present, toggled)
 - Migrate to bcrypt (with migration strategy)
 - Add tests for core paths
 - Optimize connection pool
@@ -162,7 +162,7 @@ Don't suggest changes that break these metrics.
 
 ### Code You Write for VOS
 
-- ✅ Follow existing patterns (lib/ module structure, API routes, Streamlit tabs)
+- ✅ Follow existing patterns (lib/ module structure, FastAPI routes, React components/pages in webapp/)
 - ✅ Include error handling at system boundaries (user input, external APIs)
 - ✅ Log important decisions (not silent catches)
 - ✅ Test before submitting (run test suite if exists)
@@ -190,10 +190,9 @@ From `docs/IMPROVEMENTS.md` — prioritized by security/impact:
 3. **verify_password not constant-time** → Use hmac.compare_digest
 
 ### HIGH (Important But Lower Priority)
-4. **app.py is 3098-line monolith** → Split into pages/
-5. **sys.path.insert() in 18+ files** → Add proper pyproject.toml
-6. **Two password hashing systems** → Unify on lib/security_utils.py
-7. **No database migration system** → Add Alembic
+4. **sys.path.insert() in 18+ files** → Add proper pyproject.toml
+5. **Two password hashing systems** → Unify on lib/security_utils.py
+6. **No database migration system** → Add Alembic
 
 ### MEDIUM (Quality of Life)
 8. **Connection pool 200 on Railway** → Reduce to 30-50

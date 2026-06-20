@@ -4,7 +4,7 @@ Last updated: React cutover branch `NEW-UI`.
 
 ## Overview
 
-VOS is now a React + FastAPI application. The legacy Streamlit frontend has been removed from the active deployment path.
+VOS is a React + FastAPI application.
 
 ```text
 Browser
@@ -85,7 +85,3 @@ Default local URLs:
 - Web app: `http://localhost:3000`
 - API: `http://localhost:8000`
 - API docs: `http://localhost:8000/docs`
-
-## Streamlit Sunset Notes
-
-The active UI is React. Legacy Streamlit files, Docker setup, and frontend Python requirements are no longer part of the supported runtime. If old documentation mentions port `8501`, `_stcore`, `frontend/Dockerfile`, or `app.py`, treat it as historical context and update it before using.
