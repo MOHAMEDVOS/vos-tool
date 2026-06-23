@@ -53,7 +53,7 @@ def flag_long_calls(
                     trimmed). When None, no agent filtering (e.g. an 'All users' run).
 
     Returns a list of flagged samples, each:
-        {call_log_id, phone, disposition, duration}
+        {call_log_id, phone, disposition, duration, agent}
     where ``disposition`` is the original-cased label and ``duration`` is int seconds.
     """
     want_agent = agent_name.strip().lower() if agent_name else None
@@ -78,6 +78,7 @@ def flag_long_calls(
             "phone":       (row.get("Phone") or "").strip(),
             "disposition": disp_raw,
             "duration":    int(secs),
+            "agent":       (row.get("Agent name") or "").strip(),
         })
 
     return flagged

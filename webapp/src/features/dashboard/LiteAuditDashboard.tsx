@@ -4,7 +4,7 @@ import { AuditTable } from '@/components/tables/AuditTable'
 import { Metric } from '@/components/ui/Metric'
 import { Button, DestroyButton } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
-import { isRowFlagged, isLongCallFlagged } from '@/utils/audit'
+import { isRowFlagged, isLongCallFlagged, dedupeLongCallRows } from '@/utils/audit'
 import type { AgentAuditRow } from '@/types/api'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
@@ -26,7 +26,7 @@ export function LiteAuditDashboard() {
   })
 
   const rows = useMemo<AgentAuditRow[]>(() =>
-    (data?.records ?? []).map((r) => r.metadata as AgentAuditRow ?? {}),
+    dedupeLongCallRows((data?.records ?? []).map((r) => r.metadata as AgentAuditRow ?? {})),
   [data])
 
   const metrics = useMemo(() => {

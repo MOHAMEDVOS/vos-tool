@@ -10,10 +10,11 @@ import { RefreshCw, Search, ChevronDown, Check, Copy, ArrowUp, ArrowDown } from 
 import { CustomSelect } from '@/components/ui/Select'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CountUp, Metric } from '@/components/ui/Metric'
+import { dedupeLongCallRows, isLongCallFlagged } from '@/utils/audit'
 
 export interface AgentDeductionRow {
   agentName: string; totalCalls: number; flaggedCalls: number
-  releasing: number; lateHello: number; noRebuttals: number
+  releasing: number; lateHello: number; noRebuttals: number; longCall: number
   dialerNames: string[]; deduction: boolean
 }
 
@@ -36,6 +37,7 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
     { key: 'releasing',    label: 'Releasing',      cls: 'min-w-[90px] text-right' },
     { key: 'lateHello',    label: 'Late Hello',     cls: 'min-w-[100px] text-right' },
     { key: 'noRebuttals',  label: 'No Rebuttals',   cls: 'min-w-[110px] text-right' },
+    { key: 'longCall',     label: 'Long VM/Dead',   cls: 'min-w-[120px] text-right' },
     { key: 'dialerNames',  label: 'Dialer Name(s)', cls: 'min-w-[150px]' },
     { key: 'deduction',    label: 'Deduction',      cls: 'min-w-[100px]' },
   ]
@@ -150,6 +152,9 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
                 <td className="min-w-[110px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
                   <CountUp value={row.noRebuttals} />
                 </td>
+                <td className="min-w-[120px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                  <CountUp value={row.longCall} />
+                </td>
                 <td className="min-w-[150px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-t-primary font-medium">
                   <span className="block whitespace-nowrap">{row.dialerNames.length ? row.dialerNames.join(' & ') : '—'}</span>
                 </td>
@@ -181,6 +186,33 @@ export function ActionsPage() {
     setTimeout(() => setCopiedId(null), 2000)
   }
 
+  // Normalize a phone to (xxx) xxx-xxxx. Idempotent: already-formatted values re-format the
+  // same; non-10-digit values (and 'Unknown') pass through untouched.
+  const formatPhone = (raw: unknown): string => {
+    const s = String(raw ?? '').trim()
+    if (!s) return 'Unknown'
+    let d = s.replace(/\D/g, '')
+    if (d.length === 11 && d.startsWith('1')) d = d.slice(1)
+    if (d.length !== 10) return s
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+  }
+
+  // Build the human issue labels for one flagged call (shared by the list + Copy All).
+  const callIssues = (c: FlaggedCall): string[] => {
+    const issues: string[] = []
+    if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
+    if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
+    if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
+    const lc = c['Long VM/Dead Detection']
+    if (isLongCallFlagged(lc)) {
+      const s = String(lc).toLowerCase()
+      if (s.startsWith('voicemail')) issues.push('voicemail above 15 sec')
+      else if (s.startsWith('dead call')) issues.push('Dead call above 15 sec')
+      else issues.push('Long VM/Dead')
+    }
+    return issues
+  }
+
   const isLoading = flaggedLoading || auditsLoading || liteLoading
   const isError = flaggedError
 
@@ -209,38 +241,43 @@ export function ActionsPage() {
     return Array.from(map.entries()).map(([dialer, count]) => ({ dialer, count })).sort((a, b) => b.count - a.count)
   }, [allAuditRecords])
 
+  // Long VM/Dead rows duplicate on repeat audits (deterministic from CSV) — dedupe before use.
+  const dedupedCalls = useMemo<FlaggedCall[]>(() => dedupeLongCallRows(flaggedCalls ?? []), [flaggedCalls])
+
   const agentDeductions = useMemo<AgentDeductionRow[]>(() => {
-    const calls: FlaggedCall[] = flaggedCalls ?? []
-    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; dialerNames: Set<string> }>()
+    const calls: FlaggedCall[] = dedupedCalls
+    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; dialerNames: Set<string> }>()
     for (const call of calls) {
       const name = (call['Agent Name'] ?? 'Unknown').trim()
-      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, dialerNames: new Set() })
+      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, longCall: 0, dialerNames: new Set() })
       const entry = agentMap.get(name)!
       entry.flagged.push(call)
       if (call['Releasing Detection'] === 'Yes') entry.releasing++
       if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
       if (call['Rebuttal Detection'] === 'No') entry.noRebuttals++
+      if (isLongCallFlagged(call['Long VM/Dead Detection'])) entry.longCall++
       const dialer = call['Dialer Name'] as string | undefined
       if (dialer) entry.dialerNames.add(dialer)
     }
     return [...agentMap.entries()].map(([agentName, data]) => ({
       agentName, totalCalls: totalCallsMap.get(agentName) ?? data.flagged.length,
       flaggedCalls: data.flagged.length, releasing: data.releasing, lateHello: data.lateHello,
-      noRebuttals: data.noRebuttals, dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
+      noRebuttals: data.noRebuttals, longCall: data.longCall,
+      dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
     })).sort((a, b) => b.flaggedCalls - a.flaggedCalls)
-  }, [flaggedCalls, totalCallsMap])
+  }, [dedupedCalls, totalCallsMap])
 
   const summary = useMemo(() => {
-    const all = flaggedCalls ?? []
+    const all = dedupedCalls
     return { total: all.length, releasing: all.filter((r) => r['Releasing Detection'] === 'Yes').length,
       lateHello: all.filter((r) => r['Late Hello Detection'] === 'Yes').length,
       noRebuttal: all.filter((r) => r['Rebuttal Detection'] === 'No').length }
-  }, [flaggedCalls])
+  }, [dedupedCalls])
 
   const selectedAgentCalls = useMemo<FlaggedCall[]>(() => {
     if (!selectedAgent) return []
-    return (flaggedCalls ?? []).filter((c) => (c['Agent Name'] || 'Unknown').trim() === selectedAgent)
-  }, [flaggedCalls, selectedAgent])
+    return dedupedCalls.filter((c) => (c['Agent Name'] || 'Unknown').trim() === selectedAgent)
+  }, [dedupedCalls, selectedAgent])
 
   useEffect(() => { if (!flaggedLoading) markAsSeen() }, [markAsSeen, flaggedCalls, flaggedLoading])
   useEffect(() => { if (!selectedAgent && agentDeductions.length > 0) setSelectedAgent(agentDeductions[0].agentName) }, [agentDeductions, selectedAgent])
@@ -348,11 +385,8 @@ export function ActionsPage() {
                     size="sm"
                     onClick={() => {
                       const text = selectedAgentCalls.map(c => {
-                        const issues = []
-                        if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
-                        if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
-                        if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
-                        return `${c['Phone Number'] || 'Unknown'} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}`
+                        const issues = callIssues(c)
+                        return `${formatPhone(c['Phone Number'])} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}`
                       }).join('\n')
                       copyToClipboard(text, 'all')
                     }}
@@ -376,13 +410,10 @@ export function ActionsPage() {
                 ) : (
                   <div className="p-4 font-mono text-sm leading-7 text-t-label whitespace-pre select-text">
                     {selectedAgentCalls.map((c, i) => {
-                      const issues = []
-                      if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
-                      if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
-                      if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
+                      const issues = callIssues(c)
                       return (
                         <div key={i} className="hover:text-t-primary transition-colors">
-                          {c['Phone Number'] || 'Unknown'} - {issues.join(', ') || 'Flagged'} - {c['Dialer Name'] || 'Unknown'}
+                          {formatPhone(c['Phone Number'])} - {issues.join(', ') || 'Flagged'} - {c['Dialer Name'] || 'Unknown'}
                         </div>
                       )
                     })}

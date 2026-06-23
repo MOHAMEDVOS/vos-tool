@@ -184,30 +184,23 @@ def _run_agent_call_length_scan(
     end_date_str: str,
     rm_user: str,
     rm_pass: str,
-    download_path,
     threshold: int = 15,
     max_flagged: int = 50,
 ):
-    """Find the agent's long Voicemails / Dead Calls (> threshold s), download ONLY those
-    recordings, and return a DataFrame of flagged rows to merge into the lite-audit results.
+    """Find the agent's long Voicemails / Dead Calls (> threshold s) from the ReadyMode CSV
+    and return a DataFrame of flagged rows to merge into the lite-audit results.
 
-    Workflow (CSV-find -> report-match -> download-flagged):
-      CSV gives exact 'Recording Length (Seconds)' (no download link); the JSON report gives
-      the RecId (download link) but only a bucketed duration. So: flag from the CSV, then look
-      the same calls up in the report (match on Call Log ID, fallback phone) to download them.
+    CSV-only: the export gives the exact 'Recording Length (Seconds)' plus agent / disposition /
+    phone / Call Log ID. No report paging and no audio download — rows are built straight from
+    the CSV (so there is no playable recording for these rows, just the flagged metadata).
 
     Returns None on any failure or when nothing is flagged (non-fatal — never breaks the audit).
     """
     try:
-        import csv as _csv, io as _io, os as _os, re as _re, threading as _threading
-        import requests as _requests
+        import csv as _csv, io as _io
         import pandas as pd
         from datetime import date as _date
-        from urllib.parse import quote as _quote
-        from automation.readymode_http import (
-            ReadyModeHTTPClient, resolve_agent_id, all_type_ids, BASE_TYPE,
-        )
-        from automation.download_readymode_calls import download_single_file
+        from automation.readymode_http import ReadyModeHTTPClient
         from lib.agent_call_length_detector import flag_long_calls
 
         def _fmt(d: str) -> str:
@@ -222,7 +215,7 @@ def _run_agent_call_length_scan(
         client = ReadyModeHTTPClient(dialer_url.rstrip("/"))
         client.login(rm_user, rm_pass)
 
-        # 1) CSV with exact duration + the keys we need to locate the recording later.
+        # CSV with exact duration + agent / disposition / phone / id.
         csv_bytes = client.export_call_log_csv(
             time_from=_fmt(start_date_str),
             time_to=_fmt(end_date_str),
@@ -249,94 +242,18 @@ def _run_agent_call_length_scan(
             logger.info(f"Long VM/dead scan: capping {len(flagged)} flagged -> {max_flagged}")
             flagged = flagged[:max_flagged]
 
-        # 2) Report pages (this agent, VM + Dead Call only) -> {Call Log ID: row} for the RecId.
-        dmap = client.init_call_log()
-        vm_id   = dmap.get("voicemail")
-        dead_id = dmap.get("dead call")
-        types = [BASE_TYPE] + [t for t in (vm_id, dead_id) if t]
-        if len(types) == 1:  # nothing resolved -> fall back to the full default set so rows return
-            types = all_type_ids(dmap) if dmap else None
-
-        uid = 0
-        if specific_agent:
-            probe = client.fetch_report(
-                time_from=_fmt(start_date_str), time_to=_fmt(end_date_str), types=types, page=0,
-            )
-            ruid, _label = resolve_agent_id(probe.get("userlist", {}), agent_name)
-            uid = ruid or 0
-
-        by_id: dict[str, dict] = {}
-        by_phone: dict[str, dict] = {}
-        page = 0
-        total_pages = None
-        while page < 2000:
-            data = client.fetch_report(
-                time_from=_fmt(start_date_str), time_to=_fmt(end_date_str),
-                restrict_uid=uid, types=types, page=page,
-            )
-            if total_pages is None:
-                try:
-                    total_pages = int(data.get("pages") or 0)
-                except (TypeError, ValueError):
-                    total_pages = 0
-            results = data.get("results") or {}
-            if not results:
-                break
-            for row in results.values():
-                rid = str(row.get("id") or "").strip()
-                if rid:
-                    by_id[rid] = row
-                ph = _re.search(r"\(\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}", row.get("File") or "")
-                if ph:
-                    by_phone.setdefault(ph.group(0), row)
-            page += 1
-            if total_pages and page >= total_pages:
-                break
-
-        # 3) Download ONLY the flagged recordings into the same run folder.
-        download_dir = str(download_path)
-        _os.makedirs(download_dir, exist_ok=True)
-        dl_session = _requests.Session()
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        cookies = client.cookies
-        lock = _threading.Lock()
-
+        dialer_text = extract_dialer_name_from_url(dialer_url)
         records = []
         for f in flagged:
-            row = by_id.get(f["call_log_id"]) or (by_phone.get(f["phone"]) if f["phone"] else None)
-            if row is None:
-                logger.debug(f"Long VM/dead scan: no recording match for {f}")
-                continue
-            rec = row.get("RecId")
-            if not rec:
-                continue
-            href = f"{client.dialer}{_quote(rec, safe='/')}"
-            href = href + ("&force_dl=1" if "?" in href else "?force_dl=1")
-
-            agent_text = (row.get("User") or "").strip() or (agent_name or "Unknown_Agent")
-            time_text  = (row.get("Time") or "").strip() or "Unknown_Time"
             disp_text  = f["disposition"]
-            phone_text = f["phone"] or "unknown"
-            # Filename format the lite read-path parses: "Agent _ Time _ Phone _ Disposition.mp3"
-            filename = f"{agent_text} _ {time_text} _ {phone_text} _ {disp_text}.mp3"
-            filename = _re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
-            filepath = _os.path.join(download_dir, filename)
-
-            ok, fp, _dur = download_single_file(
-                dl_session, cookies, headers, href, filepath, None, None, lock,
-            )
-            if not ok or not fp:
-                continue
-
+            agent_text = f.get("agent") or (agent_name if specific_agent else "") or "Unknown_Agent"
             records.append({
                 "Agent Name":             agent_text,
-                "File Name":              _os.path.basename(fp),
-                "File Path":              fp,
-                "Phone Number":           phone_text,
+                "Phone Number":           f["phone"] or "unknown",
                 "Disposition":            disp_text,
-                "Timestamp":              time_text,
-                "Dialer Name":            extract_dialer_name_from_url(dialer_url),
+                "Dialer Name":            dialer_text,
                 "Call Duration":          f"{f['duration']}s",
+                "Call Log ID":            f["call_log_id"],
                 "Releasing Detection":    "No",
                 "Late Hello Detection":   "No",
                 "Rebuttal Detection":     "N/A",
@@ -713,7 +630,6 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                                 end_date_str=request.end_date or "",
                                 rm_user=_rm_user,
                                 rm_pass=_rm_pass,
-                                download_path=download_path,
                             )
                             if extra_df is not None and not extra_df.empty:
                                 extra_df["Audit Type"] = "Lite Audit"

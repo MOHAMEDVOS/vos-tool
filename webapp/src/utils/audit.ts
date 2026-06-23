@@ -73,6 +73,28 @@ export function isLongCallFlagged(val: unknown): boolean {
   return val != null && val !== '' && val !== 'No'
 }
 
+// Long VM/Dead rows are deterministic from the CSV, so re-running an audit for the same
+// agent+date re-inserts identical rows. Call Log ID isn't persisted, so dedupe these flagged
+// rows on a natural key (agent + phone + label, e.g. "Voicemail 28s"). Non-long rows pass
+// through untouched (audio rows can legitimately repeat across runs).
+export function dedupeLongCallRows<T extends AgentAuditRow>(rows: T[]): T[] {
+  const seen = new Set<string>()
+  const out: T[] = []
+  for (const r of rows) {
+    if (isLongCallFlagged(r['Long VM/Dead Detection'])) {
+      const key = [
+        String(r['Agent Name'] ?? '').trim().toLowerCase(),
+        String(r['Phone Number'] ?? '').trim(),
+        String(r['Long VM/Dead Detection'] ?? '').trim().toLowerCase(),
+      ].join('|')
+      if (seen.has(key)) continue
+      seen.add(key)
+    }
+    out.push(r)
+  }
+  return out
+}
+
 // Flag logic - mirrors app.py:2398-2403 exactly, plus long VM/Dead-call detection
 export function isRowFlagged(row: AgentAuditRow): boolean {
   return (

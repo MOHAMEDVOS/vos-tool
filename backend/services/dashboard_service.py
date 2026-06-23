@@ -219,7 +219,15 @@ def get_flagged_calls(
             no_rebuttal = pd.Series([True] * len(combined), index=combined.index)
             rebuttal_issue = pd.Series([False] * len(combined), index=combined.index)
 
-        flagged = combined[(quality & no_rebuttal) | rebuttal_issue]
+        # Long Voicemail / Dead Call rows carry a free-text label (e.g. "Voicemail 28s");
+        # "No"/blank means not flagged. Mirror webapp isRowFlagged().
+        if "Long VM/Dead Detection" in combined.columns:
+            long_vals = combined["Long VM/Dead Detection"].fillna("").astype(str).str.strip()
+            long_call = ~long_vals.isin(["", "No"])
+        else:
+            long_call = pd.Series([False] * len(combined), index=combined.index)
+
+        flagged = combined[(quality & no_rebuttal) | rebuttal_issue | long_call]
         if flagged.empty:
             return []
         import json as _json
