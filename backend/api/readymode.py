@@ -185,7 +185,6 @@ def _run_agent_call_length_scan(
     rm_user: str,
     rm_pass: str,
     threshold: int = 15,
-    max_flagged: int = 50,
 ):
     """Find the agent's long Voicemails / Dead Calls (> threshold s) from the ReadyMode CSV
     and return a DataFrame of flagged rows to merge into the lite-audit results.
@@ -238,9 +237,6 @@ def _run_agent_call_length_scan(
             logger.info(f"Long VM/dead scan: no calls over {threshold}s for "
                         f"{agent_name or 'all agents'}")
             return None
-        if len(flagged) > max_flagged:
-            logger.info(f"Long VM/dead scan: capping {len(flagged)} flagged -> {max_flagged}")
-            flagged = flagged[:max_flagged]
 
         dialer_text = extract_dialer_name_from_url(dialer_url)
         records = []
