@@ -112,6 +112,69 @@ def _resolve_duration(df: str, audit_type: str, custom_secs: Optional[int]):
     return min_dur, max_dur
 
 
+# ── Campaign disposition scan (fire-and-forget, called after lite+campaign audit) ─────
+def _run_campaign_disposition_scan(
+    dialer_url: str,
+    campaign_name: str,
+    start_date_str: str,
+    end_date_str: str,
+    username: str,
+    rm_user: str,
+    rm_pass: str,
+) -> None:
+    """Pull full-day disposition CSV, compute reachability, persist. Non-fatal on any error."""
+    try:
+        import csv as _csv, io as _io
+        from datetime import date as _date, datetime as _dt
+        from automation.readymode_http import ReadyModeHTTPClient
+        from lib.campaign_audit_detector import summarize_reachability
+        from lib.dashboard_manager import dashboard_manager
+
+        def _fmt(d: str) -> str:
+            if not d:
+                return _date.today().strftime("%m/%d/%Y")
+            return _date.fromisoformat(d).strftime("%m/%d/%Y")
+
+        scan_date = _date.fromisoformat(start_date_str) if start_date_str else _date.today()
+
+        client = ReadyModeHTTPClient(dialer_url.rstrip("/"))
+        client.login(rm_user, rm_pass)
+
+        csv_bytes = client.export_call_log_csv(
+            time_from=_fmt(start_date_str),
+            time_to=_fmt(end_date_str),
+            fields=[
+                ("Log Type",         "Disposition"),
+                ("Current campaign", "Campaign"),
+            ],
+        )
+
+        text   = csv_bytes.decode("utf-8", errors="replace")
+        reader = _csv.DictReader(_io.StringIO(text))
+        target = campaign_name.strip().lower()
+        rows   = [
+            {"Disposition": row["Disposition"]}
+            for row in reader
+            if (row.get("Campaign") or "").strip().lower() == target
+        ]
+
+        summary   = summarize_reachability(rows, campaign_name)
+        timestamp = _dt.now().strftime("%Y%m%d_%H%M%S")
+        dashboard_manager.save_campaign_disposition_scan(
+            campaign_name=campaign_name,
+            username=username,
+            scan_date=scan_date,
+            timestamp=timestamp,
+            summary=summary,
+        )
+        logger.info(
+            f"Disposition scan saved: {campaign_name} "
+            f"low={summary['low_total']} good={summary['good_total']} verdict={summary['verdict']}"
+        )
+    except Exception as exc:
+        logger.error(f"Campaign disposition scan failed (non-fatal): {exc}", exc_info=True)
+
+
 # ── SSE helper ────────────────────────────────────────────────────────────────
 def _sse(event: str, data: str) -> str:
     payload = json.dumps({"event": event, "data": data})
@@ -442,6 +505,21 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                         dashboard_manager.save_campaign_audit_results(
                             df, request.campaign_name.strip(), current_user["username"]
                         )
+                        try:
+                            from config import get_user_readymode_credentials as _get_creds
+                            _rm_user, _rm_pass = _get_creds(current_user["username"])
+                            if _rm_user and _rm_pass:
+                                _run_campaign_disposition_scan(
+                                    dialer_url=request.dialer_url or "https://resva.readymode.com/",
+                                    campaign_name=request.campaign_name.strip(),
+                                    start_date_str=request.start_date or "",
+                                    end_date_str=request.end_date or "",
+                                    username=current_user["username"],
+                                    rm_user=_rm_user,
+                                    rm_pass=_rm_pass,
+                                )
+                        except Exception as _scan_err:
+                            logger.error(f"Disposition scan failed (non-fatal): {_scan_err}", exc_info=True)
                     else:
                         dashboard_manager.save_lite_audit_results(df, current_user["username"])
             else:

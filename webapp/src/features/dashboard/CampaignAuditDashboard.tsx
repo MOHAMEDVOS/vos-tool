@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useCampaignAudits, useCampaigns } from '@/hooks/useDashboard'
+import { useMemo, useState, useCallback } from 'react'
+import { useCampaignAudits, useCampaigns, useCampaignDisposition } from '@/hooks/useDashboard'
 import { dashboardApi } from '@/api/dashboard'
 import { AuditTable } from '@/components/tables/AuditTable'
 import { Metric } from '@/components/ui/Metric'
@@ -7,12 +7,103 @@ import { Button, DestroyButton } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { SuccessFlash } from '@/components/ui/SuccessFlash'
 import { isRowFlagged } from '@/utils/audit'
-import type { AgentAuditRow } from '@/types/api'
+import type { AgentAuditRow, ReachabilityScan } from '@/types/api'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, FileText } from 'lucide-react'
 import { CustomDatePicker } from '@/components/ui/DatePicker'
 import { CustomSelect } from '@/components/ui/Select'
 import { useGenerateCampaignReport } from '@/hooks/useReports'
+
+function buildCopyText(scan: ReachabilityScan): string {
+  const verdictLabel = scan.verdict === 'LOW' ? 'low' : 'good'
+  const lines = [
+    `This campaign shows ${verdictLabel} reachability.`,
+    '',
+    `Low Engagement (${scan.low_total.toLocaleString()} calls):`,
+    ...Object.entries(scan.low_counts).map(([k, v]) => `• ${k}: ${v.toLocaleString()}`),
+    '',
+    `Good Engagement (${scan.good_total.toLocaleString()} calls):`,
+    ...Object.entries(scan.good_counts).map(([k, v]) => `• ${k}: ${v.toLocaleString()}`),
+    '',
+    scan.verdict === 'LOW'
+      ? 'Low engagement exceeds good engagement — action may be needed to improve contact rates.'
+      : 'Good engagement exceeds low engagement — campaign is performing well.',
+  ]
+  return lines.join('\n')
+}
+
+function ReachabilityPanel({ scan }: { scan: ReachabilityScan }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(buildCopyText(scan)).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [scan])
+
+  const isLow = scan.verdict === 'LOW'
+
+  return (
+    <div className={`rounded-xl border bg-surface-card p-5 ${isLow ? 'border-amber-500/30' : 'border-green-500/30'}`}>
+      <div className="flex items-start justify-between gap-4 mb-1">
+        <div className={`flex items-center gap-2 text-base font-bold ${isLow ? 'text-amber-400' : 'text-green-500'}`}>
+          <span>{isLow ? '⚠️' : '✅'}</span>
+          <span>This campaign shows {isLow ? 'low' : 'good'} reachability.</span>
+        </div>
+        <button
+          onClick={handleCopy}
+          className="shrink-0 rounded-md border border-b-subtle px-3 py-1 text-xs font-semibold text-t-muted hover:text-t-primary hover:border-b-medium transition-colors"
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+
+      <p className="text-xs text-t-muted mb-4">
+        {scan.campaign_name} · {scan.scan_date} · {scan.total_calls.toLocaleString()} calls scanned
+      </p>
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className={`rounded-lg border bg-surface-soft p-4 ${isLow ? 'border-amber-500/20' : 'border-b-subtle'}`}>
+          <p className="text-[10px] font-black uppercase tracking-widest text-t-muted mb-1">Low Engagement</p>
+          <p className={`text-2xl font-black mb-3 ${isLow ? 'text-amber-400' : 'text-t-secondary'}`}>
+            {scan.low_total.toLocaleString()}
+          </p>
+          <ul className="space-y-1.5">
+            {Object.entries(scan.low_counts).map(([label, count]) => (
+              <li key={label} className="flex justify-between text-xs text-t-muted">
+                <span>{label}</span>
+                <span className="font-bold text-t-primary tabular-nums">{count.toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className={`rounded-lg border bg-surface-soft p-4 ${!isLow ? 'border-green-500/20' : 'border-b-subtle'}`}>
+          <p className="text-[10px] font-black uppercase tracking-widest text-t-muted mb-1">Good Engagement</p>
+          <p className={`text-2xl font-black mb-3 ${!isLow ? 'text-green-500' : 'text-t-secondary'}`}>
+            {scan.good_total.toLocaleString()}
+          </p>
+          <ul className="space-y-1.5">
+            {Object.entries(scan.good_counts).map(([label, count]) => (
+              <li key={label} className="flex justify-between text-xs text-t-muted">
+                <span>{label}</span>
+                <span className="font-bold text-t-primary tabular-nums">{count.toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className={`rounded-lg border px-4 py-3 text-xs text-t-muted leading-relaxed ${isLow ? 'border-amber-500/20 bg-amber-500/5' : 'border-green-500/20 bg-green-500/5'}`}>
+        {isLow
+          ? <>Low engagement exceeds good engagement — <span className={`font-bold ${isLow ? 'text-amber-400' : 'text-green-500'}`}>action may be needed to improve contact rates.</span></>
+          : <>Good engagement exceeds low engagement — <span className="font-bold text-green-500">campaign is performing well.</span></>
+        }
+      </div>
+    </div>
+  )
+}
 
 export function CampaignAuditDashboard() {
   const qc = useQueryClient()
@@ -25,6 +116,11 @@ export function CampaignAuditDashboard() {
   const [endDate, setEndDate] = useState<string>('')
 
   const generateReport = useGenerateCampaignReport()
+  const { data: reachScan } = useCampaignDisposition(
+    effectiveCampaign
+      ? { campaign: effectiveCampaign, start_date: startDate || undefined, end_date: endDate || undefined }
+      : undefined
+  )
 
   const effectiveCampaign = selected || campaigns?.[0] || ''
   const { data, isLoading, isError } = useCampaignAudits(
@@ -108,6 +204,8 @@ export function CampaignAuditDashboard() {
 
       {!isLoading && !isError && (
         <>
+          {reachScan && <ReachabilityPanel scan={reachScan} />}
+
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-5 py-2">
             <Metric label="Total Calls"   value={summary.total} />
             <Metric label="Releasing"     value={summary.releasing} />

@@ -227,3 +227,19 @@ export interface SharingConfig {
   user_dashboard_mode?: Record<string, string>
   [key: string]: unknown
 }
+
+// ─── Campaign Reachability Scan ──────────────────────────────────────────────
+
+export interface ReachabilityScan {
+  campaign_name: string
+  username: string
+  scan_date: string
+  timestamp: string
+  total_calls: number
+  verdict: 'LOW' | 'GOOD'
+  low_total: number
+  good_total: number
+  low_counts: Record<string, number>
+  good_counts: Record<string, number>
+  created_at: string
+}

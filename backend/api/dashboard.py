@@ -179,6 +179,35 @@ async def get_campaigns_list(current_user: dict = Depends(get_current_user)):
         return []
 
 
+@router.get("/campaign-disposition")
+async def get_campaign_disposition(
+    campaign: str = Query(...),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the latest reachability scan for a campaign (Owner/Admin only)."""
+    if current_user["role"] == "Auditor":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Campaign data not available for Auditor role")
+    try:
+        from lib.dashboard_manager import dashboard_manager
+        result = dashboard_manager.get_campaign_disposition_scan(
+            campaign_name=campaign,
+            username=current_user["username"],
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if result is None:
+            raise HTTPException(status_code=404, detail="No reachability scan found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting campaign disposition: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to load reachability scan")
+
+
 @router.post("/clear/agent-audits")
 async def clear_agent_audit_data(current_user: dict = Depends(get_current_user)):
     """Clear the caller's own agent audit data (all roles — old_app.py:2544-2551)."""

@@ -43,6 +43,16 @@ export function useFlaggedCalls(params?: { start_date?: string; end_date?: strin
   })
 }
 
+export function useCampaignDisposition(params?: { campaign?: string; start_date?: string; end_date?: string }) {
+  return useQuery({
+    queryKey: ['campaign-disposition', params],
+    queryFn:  () => dashboardApi.campaignDisposition({ campaign: params!.campaign!, ...params }),
+    enabled:  Boolean(params?.campaign),
+    staleTime: 60_000,
+    retry: false,
+  })
+}
+
 // Polls badge count every 60 s and syncs to Zustand
 export function useFlaggedBadge() {
   const setFlaggedCount = useBadgeStore((s) => s.setFlaggedCount)

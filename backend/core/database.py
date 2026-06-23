@@ -409,6 +409,26 @@ def create_tables_if_needed(db):
         db.execute_query(create_google_tokens_table, fetch=False)
         logger.info("✓ User Google tokens table created/verified")
 
+        # Create campaign_disposition_scans table for reachability summaries
+        create_disposition_scans_table = """
+        CREATE TABLE IF NOT EXISTS campaign_disposition_scans (
+            id            SERIAL PRIMARY KEY,
+            campaign_name TEXT NOT NULL,
+            username      TEXT NOT NULL,
+            scan_date     DATE NOT NULL,
+            timestamp     TEXT NOT NULL,
+            total_calls   INTEGER,
+            reachability  TEXT,
+            low_total     INTEGER,
+            good_total    INTEGER,
+            low_counts    JSONB,
+            good_counts   JSONB,
+            created_at    TIMESTAMP DEFAULT now()
+        );
+        """
+        db.execute_query(create_disposition_scans_table, fetch=False)
+        logger.info("✓ Campaign disposition scans table created/verified")
+
         _apply_full_schema(db)
 
         logger.info("✅ Database tables initialized successfully")

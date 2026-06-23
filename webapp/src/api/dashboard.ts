@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { DashboardData, FlaggedCall } from '@/types/api'
+import type { DashboardData, FlaggedCall, ReachabilityScan } from '@/types/api'
 
 export const dashboardApi = {
   agentAudits: (params?: { start_date?: string; end_date?: string; agent_name?: string }) => {
@@ -39,6 +39,14 @@ export const dashboardApi = {
   },
 
   flaggedCount: () => api.get<{ count: number }>('/api/dashboard/flagged-calls/count'),
+
+  campaignDisposition: (params: { campaign: string; start_date?: string; end_date?: string }) => {
+    const q = new URLSearchParams()
+    q.set('campaign', params.campaign)
+    if (params.start_date) q.set('start_date', params.start_date)
+    if (params.end_date)   q.set('end_date',   params.end_date)
+    return api.get<ReachabilityScan>(`/api/dashboard/campaign-disposition?${q.toString()}`)
+  },
 
   clearAgentAudits:    () => api.post('/api/dashboard/clear/agent-audits'),
   clearLiteAudits:     () => api.post('/api/dashboard/clear/lite-audits'),

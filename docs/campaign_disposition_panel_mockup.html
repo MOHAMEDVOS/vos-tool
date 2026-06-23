@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Campaign Reachability Panel — Mockup (simple)</title>
+<style>
+  :root{
+    --base:#0a0a0b; --card:#141417; --card2:#1b1b1f;
+    --b:#2a2a31; --t:#f4f4f5; --t2:#a1a1aa; --t3:#71717a;
+    --good:#22c55e; --low:#f59e0b; --low-bg:rgba(245,158,11,.08);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--base);color:var(--t);font-family:'Geist','Inter',system-ui,sans-serif;
+       padding:48px;display:flex;justify-content:center}
+  .wrap{width:100%;max-width:680px}
+
+  .tag{font-size:10px;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--low);
+       background:var(--low-bg);border:1px solid rgba(245,158,11,.25);padding:3px 9px;border-radius:999px;display:inline-block;margin-bottom:14px}
+
+  .panel{background:var(--card);border:1px solid var(--b);border-radius:16px;padding:28px 30px}
+  .panel.low{border-left:3px solid var(--low)}
+
+  .verdict{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:800;margin-bottom:6px}
+  .verdict .icon{font-size:20px}
+  .verdict.low{color:var(--low)}
+  .verdict.good{color:var(--good)}
+  .meta{font-size:12px;color:var(--t3);margin-bottom:24px}
+
+  .groups{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:22px}
+  .grp{background:var(--card2);border:1px solid var(--b);border-radius:12px;padding:18px 20px}
+  .grp .h{font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-bottom:2px}
+  .grp .total{font-size:28px;font-weight:800;margin-bottom:12px}
+  .grp.low  .total{color:var(--low)}
+  .grp.good .total{color:var(--good)}
+  .grp ul{list-style:none;display:flex;flex-direction:column;gap:7px}
+  .grp li{display:flex;justify-content:space-between;font-size:14px;color:var(--t2)}
+  .grp li b{color:var(--t);font-variant-numeric:tabular-nums;font-weight:700}
+
+  .takeaway{font-size:13.5px;line-height:1.55;color:var(--t2);
+            background:var(--low-bg);border:1px solid rgba(245,158,11,.18);border-radius:10px;padding:14px 16px}
+  .takeaway b{color:var(--low)}
+
+  @media(max-width:560px){.groups{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="tag">▼ Reachability — auto-saved by Lite Audit</span>
+
+  <div class="panel low">
+    <div class="verdict low"><span class="icon">⚠️</span> This campaign shows low reachability.</div>
+    <div class="meta">Chips · resva2 · 06/22/2026 · 8,498 calls scanned</div>
+
+    <div class="groups">
+      <div class="grp low">
+        <div class="h">Low Engagement</div>
+        <div class="total">4,566</div>
+        <ul>
+          <li>Dead Calls <b>918</b></li>
+          <li>Unknown <b>1,879</b></li>
+          <li>Voicemails <b>1,769</b></li>
+        </ul>
+      </div>
+      <div class="grp good">
+        <div class="h">Good Engagement</div>
+        <div class="total">3,932</div>
+        <ul>
+          <li>Decision Makers <b>3,198</b></li>
+          <li>Wrong Numbers <b>734</b></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="takeaway">
+      Low engagement exceeds good engagement — <b>action may be needed to improve contact rates.</b>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

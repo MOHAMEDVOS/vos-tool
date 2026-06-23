@@ -3258,6 +3258,102 @@ class DashboardManager:
             logger.error("Database not available - cannot save campaign audit results")
             raise Exception("Database unavailable")
     
+    def save_campaign_disposition_scan(
+        self,
+        campaign_name: str,
+        username: str,
+        scan_date,
+        timestamp: str,
+        summary: dict,
+    ) -> None:
+        """Save a reachability scan result (low/good engagement) to campaign_disposition_scans."""
+        if not self._db_manager:
+            logger.error("Database not available — cannot save campaign disposition scan")
+            return
+        try:
+            query = """
+                INSERT INTO campaign_disposition_scans
+                  (campaign_name, username, scan_date, timestamp,
+                   total_calls, reachability, low_total, good_total,
+                   low_counts, good_counts)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """
+            params = (
+                campaign_name,
+                username,
+                scan_date,
+                timestamp,
+                summary.get("total_calls", 0),
+                summary.get("verdict", "LOW"),
+                summary.get("low_total", 0),
+                summary.get("good_total", 0),
+                json.dumps(summary.get("low_counts", {})),
+                json.dumps(summary.get("good_counts", {})),
+            )
+            self._db_manager.execute_query(query, params, fetch=False)
+            logger.info(
+                f"Saved disposition scan: {campaign_name} "
+                f"(verdict={summary.get('verdict')} low={summary.get('low_total')} good={summary.get('good_total')})"
+            )
+        except Exception as e:
+            logger.error(f"Error saving disposition scan: {e}", exc_info=True)
+
+    def get_campaign_disposition_scan(
+        self,
+        campaign_name: str,
+        username: str,
+        start_date=None,
+        end_date=None,
+    ) -> dict | None:
+        """Return the most recent reachability scan for a campaign, optionally filtered by date."""
+        if not self._db_manager:
+            return None
+        try:
+            conditions = ["campaign_name = %s", "username = %s"]
+            params: list = [campaign_name, username]
+            if start_date:
+                conditions.append("scan_date >= %s")
+                params.append(start_date)
+            if end_date:
+                conditions.append("scan_date <= %s")
+                params.append(end_date)
+            where = " AND ".join(conditions)
+            query = f"""
+                SELECT campaign_name, username, scan_date::text, timestamp,
+                       total_calls, reachability, low_total, good_total,
+                       low_counts, good_counts, created_at::text
+                FROM campaign_disposition_scans
+                WHERE {where}
+                ORDER BY created_at DESC
+                LIMIT 1
+            """
+            rows = self._db_manager.execute_query(query, tuple(params), fetch=True)
+            if not rows:
+                return None
+            row = rows[0]
+
+            def _ensure_dict(v):
+                if isinstance(v, str):
+                    return json.loads(v)
+                return v or {}
+
+            return {
+                "campaign_name": row["campaign_name"],
+                "username":      row["username"],
+                "scan_date":     row["scan_date"],
+                "timestamp":     row["timestamp"],
+                "total_calls":   row["total_calls"],
+                "verdict":       row["reachability"],
+                "low_total":     row["low_total"],
+                "good_total":    row["good_total"],
+                "low_counts":    _ensure_dict(row["low_counts"]),
+                "good_counts":   _ensure_dict(row["good_counts"]),
+                "created_at":    row["created_at"],
+            }
+        except Exception as e:
+            logger.error(f"Error getting disposition scan: {e}", exc_info=True)
+            return None
+
     def get_available_campaigns(self, username: str = None) -> List[str]:
         """
         Get list of campaigns - users in sharing groups see combined campaigns.
