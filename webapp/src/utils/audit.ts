@@ -7,6 +7,7 @@ export const AGENT_AUDIT_COLUMN_ORDER = [
   'Disposition',
   'Releasing Detection',
   'Late Hello Detection',
+  'Long VM/Dead Detection',
   'Rebuttal Detection',
   'Transcription',
   'Dialer Name',
@@ -67,11 +68,17 @@ export function normalizeRow(row: AgentAuditRow): AgentAuditRow {
   return out
 }
 
-// Flag logic - mirrors app.py:2398-2403 exactly
+// True when the long VM/Dead-call detection holds a real flag label (e.g. "Voicemail 28s").
+export function isLongCallFlagged(val: unknown): boolean {
+  return val != null && val !== '' && val !== 'No'
+}
+
+// Flag logic - mirrors app.py:2398-2403 exactly, plus long VM/Dead-call detection
 export function isRowFlagged(row: AgentAuditRow): boolean {
   return (
     row['Releasing Detection'] === 'Yes' ||
     row['Late Hello Detection'] === 'Yes' ||
+    isLongCallFlagged(row['Long VM/Dead Detection']) ||
     row['Rebuttal Detection'] === 'No'
   )
 }
@@ -84,10 +91,13 @@ export function detectionVariant(val: unknown, col: string) {
   if (col === 'Releasing Detection' || col === 'Late Hello Detection') {
     return val === 'Yes' ? 'danger' : 'success'
   }
+  if (col === 'Long VM/Dead Detection') {
+    return isLongCallFlagged(val) ? 'danger' : 'success'
+  }
   return 'muted'
 }
 
 const DETECTION_COLS = new Set([
-  'Releasing Detection', 'Late Hello Detection', 'Rebuttal Detection',
+  'Releasing Detection', 'Late Hello Detection', 'Long VM/Dead Detection', 'Rebuttal Detection',
 ])
 export { DETECTION_COLS }

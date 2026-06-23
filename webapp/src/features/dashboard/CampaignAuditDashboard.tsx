@@ -258,7 +258,7 @@ export function CampaignAuditDashboard() {
 
           <AuditTable 
             rows={displayRows} 
-            excludeColumns={['Time']}
+            excludeColumns={['Time', 'Long VM/Dead Detection']}
             leftActions={
               !showConfirm ? (
                 <DestroyButton

@@ -91,6 +91,7 @@ export function AgentAuditDashboard() {
 
       <AuditTable
         rows={rows}
+        excludeColumns={['Long VM/Dead Detection']}
         getRowClassName={(r) => problematicAgentNames.has(String(r['Agent Name'] || '')) ? 'border-l-2 border-l-ship-red' : ''}
         leftActions={
           !showConfirm ? (

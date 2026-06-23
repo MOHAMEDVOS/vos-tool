@@ -77,6 +77,7 @@ export interface AgentAuditRow {
   Disposition?: string
   'Releasing Detection'?: string
   'Late Hello Detection'?: string
+  'Long VM/Dead Detection'?: string
   'Rebuttal Detection'?: string
   Transcription?: string
   'Dialer Name'?: string

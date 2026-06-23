@@ -2577,6 +2577,7 @@ class DashboardManager:
                     detection_results = {
                         'releasing_detection': releasing,
                         'late_hello_detection': late_hello,
+                        'long_call_detection': record.get('Long VM/Dead Detection', 'No'),
                         'rebuttal_detection': record.get('Rebuttal Detection', 'N/A'),
                         'confidence_score': record.get('Confidence Score', ''),
                         'call_duration': record.get('Call Duration', ''),
@@ -2717,6 +2718,8 @@ class DashboardManager:
                         
                         record['Releasing Detection'] = normalize_detection_value(releasing_raw, 'No')
                         record['Late Hello Detection'] = normalize_detection_value(late_hello_raw, 'No')
+                        # Long VM/Dead-call detection: free-text label (e.g. "Voicemail 28s") or "No"
+                        record['Long VM/Dead Detection'] = detection_results.get('long_call_detection', 'No') or 'No'
                         
                         # Debug logging for flagged calls
                         if record['Releasing Detection'] == 'Yes' or record['Late Hello Detection'] == 'Yes':

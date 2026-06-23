@@ -4,7 +4,7 @@ import { AuditTable } from '@/components/tables/AuditTable'
 import { Metric } from '@/components/ui/Metric'
 import { Button, DestroyButton } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
-import { isRowFlagged } from '@/utils/audit'
+import { isRowFlagged, isLongCallFlagged } from '@/utils/audit'
 import type { AgentAuditRow } from '@/types/api'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
@@ -30,13 +30,14 @@ export function LiteAuditDashboard() {
   [data])
 
   const metrics = useMemo(() => {
-    let flagged = 0, releasing = 0, lateHello = 0
+    let flagged = 0, releasing = 0, lateHello = 0, longCall = 0
     for (const r of rows) {
       if (isRowFlagged(r)) flagged++
       if (r['Releasing Detection'] === 'Yes') releasing++
       if (r['Late Hello Detection'] === 'Yes') lateHello++
+      if (isLongCallFlagged(r['Long VM/Dead Detection'])) longCall++
     }
-    return { total: rows.length, flagged, releasing, lateHello }
+    return { total: rows.length, flagged, releasing, lateHello, longCall }
   }, [rows])
 
   if (isLoading) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>
@@ -52,10 +53,11 @@ export function LiteAuditDashboard() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-8 sm:grid-cols-4 py-2">
+      <div className="grid grid-cols-2 gap-8 sm:grid-cols-5 py-2">
         <Metric label="Flagged Calls" value={metrics.flagged} />
         <Metric label="Releasing"     value={metrics.releasing} />
         <Metric label="Late Hello"    value={metrics.lateHello} />
+        <Metric label="Long VM/Dead"  value={metrics.longCall} />
         <Metric label="Total Calls"    value={metrics.total} />
       </div>
 
