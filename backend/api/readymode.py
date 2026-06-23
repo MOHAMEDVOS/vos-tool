@@ -240,11 +240,17 @@ def _run_agent_call_length_scan(
 
         dialer_text = extract_dialer_name_from_url(dialer_url)
         records = []
-        for f in flagged:
+        for i, f in enumerate(flagged):
             disp_text  = f["disposition"]
             agent_text = f.get("agent") or (agent_name if specific_agent else "") or "Unknown_Agent"
+            # Synthetic, unique File Name. No file on disk — the lite read dedupes by File Name
+            # (dashboard_manager.get_combined_lite_audit_data), so empty/identical names would
+            # collapse all these rows into one. Call Log ID is unique per call (stable across
+            # re-runs, so repeat audits dedupe); fall back to phone+index if it's ever missing.
+            fid = f["call_log_id"] or f"{f['phone'] or 'x'}-{i}"
             records.append({
                 "Agent Name":             agent_text,
+                "File Name":              f"longcall_{fid}.mp3",
                 "Phone Number":           f["phone"] or "unknown",
                 "Disposition":            disp_text,
                 "Dialer Name":            dialer_text,
