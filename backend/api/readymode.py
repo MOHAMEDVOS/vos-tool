@@ -637,6 +637,10 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                     except Exception as _scan_err:
                         logger.error(f"Long VM/dead scan failed (non-fatal): {_scan_err}", exc_info=True)
                     if not df.empty:
+                        # Merging CSV-only VM/Dead rows with audio rows leaves NaN in the columns
+                        # each source lacks; NaN breaks save's json.dumps(allow_nan=False). Use
+                        # where() (not fillna) so float columns don't coerce None back to NaN.
+                        df = df.where(pd.notna(df), "")
                         dashboard_manager.save_lite_audit_results(df, current_user["username"])
             else:
                 df = batch_analyze_folder_fast(
