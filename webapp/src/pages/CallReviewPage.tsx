@@ -9,6 +9,7 @@ import { RefreshCw, Play, Pause, Volume2, MoreVertical, Search } from 'lucide-re
 import { CustomSelect } from '@/components/ui/Select'
 import { KaraokeTranscript } from '@/components/KaraokeTranscript'
 import { AgentDeductionsTable, type AgentDeductionRow } from '@/pages/ActionsPage'
+import { dedupeLongCallRows, isLongCallFlagged } from '@/utils/audit'
 
 /* ─── Custom Audio Player ─────────────────────────────────────── */
 interface AudioPlayerProps {
@@ -175,23 +176,25 @@ export function CallReviewPage() {
   }, [allAuditsData, liteAuditsData])
 
   const agentDeductions = useMemo<AgentDeductionRow[]>(() => {
-    const flagged = calls ?? []
-    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; dialerNames: Set<string> }>()
+    const flagged = dedupeLongCallRows(calls ?? [])
+    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; dialerNames: Set<string> }>()
     for (const call of flagged) {
       const name = (call['Agent Name'] ?? 'Unknown').trim()
-      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, dialerNames: new Set() })
+      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, longCall: 0, dialerNames: new Set() })
       const entry = agentMap.get(name)!
       entry.flagged.push(call)
       if (call['Releasing Detection'] === 'Yes') entry.releasing++
       if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
       if (call['Rebuttal Detection'] === 'No') entry.noRebuttals++
+      if (isLongCallFlagged(call['Long VM/Dead Detection'])) entry.longCall++
       const dialer = call['Dialer Name'] as string | undefined
       if (dialer) entry.dialerNames.add(dialer)
     }
     return [...agentMap.entries()].map(([agentName, data]) => ({
       agentName, totalCalls: totalCallsMap.get(agentName) ?? data.flagged.length,
       flaggedCalls: data.flagged.length, releasing: data.releasing, lateHello: data.lateHello,
-      noRebuttals: data.noRebuttals, dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
+      noRebuttals: data.noRebuttals, longCall: data.longCall,
+      dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
     })).sort((a, b) => b.flaggedCalls - a.flaggedCalls)
   }, [calls, totalCallsMap])
 
