@@ -116,15 +116,15 @@ export function CampaignAuditDashboard() {
   const [endDate, setEndDate] = useState<string>('')
 
   const generateReport = useGenerateCampaignReport()
-  const { data: reachScan } = useCampaignDisposition(
-    effectiveCampaign
-      ? { campaign: effectiveCampaign, start_date: startDate || undefined, end_date: endDate || undefined }
-      : undefined
-  )
 
   const effectiveCampaign = selected || campaigns?.[0] || ''
   const { data, isLoading, isError } = useCampaignAudits(
     effectiveCampaign ? { campaign: effectiveCampaign, start_date: startDate, end_date: endDate } : undefined,
+  )
+  const { data: reachScan } = useCampaignDisposition(
+    effectiveCampaign
+      ? { campaign: effectiveCampaign, start_date: startDate || undefined, end_date: endDate || undefined }
+      : undefined
   )
 
   const clearData = useMutation({
