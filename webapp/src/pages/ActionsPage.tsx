@@ -31,15 +31,15 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
   }
 
   const headers: { key: keyof AgentDeductionRow; label: string; cls: string }[] = [
-    { key: 'agentName',    label: 'Agent Name',     cls: 'min-w-[200px]' },
-    { key: 'totalCalls',   label: 'Total Calls',    cls: 'min-w-[100px] text-right' },
-    { key: 'flaggedCalls', label: 'Flagged Calls',  cls: 'min-w-[110px] text-right' },
-    { key: 'releasing',    label: 'Releasing',      cls: 'min-w-[90px] text-right' },
-    { key: 'lateHello',    label: 'Late Hello',     cls: 'min-w-[100px] text-right' },
-    { key: 'noRebuttals',  label: 'No Rebuttals',   cls: 'min-w-[110px] text-right' },
-    { key: 'longCall',     label: 'Long VM/Dead',   cls: 'min-w-[120px] text-right' },
-    { key: 'dialerNames',  label: 'Dialer Name(s)', cls: 'min-w-[150px]' },
-    { key: 'deduction',    label: 'Deduction',      cls: 'min-w-[100px]' },
+    { key: 'agentName',    label: 'Agent Name',     cls: 'w-[22%]' },
+    { key: 'totalCalls',   label: 'Total',          cls: 'text-right' },
+    { key: 'flaggedCalls', label: 'Flagged',        cls: 'text-right' },
+    { key: 'releasing',    label: 'Releasing',      cls: 'text-right' },
+    { key: 'lateHello',    label: 'Late Hello',     cls: 'text-right' },
+    { key: 'noRebuttals',  label: 'No Rebuttals',   cls: 'text-right' },
+    { key: 'longCall',     label: 'Long VM/Dead',   cls: 'text-right' },
+    { key: 'dialerNames',  label: 'Dialer(s)',      cls: '' },
+    { key: 'deduction',    label: 'Deduction',      cls: '' },
   ]
 
   const sortedRows = useMemo(() => {
@@ -76,7 +76,7 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
   return (
     <div className="rounded-lg shadow-card border border-b-subtle overflow-hidden bg-c-base">
       <div className="overflow-auto max-h-[380px] resize-y min-h-[200px] custom-scrollbar">
-        <table className="w-max min-w-full border-collapse text-sm relative">
+        <table className="w-full table-fixed border-collapse text-sm relative">
           <thead className="sticky top-0 z-20 bg-c-base shadow-[inset_0_-1px_0_rgba(255,255,255,0.05)]">
             <tr>
               {headers.map((h) => {
@@ -85,7 +85,7 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
                   <th 
                     key={h.key} 
                     onClick={() => toggleSort(h.key)}
-                    className={`${h.cls} border-r border-b-subtle px-3 py-2.5 text-left text-[10px] font-black uppercase tracking-[0.15em] text-vos-500 whitespace-nowrap last:border-r-0 cursor-pointer hover:bg-c-raised/30 transition-colors select-none`}
+                    className={`${h.cls} border-r border-b-subtle px-2.5 py-2.5 text-left text-[10px] font-black uppercase tracking-[0.12em] text-vos-500 leading-tight last:border-r-0 cursor-pointer hover:bg-c-raised/30 transition-colors select-none`}
                   >
                     <div className={`flex items-center gap-2 ${h.cls.includes('text-right') ? 'justify-end' : 'justify-start'}`}>
                       {h.label}
@@ -116,9 +116,9 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
             
             return (
               <tr key={row.agentName} className="hover:bg-c-raised/50 transition-colors group/row">
-                <td className="min-w-[200px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-t-primary font-medium group/cell relative">
-                  <div className="flex items-center justify-start gap-3">
-                    <span className="block whitespace-nowrap">{row.agentName}</span>
+                <td className="border-r border-b-subtle px-2.5 py-2.5 text-t-primary font-medium group/cell relative">
+                  <div className="flex items-center justify-start gap-2">
+                    <span className="block break-words">{row.agentName}</span>
                     <button 
                       onClick={() => copyToClipboard(row.agentName, copyId)}
                       className="opacity-0 group-hover/cell:opacity-100 p-1 rounded hover:bg-c-raised transition-all text-vos-500 hover:text-t-primary shrink-0"
@@ -137,28 +137,28 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
                     </button>
                   </div>
                 </td>
-                <td className="min-w-[100px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                <td className="border-r border-b-subtle px-2.5 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
                   <CountUp value={row.totalCalls} />
                 </td>
-                <td className={`min-w-[110px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right tabular-nums font-bold ${flagBg} ${flagText}`}>
+                <td className={`border-r border-b-subtle px-2.5 py-2.5 whitespace-nowrap text-right tabular-nums font-bold ${flagBg} ${flagText}`}>
                   <CountUp value={row.flaggedCalls} />
                 </td>
-                <td className="min-w-[90px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                <td className="border-r border-b-subtle px-2.5 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
                   <CountUp value={row.releasing} />
                 </td>
-                <td className="min-w-[100px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                <td className="border-r border-b-subtle px-2.5 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
                   <CountUp value={row.lateHello} />
                 </td>
-                <td className="min-w-[110px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                <td className="border-r border-b-subtle px-2.5 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
                   <CountUp value={row.noRebuttals} />
                 </td>
-                <td className="min-w-[120px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                <td className="border-r border-b-subtle px-2.5 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
                   <CountUp value={row.longCall} />
                 </td>
-                <td className="min-w-[150px] border-r border-b-subtle px-3 py-2.5 whitespace-nowrap text-t-primary font-medium">
-                  <span className="block whitespace-nowrap">{row.dialerNames.length ? row.dialerNames.join(' & ') : '—'}</span>
+                <td className="border-r border-b-subtle px-2.5 py-2.5 text-t-primary font-medium">
+                  <span className="block break-words">{row.dialerNames.length ? row.dialerNames.join(' & ') : '—'}</span>
                 </td>
-                <td className={`min-w-[100px] px-3 py-2.5 whitespace-nowrap font-black uppercase tracking-widest text-[10px] ${deductionBg} ${deductionText}`}>{row.deduction ? 'Yes' : 'No'}</td>
+                <td className={`px-2.5 py-2.5 whitespace-nowrap font-black uppercase tracking-widest text-[10px] ${deductionBg} ${deductionText}`}>{row.deduction ? 'Yes' : 'No'}</td>
               </tr>
             )
           })}
