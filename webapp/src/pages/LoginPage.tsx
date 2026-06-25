@@ -7,7 +7,7 @@ import { useGoogleLogin } from '@/hooks/useAuth'
 import { useAuthStore } from '@/store/authStore'
 import { createTimeline, animate, stagger } from 'animejs'
 
-const LOGIN_BACKGROUND_VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260418_080021_d598092b-c4c2-4e53-8e46-94cf9064cd50.mp4'
+const LOGIN_BACKGROUND_VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260418_115655_b4d9cd77-feed-43cd-a198-af78ebdf1f7a.mp4'
 
 /**
  * A component that handles a seamless loop for videos that don't perfectly loop
