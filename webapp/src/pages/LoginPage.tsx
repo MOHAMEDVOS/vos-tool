@@ -5,58 +5,61 @@ import { useGoogleLogin as useGoogleAuth } from '@react-oauth/google'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useGoogleLogin } from '@/hooks/useAuth'
 import { useAuthStore } from '@/store/authStore'
-import { createTimeline, animate, stagger } from 'animejs'
+import { createTimeline, animate } from 'animejs'
 
-const LOGIN_BACKGROUND_VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260418_115655_b4d9cd77-feed-43cd-a198-af78ebdf1f7a.mp4'
+const LOGIN_BACKGROUND_VIDEO_URL = 'https://stream.mux.com/tLkHO1qZoaaQOUeVWo8hEBeGQfySP02EPS02BmnNFyXys.m3u8'
 
 /**
- * A component that handles a seamless loop for videos that don't perfectly loop
- * by cross-fading between two video elements.
+ * Plays an HLS or MP4 video as a looping full-screen background.
+ * HLS (.m3u8): uses hls.js on Chrome/Firefox, native on Safari.
+ * MP4: plays directly via <video src>.
+ * Sound starts muted (required for autoplay), then unmutes on the user's
+ * first interaction. Audio stops when the component unmounts (login).
  */
 function SeamlessVideo({ src }: { src: string }) {
-  const [activeIdx, setActiveIdx] = useState(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
   const [soundOn, setSoundOn] = useState(false)
-  const v1Ref = useRef<HTMLVideoElement>(null)
-  const v2Ref = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
-    const v1 = v1Ref.current
-    const v2 = v2Ref.current
-    if (!v1 || !v2) return
+    const video = videoRef.current
+    if (!video) return
 
-    // Initial play
-    if (activeIdx === 0) {
-      v1.play().catch(() => {})
+    const isHLS = src.includes('.m3u8')
+    let hlsInstance: import('hls.js').default | null = null
+
+    if (isHLS) {
+      import('hls.js').then(({ default: Hls }) => {
+        if (Hls.isSupported()) {
+          hlsInstance = new Hls({ autoStartLoad: true })
+          hlsInstance.loadSource(src)
+          hlsInstance.attachMedia(video)
+          hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+            video.play().catch(() => {})
+          })
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          // Safari native HLS
+          video.src = src
+          video.play().catch(() => {})
+        }
+      })
     } else {
-      v2.play().catch(() => {})
+      video.src = src
+      video.play().catch(() => {})
     }
 
-    const interval = setInterval(() => {
-      const active = activeIdx === 0 ? v1 : v2
-      const next = activeIdx === 0 ? v2 : v1
+    return () => {
+      hlsInstance?.destroy()
+    }
+  }, [src])
 
-      // Trigger 1.5 seconds before end for a more generous overlap
-      if (active.duration && active.currentTime > active.duration - 1.5) {
-        if (next.paused) {
-          next.currentTime = 0
-          next.play().then(() => {
-            setActiveIdx(activeIdx === 0 ? 1 : 0)
-          }).catch(() => {})
-        }
-      }
-    }, 50)
-
-    return () => clearInterval(interval)
-  }, [activeIdx])
-
-  /* Browsers block unmuted autoplay until the user interacts with the page.
-     Start muted so the background always plays, then enable sound on the
-     user's first interaction (they have to click to sign in anyway). Audio
-     stops automatically on login when this component unmounts. */
+  /* Unmute on first interaction — browsers block unmuted autoplay */
   useEffect(() => {
     const enable = () => {
-      if (v1Ref.current) v1Ref.current.volume = 0.7
-      if (v2Ref.current) v2Ref.current.volume = 0.7
+      const video = videoRef.current
+      if (video) {
+        video.muted  = false
+        video.volume = 0.7
+      }
       setSoundOn(true)
     }
     window.addEventListener('pointerdown', enable, { once: true })
@@ -69,33 +72,20 @@ function SeamlessVideo({ src }: { src: string }) {
     }
   }, [])
 
-  const videoStyle = (isActive: boolean): React.CSSProperties => ({
-    position: 'absolute',
-    inset: 0,
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-    opacity: isActive ? 1 : 0,
-    transition: 'opacity 2000ms cubic-bezier(0.45, 0, 0.55, 1)', // Softer ease-in-out
-    pointerEvents: 'none',
-    transform: 'scale(1.02)', // Tiny scale to hide potential edge flicker
-  })
+  void soundOn // used to re-render so muted attr stays in sync
 
   return (
     <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
       <video
-        ref={v1Ref}
-        src={src}
-        style={videoStyle(activeIdx === 0)}
-        muted={!soundOn || activeIdx !== 0}
-        playsInline
-        preload="auto"
-      />
-      <video
-        ref={v2Ref}
-        src={src}
-        style={videoStyle(activeIdx === 1)}
-        muted={!soundOn || activeIdx !== 1}
+        ref={videoRef}
+        style={{
+          position: 'absolute', inset: 0,
+          width: '100%', height: '100%',
+          objectFit: 'cover', pointerEvents: 'none',
+          transform: 'scale(1.02)',
+        }}
+        muted
+        loop
         playsInline
         preload="auto"
       />
@@ -128,7 +118,6 @@ export function LoginPage() {
   const footerRef      = useRef<HTMLDivElement>(null)
   const glowRingRef    = useRef<HTMLDivElement>(null)
   const accentBarRef   = useRef<HTMLDivElement>(null)
-  const dotsRef        = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (token) navigate('/', { replace: true })
@@ -225,20 +214,6 @@ export function LoginPage() {
     return () => clearTimeout(start)
   }, [])
 
-  /* ── Status dots stagger loop ── */
-  useEffect(() => {
-    if (!dotsRef.current) return
-    const dots = Array.from(dotsRef.current.querySelectorAll<HTMLElement>('.status-dot'))
-    if (!dots.length) return
-    animate(dots, {
-      opacity:  [0.18, 0.9, 0.18],
-      scale:    [0.7, 1.2, 0.7],
-      duration: 1800,
-      loop:     true,
-      delay:    stagger(320),
-      ease:     'cubicBezier(0.45, 0, 0.55, 1)',
-    })
-  }, [])
 
 
   return (
@@ -417,20 +392,7 @@ export function LoginPage() {
                 className="mt-14 pt-8 border-t border-white/5 flex items-center justify-between"
                 style={{ opacity: 0 }}
               >
-                <div className="flex items-center gap-3">
-                  <div ref={dotsRef} className="flex gap-[5px] items-center">
-                    {[0, 1, 2].map((i) => (
-                      <div
-                        key={i}
-                        className="status-dot w-[6px] h-[6px] rounded-full bg-[#3a3a3a]"
-                        style={{ opacity: 0.18, willChange: 'transform, opacity' }}
-                      />
-                    ))}
-                  </div>
-                  <span className="font-mono text-[9px] font-medium text-[#888] uppercase tracking-widest">
-                    Systems Ready
-                  </span>
-                </div>
+                <div />
                 <a
                   href="https://t.me/Mohmed_abdo"
                   target="_blank" rel="noopener noreferrer"

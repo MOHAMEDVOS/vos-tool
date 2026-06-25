@@ -19,6 +19,7 @@
     "animejs": "^4.4.1",
     "framer-motion": "^12.38.0",
     "geist": "^1.7.0",
+    "hls.js": "^1.6.16",
     "lucide-react": "^1.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
