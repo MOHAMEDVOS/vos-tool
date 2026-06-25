@@ -15,6 +15,7 @@ const LOGIN_BACKGROUND_VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38
  */
 function SeamlessVideo({ src }: { src: string }) {
   const [activeIdx, setActiveIdx] = useState(0)
+  const [soundOn, setSoundOn] = useState(false)
   const v1Ref = useRef<HTMLVideoElement>(null)
   const v2Ref = useRef<HTMLVideoElement>(null)
 
@@ -48,6 +49,26 @@ function SeamlessVideo({ src }: { src: string }) {
     return () => clearInterval(interval)
   }, [activeIdx])
 
+  /* Browsers block unmuted autoplay until the user interacts with the page.
+     Start muted so the background always plays, then enable sound on the
+     user's first interaction (they have to click to sign in anyway). Audio
+     stops automatically on login when this component unmounts. */
+  useEffect(() => {
+    const enable = () => {
+      if (v1Ref.current) v1Ref.current.volume = 0.7
+      if (v2Ref.current) v2Ref.current.volume = 0.7
+      setSoundOn(true)
+    }
+    window.addEventListener('pointerdown', enable, { once: true })
+    window.addEventListener('keydown',     enable, { once: true })
+    window.addEventListener('touchstart',  enable, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', enable)
+      window.removeEventListener('keydown',     enable)
+      window.removeEventListener('touchstart',  enable)
+    }
+  }, [])
+
   const videoStyle = (isActive: boolean): React.CSSProperties => ({
     position: 'absolute',
     inset: 0,
@@ -66,7 +87,7 @@ function SeamlessVideo({ src }: { src: string }) {
         ref={v1Ref}
         src={src}
         style={videoStyle(activeIdx === 0)}
-        muted
+        muted={!soundOn || activeIdx !== 0}
         playsInline
         preload="auto"
       />
@@ -74,7 +95,7 @@ function SeamlessVideo({ src }: { src: string }) {
         ref={v2Ref}
         src={src}
         style={videoStyle(activeIdx === 1)}
-        muted
+        muted={!soundOn || activeIdx !== 1}
         playsInline
         preload="auto"
       />
