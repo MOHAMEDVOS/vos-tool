@@ -32,6 +32,8 @@ try:  # support both "automation.download_readymode_calls" and bare "download_re
         resolve_agent_id,
         disposition_type_ids,
         all_type_ids,
+        is_blocked_disposition,
+        DISPOSITION_TYPE_IDS,
     )
 except ImportError:  # pragma: no cover
     from readymode_http import (
@@ -42,6 +44,8 @@ except ImportError:  # pragma: no cover
         resolve_agent_id,
         disposition_type_ids,
         all_type_ids,
+        is_blocked_disposition,
+        DISPOSITION_TYPE_IDS,
     )
 
 logger = logging.getLogger(__name__)
@@ -225,8 +229,18 @@ def _collect_tasks_for_dialer(
         print(f"WARNING Could not load {client.dialer}'s own disposition list — "
               f"falling back to the (possibly wrong, per-dialer-mismatched) static guess")
 
+    # Voicemail is never requested — not when explicitly picked, and not via the "everything"
+    # set an empty selection expands to. When the live map is missing we still send the static
+    # guess minus its voicemail ids rather than None, so fetch_report's unfiltered default
+    # (which includes voicemail) is never reached from the download path — not even the probe.
+    if disposition:
+        types = disposition_type_ids(disposition, dialer_map)
+        print(f"INFO Disposition filter on {client.dialer}: {disposition} -> types {types}")
+    else:
+        types = all_type_ids(dialer_map or DISPOSITION_TYPE_IDS)
+
     probe = client.fetch_report(time_from=start_str, time_to=end_str,
-                                time_from_dateonly=start_dateonly)
+                                time_from_dateonly=start_dateonly, types=types)
     restrict_campaign = 0
     restrict_uid = 0
 
@@ -244,16 +258,11 @@ def _collect_tasks_for_dialer(
         restrict_uid = uid
         print(f"SUCCESS Agent filter resolved: {label} (uid={uid}) on {client.dialer}")
 
-    if disposition:
-        types = disposition_type_ids(disposition, dialer_map)
-        print(f"INFO Disposition filter on {client.dialer}: {disposition} -> types {types}")
-    else:
-        types = all_type_ids(dialer_map) if dialer_map else None
-
     tasks = []
     seen_links = set()
     page = 0
     total_pages = None
+    skipped_vm = 0
     collected = task_offset  # used only for unique placeholder filenames
 
     while len(tasks) < max_samples and page < 2000:
@@ -293,6 +302,13 @@ def _collect_tasks_for_dialer(
             agent_text = (row.get("User") or "").strip() or "Unknown_Agent"
             time_text  = (row.get("Time") or "").strip() or "Unknown_Time"
             type_text  = (row.get("Type") or "").strip() or "Unknown_Type"
+
+            # Hard rule: never download voicemail. Checked on the row's OWN disposition label,
+            # so it still holds if the per-dialer id resolution above was wrong.
+            if is_blocked_disposition(type_text):
+                skipped_vm += 1
+                continue
+
             file_text  = row.get("File") or ""
             phone_match = re.search(r"\(\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}", file_text)
             phone_number = phone_match.group(0) if phone_match else f"unknown_{collected + 1}"
@@ -310,6 +326,9 @@ def _collect_tasks_for_dialer(
         page += 1
         if total_pages and page >= total_pages:
             break
+
+    if skipped_vm:
+        print(f"INFO {client.dialer}: skipped {skipped_vm} voicemail row(s) — never downloaded")
 
     return tasks, client.cookies
 

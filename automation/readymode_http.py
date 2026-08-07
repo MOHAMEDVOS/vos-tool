@@ -53,6 +53,33 @@ DISPOSITION_TYPE_IDS = {
 # form field on every dialer, never as a visible <option>).
 BASE_TYPE = 6
 
+# HARD RULE (2026-08-07): voicemail is NEVER downloaded, under any condition. Matched on the
+# label, not the id, because ids are per-dialer and the static map above can be wrong — a
+# substring match also covers "Prank Voicemail" and tenant renames like "VM - No Answer".
+# Analytics-only callers (reachability / long-VM scans) opt out via block_voicemail=False;
+# they read CSV rows and never pull audio. See docs/fixes/NEVER_DOWNLOAD_VOICEMAIL.md.
+BLOCKED_DISPOSITION_SUBSTRINGS = ("voicemail",)
+# "vm" only as a standalone word, so "VM - No Answer" is blocked but a label that merely
+# contains those two letters is not.
+BLOCKED_DISPOSITION_TOKENS = ("vm",)
+
+
+def is_blocked_disposition(label) -> bool:
+    """True if this disposition label may never be downloaded."""
+    text = str(label or "").strip().lower()
+    if any(s in text for s in BLOCKED_DISPOSITION_SUBSTRINGS):
+        return True
+    tokens = set(re.split(r"[^a-z0-9]+", text))
+    return any(t in tokens for t in BLOCKED_DISPOSITION_TOKENS)
+
+
+def blocked_type_ids(lookup: dict | None) -> set:
+    """Every report[types][] id in ``lookup`` whose label is blocked (as strings, since the
+    live map's values are the raw <option value> strings)."""
+    return {
+        str(v) for label, v in (lookup or {}).items() if is_blocked_disposition(label)
+    }
+
 
 class ReadyModeHTTPClient:
     """Thin authenticated client over one ``requests.Session``."""
@@ -182,7 +209,7 @@ class ReadyModeHTTPClient:
     def export_call_log_csv(self, *, time_from: str, time_to: str,
                             time_from_dateonly: str = "1", time_to_dateonly: str = "1",
                             restrict_uid=0, restrict_campaign=0, types=None, dispositions=None,
-                            duration_filter="-1",
+                            duration_filter="-1", block_voicemail=False,
                             fields=(("CCS_Profile.phone", "Phone"), ("u.u_name", "Agent name"))) -> bytes:
         """Download the whole-day call-log CSV in ONE request and return the raw bytes.
 
@@ -196,15 +223,18 @@ class ReadyModeHTTPClient:
         in a single GET-equivalent POST. See ``docs/READYMODE_HTTP_SPEC.md §7``.
         """
         # seed session report state (date range + dispositions) like the browser
+        # ``block_voicemail`` defaults to False here: this is the CSV/analytics primitive
+        # (reachability + long-VM scans) which must still SEE voicemail rows. It never pulls
+        # audio — the no-voicemail rule is enforced on the download path.
         dmap = self.init_call_log()
         if types is None:
             if dispositions:
                 # Resolve the requested disposition labels to THIS dialer's own ids (per-dialer).
-                types = disposition_type_ids(dispositions, dmap)
+                types = disposition_type_ids(dispositions, dmap, block_voicemail=block_voicemail)
             elif dmap:
                 # No filter -> ALL of this dialer's ids (mirrors ticking every checkbox), so the
                 # export contains every call for the day, not the static-guess subset.
-                types = all_type_ids(dmap)
+                types = all_type_ids(dmap, block_voicemail=block_voicemail)
         self.fetch_report(
             time_from=time_from, time_to=time_to,
             time_from_dateonly=time_from_dateonly, time_to_dateonly=time_to_dateonly,
@@ -357,34 +387,50 @@ def resolve_agent_id(userlist: dict, name: str):
     return None, None
 
 
-def disposition_type_ids(dispositions, dialer_map: dict | None = None) -> list:
+def disposition_type_ids(dispositions, dialer_map: dict | None = None,
+                         block_voicemail: bool = True) -> list:
     """Map disposition labels -> report[types][] ids: base type 6 + each matched id.
 
     Prefers ``dialer_map`` (this dialer's own live label->id mapping from
     ``ReadyModeHTTPClient.init_call_log()``) since disposition IDs are per-dialer custom
     config, not shared across the account. Falls back to the static, possibly-wrong
     ``DISPOSITION_TYPE_IDS`` guess only when no live mapping is available.
+
+    With ``block_voicemail`` (the default) a voicemail label is never requested, and the
+    tolerant contains-match can never land on a voicemail id.
     """
     lookup = dialer_map if dialer_map else DISPOSITION_TYPE_IDS
+    banned = blocked_type_ids(lookup) if block_voicemail else set()
     ids = [BASE_TYPE]
     for d in dispositions or []:
         key = re.sub(r"\s+", " ", str(d).strip().lower())
+        if block_voicemail and is_blocked_disposition(key):
+            continue
         tid = lookup.get(key)
         if tid is None:  # tolerant contains-match (e.g. "Unknown / dead call" spacing variants)
             for label, v in lookup.items():
+                if str(v) in banned:
+                    continue
                 if key and (key in label or label in key):
                     tid = v
                     break
-        if tid is not None and tid not in ids:
+        if tid is not None and str(tid) not in banned and tid not in ids:
             ids.append(tid)
     return ids
 
 
-def all_type_ids(dialer_map: dict) -> list:
+def all_type_ids(dialer_map: dict, block_voicemail: bool = True) -> list:
     """All ids for this dialer (used when no disposition filter is requested) — mirrors
-    selecting every checkbox in the UI, scoped correctly to this specific dialer."""
+    selecting every checkbox in the UI, scoped correctly to this specific dialer.
+
+    Voicemail ids are dropped unless ``block_voicemail`` is False: an empty selection means
+    "every disposition", which is exactly how voicemail used to leak into downloads.
+    """
+    banned = blocked_type_ids(dialer_map) if block_voicemail else set()
     ids = [BASE_TYPE]
-    for v in dialer_map.values():
+    for v in (dialer_map or {}).values():
+        if str(v) in banned:
+            continue
         if v not in ids:
             ids.append(v)
     return ids

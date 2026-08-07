@@ -11,6 +11,9 @@ export const READYMODE_DIALER_URLS: Record<string, string> = {
   resva7: 'https://resva7.readymode.com/',
 }
 
+// Voicemail is deliberately absent and can never be added: the backend hard-blocks any
+// voicemail disposition on the download path (automation/readymode_http.py,
+// docs/fixes/NEVER_DOWNLOAD_VOICEMAIL.md). An empty selection means "all except voicemail".
 export const DISPOSITIONS = [
   'Spanish Speaker',
   'DNC - Unknown',
