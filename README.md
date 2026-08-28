@@ -1,115 +1,86 @@
-# VOS — Voice Observation System
-> AI-Powered Call Center QA Automation for High-Performance Sales Teams.
+# VOS (Voice Observation System)
 
-VOS is a sophisticated, high-fidelity platform designed to automate Quality Assurance for real estate sales calls. By leveraging a multi-layered AI detection engine, VOS transcribes, analyzes, and scores thousands of calls in seconds, providing actionable insights that previously took hours of manual effort.
+Call QA automation for Egyptian real estate sales teams. VOS pulls recordings from ReadyMode dialers, transcribes them, checks whether the agent answered the customer's objection, flags quality problems, and scores the audit.
 
-[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688.svg?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![React](https://img.shields.io/badge/Frontend-React-61DAFB.svg?style=flat&logo=react&logoColor=white)](https://reactjs.org)
-[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-336791.svg?style=flat&logo=postgresql&logoColor=white)](https://www.postgresql.org)
-[![Docker](https://img.shields.io/badge/Deployment-Docker-2496ED.svg?style=flat&logo=docker&logoColor=white)](https://www.docker.com)
+Manual review of the same calls took about 45 seconds each.
 
----
+## Rebuttal detection
 
-## 🧠 The 3-Layer Detection Engine
-VOS doesn't just look for keywords. It understands the context of sales conversations through a proprietary three-layer pipeline:
+A transcript goes through up to four stages, and each stage runs only if the one before it came back unsure. Most calls stop after the first two.
 
-1.  **Exact Match**: Lightning-fast identification of high-confidence rebuttal phrases.
-2.  **Semantic Match**: Uses `Sentence Transformers` to identify conceptually similar objections even when the exact wording differs.
-3.  **LLM Fallback**: Utilizes `Groq / Llama 3.3 (70B)` for complex linguistic analysis of ambiguous interactions, ensuring 99% detection accuracy.
+1. Exact phrase match against `rebuttal_phrases.txt` (roughly 3,200 phrases)
+2. Regex patterns, applied only to what the agent says after the objection
+3. Semantic match with sentence-transformers, for wording the phrase list misses
+4. Groq (Llama 3.3 70B) evaluation when confidence is still below threshold
 
----
+A match at 0.95 or higher ends the pipeline. See `docs/DETECTION_WORKFLOW.md`.
 
-## ✨ Core Features
+AssemblyAI handles transcription with speaker diarization. Before any matching runs, `lib/egyptian_accent_correction.py` repairs the transcription errors that Egyptian accents tend to produce.
 
-### 📡 ReadyMode Integration
-*   **Automated Downloads**: Pure-HTTP automation (`requests`) logs into ReadyMode dialers to fetch recordings — no browser driver.
-*   **Session Persistence**: Handles authentication and secure session management automatically.
-*   **Intelligent Filtering**: Downloads calls based on duration, disposition, and campaign.
+## Everything else
 
-### 📊 Advanced Dashboards
-*   **Real-time Analytics**: Monitor agent performance, rebuttal hit rates, and quality trends.
-*   **Hierarchical Views**: Custom views for Owners (System-wide), Admins (Team-wide), and Auditors (Self-view).
-*   **Quality Scoring**: Automated detection of "Late Hello", "Releasing", and "Agent-Only" calls.
+- Downloads calls from ReadyMode over plain HTTP, no browser driver (`automation/readymode_http.py`)
+- Flags late hello, releasing, agent-only, and long voicemail or dead calls
+- Runs heavy audits (full scoring) and lite audits (campaign reachability and dispositions)
+- Learns new rebuttal phrases from calls it already scored (`lib/phrase_learning.py`)
+- Passes credit quotas down from owner to admin to auditor (`lib/quota_manager.py`)
+- Exports agent scores in the company's Auditors-Scoring sheet format (`lib/scoring_audit.py`)
 
-### 🛡️ Secure Management
-*   **Google OAuth**: Modern, secure authentication flow.
-*   **Granular Quota System**: Hierarchical credit allocation (Owner → Admin → Auditor) to manage API costs.
-*   **Secure Storage**: All credentials and API keys are encrypted at rest.
+## Stack
 
-### 🎓 Phrase Learning System
-*   **Auto-Learning**: The system automatically identifies new successful rebuttals from high-performing agents.
-*   **Quality Tiers**: Phrases are scored and categorized into tiers (Premium, Standard, Lite) for precise detection.
+FastAPI on Python 3.11 with Pydantic v2, PostgreSQL, and Celery on Redis for background jobs. Login is Google OAuth only, issuing a JWT.
 
----
+The frontend is React 19 with Vite, TypeScript, and Tailwind, plus TanStack Query and Table, ag-grid, Recharts, and Zustand. It builds to static files served by nginx.
 
-## 🛠️ Technology Stack
+Both services run on Railway as Docker images. `nixpacks.toml` is there only to stop Railway from reaching for Nixpacks instead of the Dockerfiles.
 
-| Component | Technology |
-| :--- | :--- |
-| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS, Geist Design, Zustand, TanStack Query/Table, ag-grid, Recharts |
-| **Backend** | FastAPI, Python 3.11, Pydantic v2 |
-| **Auth** | JWT (PyJWT) + Google OAuth |
-| **Database** | PostgreSQL (Primary), Redis (Caching/Jobs) |
-| **AI/ML** | AssemblyAI (Transcription), Sentence Transformers, Llama 3.3 70B (via Groq) |
-| **Automation** | ReadyMode via pure HTTP (`requests`) |
-| **Infrastructure** | Docker, Celery (Background Tasks), Railway (Deployment) |
+## Running it
 
----
+Bring your own PostgreSQL. The Compose file does not start one.
 
-## 🚀 Quick Start
-
-### 🐳 Using Docker (Recommended)
-The fastest way to get VOS running is with Docker Compose:
-
-```bash
-docker compose up --build
-```
-
-Access the services:
-*   **Frontend**: `http://localhost:3000`
-*   **Backend API**: `http://localhost:8000`
-*   **API Documentation**: `http://localhost:8000/docs`
-
-### 💻 Local Development
-
-**1. Backend Setup**
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn backend.main:app --reload
 ```
 
-**2. Frontend Setup**
 ```bash
 cd webapp
 npm install
 npm run dev
 ```
 
----
+Vite serves on port 3000 and proxies `/api` to the backend on 8000. API docs are at `http://localhost:8000/docs`.
 
-## 📂 Project Structure
+`requirements.txt` is the full set. The backend image uses the smaller `requirements-backend.txt` and installs CPU-only PyTorch on its own.
+
+## Configuration
+
+Copy `.env.example` to `.env`. `env.template` has more variables and notes, though neither file is complete. What you need to set:
+
+- `DATABASE_URL`, or the individual `POSTGRES_*` variables
+- `SECRET_KEY` and `JWT_SECRET`
+- `ASSEMBLYAI_API_KEY` for transcription
+- `GROQ_API_KEY` for stage 4
+- `GOOGLE_CLIENT_ID`, plus `VITE_GOOGLE_CLIENT_ID` in `webapp/.env`
+
+On Railway these live in the Variables tab.
+
+## Layout
 
 ```text
-backend/          # FastAPI routers, auth, services, and Pydantic models
-webapp/           # Modern React frontend (Vite + Tailwind)
-lib/              # Core business logic: Quota, User, and Session Managers
-analyzer/         # The 3-layer Rebuttal Detection engine
-audio_pipeline/   # Transcription and audio processing workflows
-automation/       # Pure-HTTP ReadyMode integration (requests)
-migrations/       # Database schema and migration scripts
-docs/             # Technical documentation and architecture diagrams
+backend/          FastAPI app: routers, auth, Celery tasks, models
+webapp/           React frontend
+lib/              Data managers, quota, scoring, phrase learning, detectors
+analyzer/         Rebuttal detection and the LLM evaluator
+audio_pipeline/   Transcription and audio preprocessing
+automation/       ReadyMode HTTP client
+processing/       Batch and parallel call processing
+migrations/       SQL schema changes
+scripts/          One-off backfills and probes
+tests/            Detector tests
+docs/             See below
 ```
 
----
-
-## 📝 Configuration
-Copy `.env.example` to `.env` and configure your API keys:
-*   `ASSEMBLYAI_API_KEY`: For call transcription.
-*   `GROQ_API_KEY`: For LLM-powered semantic analysis.
-*   `DATABASE_URL`: PostgreSQL connection string.
-*   `GOOGLE_CLIENT_ID`: For OAuth authentication.
-
----
-**VOS** — *Transforming voice data into operational intelligence.*
+Start with `docs/ARCHITECTURE.md`. From there, `DETECTION_WORKFLOW.md` explains the four stages, `READYMODE_HTTP_SPEC.md` the dialer integration, `DEPLOYMENT.md` Railway, and `DATABASE.md` the schema. `IMPROVEMENTS.md` tracks known issues.
