@@ -22,7 +22,6 @@ export const DISPOSITIONS = [
   'Wrong Number',
   'Decision Maker - NYI',
   'Dead Call',
-  'Not logged',
 ]
 
 export const DURATION_FILTERS = [

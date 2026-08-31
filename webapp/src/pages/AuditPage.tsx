@@ -681,7 +681,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const [startTimeMinute, setStartTimeMinute] = useState('00')
   const [startTimeAmPm, setStartTimeAmPm] = useState<'AM' | 'PM'>('AM')
   const [useStartTime, setUseStartTime] = useState(false)
-  const [dispositions, setDispositions] = useState<string[]>([])
+  const [dispositions, setDispositions] = useState<string[]>([...DISPOSITIONS])
   const [durationFilter, setDurationFilter] = useState('all')
   const [customDuration, setCustomDuration] = useState(60)
   const isCampaign = mode === 'campaign'
