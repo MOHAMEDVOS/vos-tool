@@ -98,18 +98,21 @@ export function DestroyButton({ children, onClick, disabled, size = 'md', classN
   const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
     if (disabled || clicking) return
     setClicking(true)
-    await controls.start({
-      x: [0, -6, 6, -5, 5, -3, 3, 0],
-      transition: { duration: 0.35, ease: 'easeInOut' },
-    })
-    await controls.start({
-      scale: [1, 1.08, 0],
-      opacity: [1, 1, 0],
-      transition: { duration: 0.28, ease: 'easeIn' },
-    })
-    onClick?.(e)
-    await controls.start({ scale: 1, opacity: 1, x: 0, transition: { duration: 0 } })
-    setClicking(false)
+    try {
+      await controls.start({
+        x: [0, -6, 6, -5, 5, -3, 3, 0],
+        transition: { duration: 0.35, ease: 'easeInOut' },
+      })
+      await controls.start({
+        scale: [1, 1.08, 0],
+        opacity: [1, 1, 0],
+        transition: { duration: 0.28, ease: 'easeIn' },
+      })
+      onClick?.(e)
+    } finally {
+      await controls.start({ scale: 1, opacity: 1, x: 0, transition: { duration: 0 } })
+      setClicking(false)
+    }
   }
 
   const sizeClass = size === 'sm' ? 'px-3 py-1.5 text-[10px]' : 'px-4 py-2 text-[10px]'
