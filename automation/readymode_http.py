@@ -33,6 +33,10 @@ class ReadyModeUserCreateError(Exception):
     """User creation failed (login ID taken, invalid folder, server error, etc.)."""
 
 
+class ReadyModeUserDeleteError(Exception):
+    """User deletion failed (unknown uid, server error, etc.)."""
+
+
 # Fallback disposition label -> report[types][] id, captured from ONE dialer (resva2) on
 # 2026-06-15. ReadyMode disposition IDs are configured per-dialer/tenant, NOT shared across
 # the account — e.g. id 96 is "Spanish Speaker" on resva2 but "Decision Maker - NYI" on
@@ -350,9 +354,180 @@ class ReadyModeHTTPClient:
             raise ReadyModeUserCreateError(f"Unexpected response: {body}")
         return body["success"][0]
 
+    def delete_user(self, uid: str) -> None:
+        """GET Folders/fileAction/Delete/User=<uid> — permanently deletes that user.
+
+        Reverse-engineered from a live recon capture (2026-09-01): the Manage Users UI
+        represents users as icons inside folders and deletes them via drag-to-trash, which
+        is ReadyMode's generic file-manager delete action (``dropact="Delete"`` on the trash
+        drop target), not a user-specific endpoint. No request body — the uid is the whole
+        payload, embedded in the URL. Raises ReadyModeUserDeleteError on any non-2xx response.
+
+        The response body's shape on success/failure was not captured (only status 200 was
+        observed), so unlike create_user this can't yet distinguish "deleted" from "silently
+        no-op'd" purely from the body — a non-2xx status is currently the only confirmed
+        failure signal.
+        """
+        r = self.session.get(
+            f"{self.dialer}/Folders/fileAction/Delete/User={uid}",
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"{self.dialer}/",
+            },
+            timeout=30,
+        )
+        if r.status_code != 200:
+            raise ReadyModeUserDeleteError(
+                f"Delete failed for uid {uid} on {self.dialer} (status={r.status_code}): {r.text[:200]}"
+            )
+
+    def list_folder_users(self, folder_id: str) -> dict:
+        """POST Folders/Folder=<id> and parse EVERY user in that folder from the HTML.
+
+        Reverse-engineered from a live recon capture (2026-09-01): this is the same generic
+        Folders-app action the UI uses to open a folder and show its icon grid (paired with
+        the ``dropact="Delete"`` trash target and ``Folders/fileAction/Delete/User=<uid>``
+        found earlier). Unlike fetch_report()'s userlist, this is NOT limited to accounts
+        with recent call activity — it returns every account currently sitting in the
+        folder, live, regardless of call history. This is what closes the "zero-activity
+        account can't be found" gap that both delete-by-name and duplicate-detection have
+        when relying on userlist alone.
+
+        `folder_id` here is the short numeric id used by this endpoint (confirmed live as
+        "54" for resva4's Agents folder) — NOT the longer per-instance id string
+        get_writable_folders() returns for the create-user form (e.g. "54-109-" on resva4).
+        The numeric prefix before the first "-" in that longer id is the same value this
+        endpoint expects; see resolve_folder_listing_id().
+
+        Returns {uid: name}. Best-effort: a parse failure returns whatever was found before
+        it, never raises — callers should treat an empty dict as "couldn't confirm", not
+        "empty folder".
+        """
+        r = self.session.post(
+            f"{self.dialer}/Folders/Folder={folder_id}",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            timeout=30,
+        )
+        html = r.text or ""
+        result: dict[str, str] = {}
+        try:
+            markers = list(re.finditer(r"folderres='User=(\d+)'", html))
+            for i, m in enumerate(markers):
+                uid = m.group(1)
+                start = m.start()
+                end = markers[i + 1].start() if i + 1 < len(markers) else min(len(html), start + 700)
+                chunk = html[start:end]
+                runs = [t.strip() for t in re.findall(r">([^<>]+)<", chunk) if t.strip()]
+                if not runs:
+                    continue
+                name = max(runs, key=len)
+                if not result.get(uid):
+                    result[uid] = name
+        except Exception:
+            pass  # best effort; whatever was parsed before the failure is still returned
+        return result
+
     @property
     def cookies(self) -> dict:
         return self.session.cookies.get_dict()
+
+
+def resolve_folder_listing_id(create_form_folder_id: str) -> str:
+    """The numeric id list_folder_users() expects is the prefix of the longer id
+    get_writable_folders() returns for the create-user form (e.g. "54-109-" -> "54" on
+    resva4). Confirmed live for one folder on one dialer (2026-09-01) — not yet verified
+    this prefix relationship holds on every dialer/folder, so treat call sites as
+    best-effort, not guaranteed."""
+    return (create_form_folder_id or "").split("-")[0]
+
+
+# ── lookup window (shared by delete-by-name and duplicate-detection) ────────────────────
+# fetch_report()'s userlist only includes agents with at least one call in the queried
+# date range — there is no other "list all users" endpoint anywhere in this codebase. An
+# account with zero calls in this window (freshly created, or simply never dialed) will
+# NOT appear in userlist, so neither name-based delete NOR duplicate-detection can see it.
+# "0 duplicates found" via lookup_date_range() means "0 found among users with recent call
+# activity," not "no duplicates exist on this dialer." See
+# docs/investigations/READYMODE_DUPLICATE_DETECTION_WORKFRAME.md.
+#
+# Was 730 days originally — confirmed live (2026-09-01) that a 2-year report window times
+# out fetch_report()'s 60s timeout against a real dialer (too much call history to scan in
+# one request). 90 days is a practical tradeoff: still wide enough to catch a duplicate with
+# any recent activity, without the request itself failing.
+LOOKUP_WINDOW_DAYS = 90
+
+
+def lookup_date_range(days: int = LOOKUP_WINDOW_DAYS) -> tuple[str, str]:
+    from datetime import date, timedelta
+    today = date.today()
+    start = today - timedelta(days=days)
+    return start.strftime("%m/%d/%Y"), today.strftime("%m/%d/%Y")
+
+
+def group_duplicate_users(userlist: dict) -> list[dict]:
+    """userlist: {'x<uid>': 'Folder|Name', ...} -> duplicate groups (2+ uids sharing a name).
+
+    Grouping key is the display name (text after '|'), case-insensitive and trimmed — the
+    same match strength as resolve_agent_id's exact-match first pass. Deliberately does NOT
+    use resolve_agent_id's fuzzy dot-suffix pass (_name_match): that exists to tolerantly
+    resolve a caller-supplied search term, and reusing it here would risk grouping two
+    genuinely different people ahead of a delete action. Duplicates are scoped dialer-wide,
+    regardless of which folder each account sits in (by design, not a limitation) — folder
+    is captured per-account for display only.
+
+    Within each group, accounts are sorted by uid ascending as INTEGERS (ReadyMode uids are
+    assigned in creation order, so lowest = oldest/first-created) — NOT lexicographically,
+    which would wrongly rank "1000" before "999". The lowest-uid account is tagged "keep";
+    every other account in the group is "delete_candidate" — automatic, no manual per-group
+    picking, per product decision.
+
+    Groups of size 1 (no duplicate) are omitted. Returns groups sorted by name.
+
+    NOTE: this only ever sees what's in the `userlist` it's given — see lookup_date_range()'s
+    docstring for why that's not a full account roster.
+
+    GOTCHA (confirmed live 2026-09-01): userlist keeps a name->uid entry for accounts that
+    were already deleted, as long as they have historical calls in the queried range — and
+    ReadyMode labels them with a literal "(deleted)" suffix (e.g. "test (deleted)"). These
+    are not live duplicates — the account is gone, only its old call records remain — so
+    they're excluded entirely rather than grouped. Without this, an already-deleted account
+    whose name matches something still-live (or another already-deleted entry) shows up as a
+    false-positive duplicate, which is exactly what a live scan caught.
+    """
+    by_name: dict[str, list[tuple[int, str, str, str]]] = {}  # norm -> [(uid_int, uid_str, folder, label), ...]
+    for key, raw in (userlist or {}).items():
+        folder, sep, label = str(raw).partition("|")
+        label = (label if sep else folder).strip()  # tolerate a malformed entry with no '|'
+        folder = folder.strip() if sep else ""
+        if not label or "(deleted)" in label.lower():
+            continue
+        uid_str = str(key).lstrip("x")
+        try:
+            uid_int = int(uid_str)
+        except ValueError:
+            continue  # non-numeric uid shouldn't happen live; skip rather than crash the scan
+        by_name.setdefault(label.strip().lower(), []).append((uid_int, uid_str, folder, label))
+
+    groups = []
+    for accounts in by_name.values():
+        if len(accounts) < 2:
+            continue
+        accounts.sort(key=lambda a: a[0])  # ascending uid = oldest first
+        display_name = accounts[0][3]      # canonical casing = the KEPT (oldest) account's own label
+        groups.append({
+            "name": display_name,
+            "accounts": [
+                {
+                    "uid": uid_str,
+                    "folder": folder,
+                    "label": f"{folder}|{label}" if folder else label,
+                    "role": "keep" if i == 0 else "delete_candidate",
+                }
+                for i, (_uid_int, uid_str, folder, label) in enumerate(accounts)
+            ],
+        })
+    groups.sort(key=lambda g: g["name"].lower())
+    return groups
 
 
 # ── name -> id resolution (mirrors the exact/dot-suffix matching of the old JS) ──────────

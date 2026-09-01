@@ -161,6 +161,22 @@ class BulkUserCreateRequest(BaseModel):
     users: List[BulkUserRow]
 
 
+# Bulk user deletion schemas
+class BulkUserDeleteRow(BaseModel):
+    name: str                        # always shown in results/logs
+    uid: Optional[str] = None        # when set, deletes this exact uid — no name resolution
+
+
+class BulkUserDeleteRequest(BaseModel):
+    dialer_urls: List[str]
+    users: List[BulkUserDeleteRow]
+
+
+# Duplicate-user scan schema
+class FindDuplicateUsersRequest(BaseModel):
+    dialer_urls: List[str]      # dialers to scan — no `users`, this scans everyone
+
+
 # System health
 class SystemHealth(BaseModel):
     cpu: float
