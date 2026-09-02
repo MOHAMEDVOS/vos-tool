@@ -22,11 +22,37 @@ All the browser-based recon ran under a human admin session whose selected templ
 
 **The fix:** request a built-in preset explicitly instead of depending on the account's saved selection. `templateIdValue=P134` ("Agent report" under Default Reports) is available to every account. It returns one row per agent with a **Days Worked** column — the exact metric needed — instead of one row per agent per day, which also makes the response ~35× smaller (118KB vs 4MB for 60 days on resva).
 
-**Critical detail:** send `templateIdValue` *without* `loadingTemplate=1`. That flag makes the server load the template's own saved date range and silently ignore the requested one — verified live: a 60-day request came back with a max of 4 days worked, which would have recreated the identical "everyone looks inactive" failure.
+**Critical detail (revised 2026-09-02, see the next section):** sending `templateIdValue` at all makes the server load the template's own saved date range and ignore the requested one — `loadingTemplate=1` is not what causes it. The fix is a two-step request, below.
 
 **Trade-off accepted:** no built-in preset includes User ID (checked all four: P87, P102, P117, P134 — none have it). So roster↔activity matching is by display **name** now. Both sides are ReadyMode's own names, so they line up; and a name collision resolves toward the *most active* account, which fails safe — nobody is deleted because a namesake was idle.
 
 Cross-validated live on resva: preset-based "Days Worked" for a known-active agent = **28**, exactly matching the 28 days counted independently by the old row-counting method, with 266 agents listed vs 265 counted the other way.
+
+## SECOND ROOT CAUSE (2026-09-02): the requested date range was being ignored
+
+Reported from production: the scan listed 1301 candidates on resva — the entire roster — including agents who work every day (Yomna Hussin Yassin, Shrouk Nader Abas Abdelgwad, Rowida Abbas Mohamed Mohamed). Every row showed 2 or fewer "active days."
+
+Confirmed live by replaying the request: **a 60-day request came back holding two days of data (09/01–09/02).** With only two days in the report, the busiest agent on the dialer cannot show more than 2 days worked, so a `≤2 days` threshold matches everyone. The parsing was fine; the window was wrong.
+
+Two separate server behaviours combine to cause it:
+
+1. **The first agent-report POST in a session never applies the requested range.** It replies with whatever range the selected template has saved (one day on resva). Verified with fresh logins: identical params, first call → 2 days of data, second call → the full 60.
+2. **`templateIdValue` re-loads the template *and* its saved date range every time it is sent** — with or without `loadingTemplate=1`. The earlier note blaming `loadingTemplate` was wrong; the flag is irrelevant.
+
+**The fix — a two-step request** (`_post_agent_report()` in `readymode_http.py`):
+
+| Call | Params | Purpose |
+|---|---|---|
+| 1 | dates + `templateIdValue=P134` + `loadingTemplate=1` | Selects the built-in preset. Response is discarded — its range is the template's, not ours. |
+| 2 | dates only, **no** `templateIdValue` | Returns the preset's columns over the requested window. The template selection is already sticky on the session. |
+
+**Verification handle:** the response echoes the window it actually used, in its own hidden inputs — `<input type='hidden' id='agent_rep_timefrom' value='07/04/2026' ...>` / `agent_rep_timeto`. `fetch_agent_activity()` now compares that echo against the requested range, retries once (resva4 generates the report server-side and can need a third call), and raises `ReadyModeAgentActivityError` rather than returning counts measured over a shorter window. A short window doesn't produce zero activity — it produces *undercounted* activity, which is worse: it looks plausible and flags real people.
+
+Measured live on resva after the fix: 266 agents with activity (max 62 days worked), Yomna 27 days / 231h, Shrouk 22 days / 192h, Rowida 39 days / 211h. Full scan: 1302 accounts → **1037 candidates, every one at 0 days and 0 logged minutes.**
+
+### Logged time is now reported, and the default threshold is 0
+
+The preset's `Payable (t)` column (total logged/shift time) is parsed alongside Days Worked and returned as `minutes_active`, shown in the UI as a "Logged time" column. The default `max_days_active` dropped from 2 to **0** — "no login record at all in the window" — which is the only threshold that answers "should this account still exist" without a judgement call. At 0, any logged minutes also count as active (`_is_inactive()`), so an account can only be listed with zero days *and* zero hours. Raising the threshold goes back to a days-only question about people who did work.
 
 ## The originally captured contract (superseded above)
 
@@ -94,13 +120,13 @@ Two separate silent failures in this parser have now each produced the same dang
 
 ### Diagnosing this class of bug quickly
 
-The candidate count itself is the tell. Compare it against the dialer's roster size: if candidates ≈ roster size exactly, no activity is being matched at all (parser broken, or stale deployment). Measured live on resva 2026-09-02: roster 1301, genuinely active 249, correct candidates 1052 (≤2 days) / 1036 (zero days). A production UI showing exactly 1301 meant the deployed backend was running pre-fix code — the frontend bundle was current, but the parsing fix touched no frontend files, so a fresh frontend says nothing about the backend service having rebuilt.
+The candidate count itself is the tell. Compare it against the dialer's roster size: if candidates ≈ roster size exactly, no activity is being matched at all (parser broken, stale deployment, or — as in the 2026-09-02 date-range bug — the report covering a window too short for anyone to clear the threshold; check the max "active days" across all rows: if it equals the threshold, the window is wrong, not the roster). Measured live on resva 2026-09-02: roster 1301, genuinely active 249, correct candidates 1052 (≤2 days) / 1036 (zero days). A production UI showing exactly 1301 meant the deployed backend was running pre-fix code — the frontend bundle was current, but the parsing fix touched no frontend files, so a fresh frontend says nothing about the backend service having rebuilt.
 
 ## Known caveats
 
 - **Folder-scan dependent, so it inherits that dependency's shakiness.** `resolve_folder_listing_id()`'s short-id/long-id derivation is confirmed for one folder on one dialer (see the duplicate-detection doc) — not yet proven everywhere.
 - **Slow for the same reason folder scans are always slow**: full roster build is one request per writable folder, each potentially 1000+ users of HTML to parse, on top of the activity report itself (up to several MB for a 60-day window on a busy dialer). Parallelized the same way delete/duplicate-detection's folder scans are, but still bounded by the slowest single request.
-- **`days_active` counts days, not hours.** An agent who logged in for 2 minutes on 3 different days looks more "active" than one who worked a full 8-hour shift once. This matches what was asked for (time-based activity, not call volume) but is worth knowing if a flagged account looks surprising.
+- **`days_active` counts days, not hours.** An agent who logged in for 2 minutes on 3 different days looks more "active" than one who worked a full 8-hour shift once. Logged time is now shown next to it (`minutes_active`, from the report's `Payable (t)` column) so a surprising row can be judged on the spot.
 - **No year in `last_day`.** The raw report data doesn't include one; inferring it from the request's own date range wasn't attempted since the UI mainly needs "how many days," not the exact date.
 
 ## Where this lives

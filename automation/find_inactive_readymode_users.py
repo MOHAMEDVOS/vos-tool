@@ -33,8 +33,27 @@ from automation.readymode_http import (
     resolve_folder_listing_id,
 )
 
-DEFAULT_MAX_DAYS_ACTIVE = 2
+# 0 = "never logged in at all during the lookback window" — no shift, no logged hours.
+# That is the only threshold that answers "should this account still exist" on its own;
+# anything higher is a judgement call about someone who DID work, so the caller has to
+# opt into it deliberately.
+DEFAULT_MAX_DAYS_ACTIVE = 0
 DEFAULT_LOOKBACK_DAYS = 60
+
+
+def _is_inactive(days_active: int, minutes_active: int, max_days_active: int) -> bool:
+    """Is this activity at-or-below the threshold?
+
+    At max_days_active=0 the question is "no login record at all," so any logged time
+    counts as active too, not just a day count — two independent signals from the same
+    report have to both be zero before an account is offered for deletion. Above 0 the
+    caller has explicitly asked a days-based question, so days alone decide it.
+    """
+    if days_active > max_days_active:
+        return False
+    if max_days_active == 0 and minutes_active > 0:
+        return False
+    return True
 
 
 def _build_full_roster(client: "ReadyModeHTTPClient", log: Callable[[str], None]) -> dict:
@@ -125,14 +144,17 @@ def _scan_dialer_full(
     accounts = []
     matched = 0
     for uid, info in roster.items():
-        days = activity.get(info["name"].strip().lower(), 0)
-        if days:
+        act = activity.get(info["name"].strip().lower()) or {}
+        days = act.get("days", 0)
+        minutes = act.get("minutes", 0)
+        if days or minutes:
             matched += 1
         accounts.append({
             "uid": uid,
             "name": info["name"],
             "folder": info["folder"],
             "days_active": days,
+            "minutes_active": minutes,
             "last_day": "",
         })
 
@@ -189,13 +211,15 @@ def find_inactive_users_multi_dialer(
     ok_results = [r for r in raw_results if r["status"] == "ok"]
     scanned_count = len(ok_results)
 
-    # name (normalized) -> highest days_active seen for that name on any scanned dialer
-    name_max_activity: dict[str, int] = {}
+    # name (normalized) -> highest activity seen for that name on any scanned dialer
+    name_max_days: dict[str, int] = {}
+    name_max_minutes: dict[str, int] = {}
     for r in ok_results:
         for acc in r["accounts"]:
             key = acc["name"].strip().lower()
             if key:
-                name_max_activity[key] = max(name_max_activity.get(key, 0), acc["days_active"])
+                name_max_days[key] = max(name_max_days.get(key, 0), acc["days_active"])
+                name_max_minutes[key] = max(name_max_minutes.get(key, 0), acc["minutes_active"])
 
     final_results: list[dict] = []
     for r in raw_results:
@@ -209,14 +233,16 @@ def find_inactive_users_multi_dialer(
         candidates = []
         excluded_active_elsewhere = 0
         for acc in r["accounts"]:
-            if acc["days_active"] > max_days_active:
+            if not _is_inactive(acc["days_active"], acc["minutes_active"], max_days_active):
                 continue  # active enough right here — never a candidate regardless of elsewhere
             key = acc["name"].strip().lower()
             # scanned_count > 1 guards this from ever excluding anything when only one
-            # dialer was requested — name_max_activity would just equal this dialer's own
-            # data in that case, so the check degrades to a no-op, but being explicit here
+            # dialer was requested — the name maps would just equal this dialer's own data
+            # in that case, so the check degrades to a no-op, but being explicit here
             # avoids relying on that falling out correctly by accident.
-            if scanned_count > 1 and name_max_activity.get(key, 0) > max_days_active:
+            if scanned_count > 1 and not _is_inactive(
+                name_max_days.get(key, 0), name_max_minutes.get(key, 0), max_days_active
+            ):
                 excluded_active_elsewhere += 1
                 continue
             candidates.append(acc)

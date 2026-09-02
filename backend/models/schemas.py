@@ -180,7 +180,7 @@ class FindDuplicateUsersRequest(BaseModel):
 # Inactive-user scan schema
 class FindInactiveUsersRequest(BaseModel):
     dialer_urls: List[str]
-    max_days_active: int = 2    # flag accounts with this many or fewer shift-days in range
+    max_days_active: int = 0    # 0 = only accounts with no shift/login record at all in range
     lookback_days: int = 60
 
 

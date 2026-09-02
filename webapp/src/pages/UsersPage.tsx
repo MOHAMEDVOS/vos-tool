@@ -96,6 +96,16 @@ type InactiveUser = {
   name: string
   folder: string
   days_active: number
+  minutes_active: number
+}
+
+// "231 hours 27 min." of payable time as reported by the dialer, shown so a candidate
+// can be judged on its own row rather than on the day count alone.
+function formatLoggedTime(minutes: number): string {
+  if (!minutes) return 'none'
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return h ? `${h}h ${m}m` : `${m}m`
 }
 
 type InactiveDialerResult = {
@@ -460,7 +470,7 @@ export function UsersPage() {
   }
 
   // ── Inactive-users scan (lives inside Delete mode, shares its dialer picker) ─
-  const [maxDaysActive, setMaxDaysActive] = useState(2)
+  const [maxDaysActive, setMaxDaysActive] = useState(0)
   const [lookbackDays, setLookbackDays] = useState(60)
   const [inactiveRunning, setInactiveRunning] = useState(false)
   const [inactiveResults, setInactiveResults] = useState<InactiveDialerResult[]>([])
@@ -1154,10 +1164,12 @@ export function UsersPage() {
                 <span className="text-sm font-semibold text-t-primary">Find Inactive Users</span>
                 <p className="text-xs text-t-muted mt-0.5">
                   Scans every account in every folder on the selected dialer(s) (uses the
-                  Dialers selection above) and flags anyone with little-to-no shift activity —
-                  a login/shift signal, not a call count. If you select more than one dialer,
-                  someone active on any of them is excluded everywhere, even where their own
-                  account looks idle — only flagged if inactive on every dialer selected.
+                  Dialers selection above) and flags anyone with no shift activity — a
+                  login/shift signal, not a call count. At <strong>0</strong> max active days
+                  (the default) only accounts with no login record at all in the lookback
+                  window are listed: zero days, zero logged hours. Raise it to also see people
+                  who did work a little. If you select more than one dialer, someone active on
+                  any of them is excluded everywhere, even where their own account looks idle.
                   Review the list, then delete in bulk.
                 </p>
               </div>
@@ -1172,6 +1184,7 @@ export function UsersPage() {
                     onChange={e => setMaxDaysActive(Math.max(0, Number(e.target.value) || 0))}
                     className="w-24 rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent"
                   />
+                  <p className="text-[11px] text-t-muted">0 = never logged in</p>
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Lookback (days)</label>
@@ -1250,7 +1263,7 @@ export function UsersPage() {
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-surface-soft">
                         <tr>
-                          {['', 'Name', 'Folder', 'Active days', 'Status'].map(h => (
+                          {['', 'Name', 'Folder', 'Active days', 'Logged time', 'Status'].map(h => (
                             <th key={h} className="px-3 py-2 text-left font-semibold text-t-muted">{h}</th>
                           ))}
                         </tr>
@@ -1272,6 +1285,7 @@ export function UsersPage() {
                               <td className="px-3 py-1.5 text-t-primary">{u.name}</td>
                               <td className="px-3 py-1.5 text-t-muted">{u.folder}</td>
                               <td className="px-3 py-1.5 text-t-muted">{u.days_active}</td>
+                              <td className="px-3 py-1.5 text-t-muted">{formatLoggedTime(u.minutes_active)}</td>
                               <td className="px-3 py-1.5">
                                 {inactiveDeleting && inactiveSelectedUids[key] && !deleteResult
                                   ? <Loader2 size={16} className="animate-spin text-t-muted" />

@@ -444,14 +444,55 @@ class ReadyModeHTTPClient:
     # per agent per day, which also makes the response ~35x smaller (118KB vs 4MB for a
     # 60-day range on resva).
     #
-    # Do NOT also send `loadingTemplate=1`: that makes the server load the template's own
-    # saved date range and IGNORE the one requested here (verified live — a 60-day request
-    # came back with a max of 4 days worked). Sending only templateIdValue keeps the
-    # caller's date range.
+    # THE TWO-STEP REQUEST (2026-09-02). The FIRST agent-report POST in a session does not
+    # honour the date range it is given — the server replies with whatever range the
+    # selected template has saved (one day on resva). Only a SECOND POST applies the
+    # requested window. And `templateIdValue` re-loads the template *and its saved range*
+    # every time it is sent (with or without `loadingTemplate=1`), so the second call must
+    # NOT carry it — the template selection is already sticky on the session by then.
+    #
+    # This is what flagged 1301 active agents as inactive in production: a 60-day request
+    # came back holding 2 days of data, so the whole roster showed 0-2 "days worked" and
+    # fell under the threshold. Agents with 27 real days worked were offered for deletion.
+    # Hence _applied_report_range(): the response echoes the window it actually used, and
+    # this method refuses to return counts measured over any window but the requested one.
     AGENT_REPORT_PRESET = "P134"
 
+    def _post_agent_report(self, time_from: str, time_to: str, *, load_preset: bool) -> str:
+        from datetime import date as _date
+        data = {
+            "config[dr][time_from_d]": time_from,
+            "config[dr][time_to_d]": time_to,
+            "config[dr][time_from_dateonly]": "1",
+            "config[dr][time_to_dateonly]": "1",
+            "agent_uid": "",
+            "has_config_update": "1",
+            "has_date_update": "1",
+            "todaysDate": _date.today().strftime("%m/%d/%Y"),
+        }
+        if load_preset:
+            data["templateIdValue"] = self.AGENT_REPORT_PRESET
+            data["loadingTemplate"] = "1"
+        r = self.session.post(
+            f"{self.dialer}/CCS Reports/agent",
+            data=data,
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            timeout=120,
+        )
+        return r.text or ""
+
+    @staticmethod
+    def _applied_report_range(html: str) -> tuple:
+        """The window the server actually used, echoed back in the report's own hidden
+        inputs (`<input type='hidden' id='agent_rep_timefrom' value='07/04/2026' ...>`).
+        ("", "") if the echo isn't there at all."""
+        def field(el_id: str) -> str:
+            m = re.search(rf"id=['\"]?{el_id}['\"]?[^>]*?value=['\"]?([\d/]+)", html)
+            return m.group(1) if m else ""
+        return field("agent_rep_timefrom"), field("agent_rep_timeto")
+
     def fetch_agent_activity(self, time_from: str, time_to: str) -> dict:
-        """POST CCS Reports/agent and return each agent's days-worked in the date range.
+        """POST CCS Reports/agent and return each agent's shift activity in the date range.
 
         Reverse-engineered from live recon (2026-09-01/02), to find agents who are no longer
         active. Deliberately a SHIFT/login signal (did this agent work at all), not a
@@ -460,12 +501,14 @@ class ReadyModeHTTPClient:
 
         `time_from`/`time_to` are "MM/DD/YYYY" strings, same format as fetch_report().
 
-        Returns {normalized_name: days_worked}, keyed by lowercased/stripped display NAME —
-        not uid. The built-in preset has no User ID column (only custom templates do, and
-        those are per-account, which is exactly the fragility being avoided here). Callers
-        match roster members by name. Name collisions resolve toward the HIGHEST days-worked,
-        which fails safe: if two accounts share a name and either is active, both are treated
-        as active, so a real person is never deleted because a namesake was idle.
+        Returns {normalized_name: {"days": int, "minutes": int}} — days with at least one
+        shift, and total payable (logged) time in whole minutes — keyed by lowercased/
+        stripped display NAME, not uid. The built-in preset has no User ID column (only
+        custom templates do, and those are per-account, which is exactly the fragility being
+        avoided here). Callers match roster members by name. Name collisions resolve toward
+        the HIGHEST activity, which fails safe: if two accounts share a name and either is
+        active, both are treated as active, so a real person is never deleted because a
+        namesake was idle.
 
         Parsing note: this table's cells are NOT properly closed — rows have many opening
         `<td>` tags but almost no literal `</td>` closes (valid HTML5 optional-end-tag markup,
@@ -473,31 +516,34 @@ class ReadyModeHTTPClient:
         are extracted by POSITION instead, same technique as list_folder_users(): the text
         between one `<td` tag's own `>` and the next `<td`'s start.
         """
-        from datetime import date as _date
-        r = self.session.post(
-            f"{self.dialer}/CCS Reports/agent",
-            data={
-                "config[dr][time_from_d]": time_from,
-                "config[dr][time_to_d]": time_to,
-                "config[dr][time_from_dateonly]": "1",
-                "config[dr][time_to_dateonly]": "1",
-                "agent_uid": "",
-                "has_config_update": "1",
-                "has_date_update": "1",
-                "todaysDate": _date.today().strftime("%m/%d/%Y"),
-                "templateIdValue": self.AGENT_REPORT_PRESET,
-            },
-            headers={"X-Requested-With": "XMLHttpRequest"},
-            timeout=90,
-        )
-        html = r.text or ""
-        result: dict[str, int] = {}
+        self._post_agent_report(time_from, time_to, load_preset=True)  # primes the preset
+        html = self._post_agent_report(time_from, time_to, load_preset=False)
+        applied = self._applied_report_range(html)
+        if applied != (time_from, time_to):
+            # One retry: on a slower dialer the range occasionally only lands on the next
+            # request (observed on resva4, where the report is generated server-side).
+            html = self._post_agent_report(time_from, time_to, load_preset=False)
+            applied = self._applied_report_range(html)
+        if applied != (time_from, time_to):
+            raise ReadyModeAgentActivityError(
+                f"Agent activity report on {self.dialer} came back for "
+                f"{applied[0] or '?'}-{applied[1] or '?'}, not the requested "
+                f"{time_from}-{time_to}. Refusing to count activity over the wrong window: "
+                f"a short window makes full-time agents look inactive."
+            )
+
+        # Scope parsing to the report table itself — the response also carries script and
+        # layout markup whose rows would otherwise be read as data.
+        table = re.search(r"<table[^>]*id=['\"]?agent_report.*?</table>", html, re.DOTALL)
+        table_html = table.group(0) if table else html
+
+        result: dict[str, dict] = {}
         try:
-            # Locate the Name and Days Worked columns from the header rather than assuming
-            # fixed positions — the preset's column order is stable today, but this report
-            # has already changed shape once and silently returned nothing.
-            name_idx, days_idx = 0, 1
-            header = re.search(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL)
+            # Locate the columns from the header rather than assuming fixed positions — the
+            # preset's column order is stable today, but this report has already changed
+            # shape once and silently returned nothing.
+            name_idx, days_idx, payable_idx = 0, 1, None
+            header = re.search(r"<tr[^>]*>(.*?)</tr>", table_html, re.DOTALL)
             if header:
                 labels = [
                     re.sub(r"<[^>]+>", "", h).strip().lower()
@@ -508,9 +554,10 @@ class ReadyModeHTTPClient:
                 for i, lbl in enumerate(labels):
                     if "days worked" in lbl:
                         days_idx = i
-                        break
+                    elif lbl.startswith("payable"):
+                        payable_idx = i
 
-            for row_match in re.finditer(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
+            for row_match in re.finditer(r"<tr[^>]*>(.*?)</tr>", table_html, re.DOTALL):
                 row_html = row_match.group(1)
                 td_starts = [m.start() for m in re.finditer(r"<td\b", row_html, re.IGNORECASE)]
                 cells = []
@@ -527,8 +574,15 @@ class ReadyModeHTTPClient:
                 days_raw = cells[days_idx].replace(",", "")
                 if not name or not days_raw.isdigit():
                     continue
+                minutes = 0
+                if payable_idx is not None and len(cells) > payable_idx:
+                    minutes = duration_to_minutes(cells[payable_idx])
                 key = name.strip().lower()
-                result[key] = max(result.get(key, 0), int(days_raw))
+                prev = result.get(key)
+                if prev is None or int(days_raw) > prev["days"]:
+                    result[key] = {"days": int(days_raw), "minutes": minutes}
+                else:
+                    prev["minutes"] = max(prev["minutes"], minutes)
         except Exception as e:
             raise ReadyModeAgentActivityError(
                 f"Failed parsing the agent activity report on {self.dialer}: {e}"
@@ -558,6 +612,15 @@ class ReadyModeHTTPClient:
     @property
     def cookies(self) -> dict:
         return self.session.cookies.get_dict()
+
+
+def duration_to_minutes(text: str) -> int:
+    """ReadyMode duration cell -> whole minutes. Handles "231 hours 27 min.",
+    "5 min. 12 s." and "-" (no shift at all). Seconds are dropped."""
+    t = (text or "").lower()
+    hours = re.search(r"(\d+)\s*hour", t)
+    mins = re.search(r"(\d+)\s*min", t)
+    return (int(hours.group(1)) * 60 if hours else 0) + (int(mins.group(1)) if mins else 0)
 
 
 def resolve_folder_listing_id(create_form_folder_id: str) -> str:
