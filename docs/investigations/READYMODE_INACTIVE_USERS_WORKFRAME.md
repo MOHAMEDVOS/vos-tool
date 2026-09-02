@@ -70,7 +70,17 @@ A second, smaller bug surfaced during the same investigation: each agent's block
 
 Verified against a synthetic HTML sample reproducing both the unclosed-tag structure and a total row before touching the live code path again.
 
-**This is a reminder, not just a fix:** the parsing logic was verified against synthetic HTML I constructed myself, and against a JS/DOM-based prototype in a live browser — but never against the *actual* raw HTML text the Python `requests`-based client would receive, because getting raw HTML text out of the browser tool triggered a safety filter (see below). DOM parsers silently correct malformed markup that naive regex takes at face value; a browser-based prototype passing doesn't guarantee a regex-based reimplementation of it works the same way. Any future regex-based scraper added to this codebase should get one live pass validating actual parse *counts* (rows found, cells found) against the real response, not just logic verified against a hand-written sample.
+**This is a reminder, not just a fix:** the parsing logic was verified against synthetic HTML I constructed myself, and against a JS/DOM-based prototype in a live browser — but never against the *actual* raw HTML text the Python `requests`-based client would receive, because getting raw HTML text out of the browser tool triggered a safety filter. DOM parsers silently correct malformed markup that naive regex takes at face value; a browser-based prototype passing doesn't guarantee a regex-based reimplementation of it works the same way. Any future regex-based scraper added to this codebase should get one live pass validating actual parse *counts* (rows found, cells found) against the real response, not just logic verified against a hand-written sample.
+
+**That gap is now closed** (2026-09-02): the shipped `fetch_agent_activity()` was run against real captured markup (content replaced with placeholders, tag/attribute structure preserved byte-for-byte) and parses it correctly — 3 real days counted, the summary row excluded. The real structure, for reference: `<tr >` with a space; cell 0 (day) unclosed; cells 1-2 (name, uid) **do** carry `</td>`; cells 3+ unclosed; attributes unquoted (`class=flexible_cell row=1 col=0`); header row uses `<th>`; per-agent total rows carry `class=summary_rows` and a `-` day cell.
+
+### Safety net added (2026-09-02)
+
+Two separate silent failures in this parser have now each produced the same dangerous outcome: zero activity for everyone, which downstream reads as "the entire roster is inactive" and offers all of it for deletion. `fetch_agent_activity()` no longer swallows failures — it raises `ReadyModeAgentActivityError` both on a parse exception and, critically, when a **substantial response (>2000 bytes) yields zero parseable rows**. A legitimately empty response still returns `{}` without raising. The scan's existing error path turns this into a `status: "failed"` dialer (visible red error in the UI) instead of a delete-everything recommendation.
+
+### Diagnosing this class of bug quickly
+
+The candidate count itself is the tell. Compare it against the dialer's roster size: if candidates ≈ roster size exactly, no activity is being matched at all (parser broken, or stale deployment). Measured live on resva 2026-09-02: roster 1301, genuinely active 249, correct candidates 1052 (≤2 days) / 1036 (zero days). A production UI showing exactly 1301 meant the deployed backend was running pre-fix code — the frontend bundle was current, but the parsing fix touched no frontend files, so a fresh frontend says nothing about the backend service having rebuilt.
 
 ## Known caveats
 

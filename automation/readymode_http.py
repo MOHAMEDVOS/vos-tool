@@ -37,6 +37,11 @@ class ReadyModeUserDeleteError(Exception):
     """User deletion failed (unknown uid, server error, etc.)."""
 
 
+class ReadyModeAgentActivityError(Exception):
+    """Agent activity report couldn't be parsed. Deliberately loud: a silent empty result
+    here reads downstream as "nobody is active," which flags every account for deletion."""
+
+
 # Fallback disposition label -> report[types][] id, captured from ONE dialer (resva2) on
 # 2026-06-15. ReadyMode disposition IDs are configured per-dialer/tenant, NOT shared across
 # the account — e.g. id 96 is "Spanish Speaker" on resva2 but "Decision Maker - NYI" on
@@ -492,8 +497,23 @@ class ReadyModeHTTPClient:
                 entry = result.setdefault(uid, {"name": name, "days_active": 0, "last_day": ""})
                 entry["days_active"] += 1
                 entry["last_day"] = day  # rows are chronological; last match wins
-        except Exception:
-            pass  # best effort; whatever was parsed before the failure is still returned
+        except Exception as e:
+            raise ReadyModeAgentActivityError(
+                f"Failed parsing the agent activity report on {self.dialer}: {e}"
+            ) from e
+
+        # Refuse to return "nobody was active" from a response that clearly HAS content.
+        # This is the dangerous case: callers treat an empty result as "zero activity for
+        # everyone," which flags the entire roster for deletion. It has now bitten twice
+        # (unclosed <td> tags; before that, no parsing at all), both times silently. A
+        # substantial response with zero parsed rows means the markup changed again — that
+        # must surface as an error, not as a delete-everything recommendation.
+        if not result and len(html) > 2000:
+            raise ReadyModeAgentActivityError(
+                f"Agent activity report on {self.dialer} returned {len(html)} bytes but no "
+                f"parseable rows — the report's markup likely changed. Refusing to report "
+                f"zero activity for every account, which would flag the whole roster."
+            )
         return result
 
     @property
