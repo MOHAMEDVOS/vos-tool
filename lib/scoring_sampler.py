@@ -14,7 +14,7 @@ first, then a ``name.``-prefix match.
 
 import re
 import random
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 # Header alias maps copied from the user's Apps Script so the CSV parser tolerates whatever the
 # ReadyMode export happens to name its columns.
@@ -217,7 +217,8 @@ def score_agents(rand_index: dict, flagged_index: dict, agent_names: list,
                  "flags": [f for f in _FLAG_ORDER if f in by_number[d]]}
                 for d in order
             ]
-            dialers = sorted({c.get("dialer", "") for c in calls if c.get("dialer")})
+            dialer_counts = Counter(c.get("dialer") for c in calls if c.get("dialer"))
+            dialer = dialer_counts.most_common(1)[0][0] if dialer_counts else ""
             rows.append({
                 "agent": name,
                 "phones": phones,
@@ -226,7 +227,7 @@ def score_agents(rand_index: dict, flagged_index: dict, agent_names: list,
                 "flagged_count": len(calls),
                 "red_flag": len(calls) >= red_flag_threshold,
                 "source": "flagged",
-                "dialer": ", ".join(dialers),
+                "dialer": dialer,
             })
             continue
 

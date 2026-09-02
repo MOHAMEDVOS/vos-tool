@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { readymodeApi, DISPOSITIONS, DURATION_FILTERS, type DownloadRequest } from '@/api/readymode'
+import { readymodeApi, DISPOSITIONS, DURATION_FILTERS, type DownloadRequest, type CampaignDialerCountsResponse } from '@/api/readymode'
 import { Info, Link2, Copy, Check, X } from 'lucide-react'
 import { LiveCountUp } from '@/components/ui/LiveCountUp'
 import { Spinner } from '@/components/ui/Spinner'
@@ -681,10 +681,29 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const [startTimeMinute, setStartTimeMinute] = useState('00')
   const [startTimeAmPm, setStartTimeAmPm] = useState<'AM' | 'PM'>('AM')
   const [useStartTime, setUseStartTime] = useState(false)
-  const [dispositions, setDispositions] = useState<string[]>([])
+  const [dispositions, setDispositions] = useState<string[]>([...DISPOSITIONS])
   const [durationFilter, setDurationFilter] = useState('all')
   const [customDuration, setCustomDuration] = useState(60)
+  const [dialerCheck, setDialerCheck] = useState<{
+    status: 'idle' | 'loading' | 'done' | 'error'
+    data?: CampaignDialerCountsResponse
+    error?: string
+  }>({ status: 'idle' })
   const isCampaign = mode === 'campaign'
+
+  const runDialerCheck = useCallback(async () => {
+    setDialerCheck({ status: 'loading' })
+    try {
+      const data = await readymodeApi.campaignDialerCounts({
+        campaign_name: identifier.trim(),
+        start_date: startDate,
+        end_date: endDate,
+      })
+      setDialerCheck({ status: 'done', data })
+    } catch (e) {
+      setDialerCheck({ status: 'error', error: e instanceof Error ? e.message : 'Check failed' })
+    }
+  }, [identifier, startDate, endDate])
 
   const { data: rmStatus } = useQuery({
     queryKey: ['readymode-status'],
@@ -797,6 +816,58 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                   className="w-full rounded-md border px-3 py-1.5 text-sm shadow-inner transition-all focus:ring-2 focus:ring-[rgba(0,102,204,0.2)] disabled:opacity-50"
                 />
               </div>
+
+              {isCampaign && (
+                <div>
+                  <Button
+                    variant="secondary"
+                    onClick={runDialerCheck}
+                    disabled={identifierMissing || dialerCheck.status === 'loading' || isRunning}
+                  >
+                    {dialerCheck.status === 'loading' ? 'Checking dialers…' : 'Find busiest dialer'}
+                  </Button>
+                  {dialerCheck.status === 'loading' && <span className="ml-2 align-middle"><Spinner /></span>}
+
+                  {dialerCheck.status === 'error' && (
+                    <div className="mt-2 text-xs" style={{ color: 'var(--semantic-error)' }}>{dialerCheck.error}</div>
+                  )}
+
+                  {dialerCheck.status === 'done' && dialerCheck.data && (
+                    <div className="mt-3 flex flex-col gap-1">
+                      {dialerCheck.data.busiest ? (
+                        <div className="text-xs" style={{ color: 'var(--t-primary)' }}>
+                          ✓ Busiest: <strong>{dialerCheck.data.busiest.dialer}</strong> ({dialerCheck.data.busiest.count} calls)
+                        </div>
+                      ) : (
+                        <div className="text-xs" style={{ color: 'var(--t-muted)' }}>Campaign not found on any dialer.</div>
+                      )}
+                      <div className="flex flex-col gap-1 mt-1">
+                        {dialerCheck.data.results.map((r) => (
+                          <button
+                            key={r.dialer}
+                            type="button"
+                            onClick={() => setDialerUrl(r.url)}
+                            disabled={!r.found}
+                            className="flex items-center justify-between rounded px-2 py-1 text-xs text-left transition-colors disabled:opacity-40 disabled:cursor-default hover:bg-[rgba(0,102,204,0.08)]"
+                            style={{
+                              color: dialerCheck.data!.busiest?.dialer === r.dialer ? 'var(--t-primary)' : 'var(--t-muted)',
+                              fontWeight: dialerCheck.data!.busiest?.dialer === r.dialer ? 700 : 400,
+                            }}
+                          >
+                            <span>{r.dialer}</span>
+                            <span>{r.found ? `${r.count} calls` : 'not found'}</span>
+                          </button>
+                        ))}
+                      </div>
+                      {dialerCheck.data.failed.length > 0 && (
+                        <div className="text-xs" style={{ color: 'var(--semantic-error)' }}>
+                          Failed: {dialerCheck.data.failed.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </motion.section>
 

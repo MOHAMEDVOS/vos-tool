@@ -33,6 +33,15 @@ class ReadyModeUserCreateError(Exception):
     """User creation failed (login ID taken, invalid folder, server error, etc.)."""
 
 
+class ReadyModeUserDeleteError(Exception):
+    """User deletion failed (unknown uid, server error, etc.)."""
+
+
+class ReadyModeAgentActivityError(Exception):
+    """Agent activity report couldn't be parsed. Deliberately loud: a silent empty result
+    here reads downstream as "nobody is active," which flags every account for deletion."""
+
+
 # Fallback disposition label -> report[types][] id, captured from ONE dialer (resva2) on
 # 2026-06-15. ReadyMode disposition IDs are configured per-dialer/tenant, NOT shared across
 # the account — e.g. id 96 is "Spanish Speaker" on resva2 but "Decision Maker - NYI" on
@@ -350,9 +359,306 @@ class ReadyModeHTTPClient:
             raise ReadyModeUserCreateError(f"Unexpected response: {body}")
         return body["success"][0]
 
+    def delete_user(self, uid: str) -> None:
+        """GET Folders/fileAction/Delete/User=<uid> — permanently deletes that user.
+
+        Reverse-engineered from a live recon capture (2026-09-01): the Manage Users UI
+        represents users as icons inside folders and deletes them via drag-to-trash, which
+        is ReadyMode's generic file-manager delete action (``dropact="Delete"`` on the trash
+        drop target), not a user-specific endpoint. No request body — the uid is the whole
+        payload, embedded in the URL. Raises ReadyModeUserDeleteError on any non-2xx response.
+
+        The response body's shape on success/failure was not captured (only status 200 was
+        observed), so unlike create_user this can't yet distinguish "deleted" from "silently
+        no-op'd" purely from the body — a non-2xx status is currently the only confirmed
+        failure signal.
+        """
+        r = self.session.get(
+            f"{self.dialer}/Folders/fileAction/Delete/User={uid}",
+            headers={
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"{self.dialer}/",
+            },
+            timeout=30,
+        )
+        if r.status_code != 200:
+            raise ReadyModeUserDeleteError(
+                f"Delete failed for uid {uid} on {self.dialer} (status={r.status_code}): {r.text[:200]}"
+            )
+
+    def list_folder_users(self, folder_id: str) -> dict:
+        """POST Folders/Folder=<id> and parse EVERY user in that folder from the HTML.
+
+        Reverse-engineered from a live recon capture (2026-09-01): this is the same generic
+        Folders-app action the UI uses to open a folder and show its icon grid (paired with
+        the ``dropact="Delete"`` trash target and ``Folders/fileAction/Delete/User=<uid>``
+        found earlier). Unlike fetch_report()'s userlist, this is NOT limited to accounts
+        with recent call activity — it returns every account currently sitting in the
+        folder, live, regardless of call history. This is what closes the "zero-activity
+        account can't be found" gap that both delete-by-name and duplicate-detection have
+        when relying on userlist alone.
+
+        `folder_id` here is the short numeric id used by this endpoint (confirmed live as
+        "54" for resva4's Agents folder) — NOT the longer per-instance id string
+        get_writable_folders() returns for the create-user form (e.g. "54-109-" on resva4).
+        The numeric prefix before the first "-" in that longer id is the same value this
+        endpoint expects; see resolve_folder_listing_id().
+
+        Returns {uid: name}. Best-effort: a parse failure returns whatever was found before
+        it, never raises — callers should treat an empty dict as "couldn't confirm", not
+        "empty folder".
+        """
+        r = self.session.post(
+            f"{self.dialer}/Folders/Folder={folder_id}",
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            timeout=30,
+        )
+        html = r.text or ""
+        result: dict[str, str] = {}
+        try:
+            markers = list(re.finditer(r"folderres='User=(\d+)'", html))
+            for i, m in enumerate(markers):
+                uid = m.group(1)
+                start = m.start()
+                end = markers[i + 1].start() if i + 1 < len(markers) else min(len(html), start + 700)
+                chunk = html[start:end]
+                runs = [t.strip() for t in re.findall(r">([^<>]+)<", chunk) if t.strip()]
+                if not runs:
+                    continue
+                name = max(runs, key=len)
+                if not result.get(uid):
+                    result[uid] = name
+        except Exception:
+            pass  # best effort; whatever was parsed before the failure is still returned
+        return result
+
+    # The Agent Report is TEMPLATE-driven: which columns come back depends on which saved
+    # template the logged-in account has selected, and templates are per-account. That is
+    # what broke this in production — a human's session had a custom template with a
+    # "User ID" column, but the service account the backend logs in as had no such
+    # template, so it got a completely different report back and parsed nothing.
+    #
+    # "P134" is a BUILT-IN preset ("Agent report" under Default Reports), available to every
+    # account, so it doesn't depend on anyone's saved templates. It reports one row per
+    # agent with a "Days Worked" column — exactly the metric needed — instead of one row
+    # per agent per day, which also makes the response ~35x smaller (118KB vs 4MB for a
+    # 60-day range on resva).
+    #
+    # Do NOT also send `loadingTemplate=1`: that makes the server load the template's own
+    # saved date range and IGNORE the one requested here (verified live — a 60-day request
+    # came back with a max of 4 days worked). Sending only templateIdValue keeps the
+    # caller's date range.
+    AGENT_REPORT_PRESET = "P134"
+
+    def fetch_agent_activity(self, time_from: str, time_to: str) -> dict:
+        """POST CCS Reports/agent and return each agent's days-worked in the date range.
+
+        Reverse-engineered from live recon (2026-09-01/02), to find agents who are no longer
+        active. Deliberately a SHIFT/login signal (did this agent work at all), not a
+        call-volume one — an agent working shifts but making few calls is a performance
+        question, not an account-cleanup one.
+
+        `time_from`/`time_to` are "MM/DD/YYYY" strings, same format as fetch_report().
+
+        Returns {normalized_name: days_worked}, keyed by lowercased/stripped display NAME —
+        not uid. The built-in preset has no User ID column (only custom templates do, and
+        those are per-account, which is exactly the fragility being avoided here). Callers
+        match roster members by name. Name collisions resolve toward the HIGHEST days-worked,
+        which fails safe: if two accounts share a name and either is active, both are treated
+        as active, so a real person is never deleted because a namesake was idle.
+
+        Parsing note: this table's cells are NOT properly closed — rows have many opening
+        `<td>` tags but almost no literal `</td>` closes (valid HTML5 optional-end-tag markup,
+        which browsers handle natively but regex matching `<td>...</td>` pairs cannot). Cells
+        are extracted by POSITION instead, same technique as list_folder_users(): the text
+        between one `<td` tag's own `>` and the next `<td`'s start.
+        """
+        from datetime import date as _date
+        r = self.session.post(
+            f"{self.dialer}/CCS Reports/agent",
+            data={
+                "config[dr][time_from_d]": time_from,
+                "config[dr][time_to_d]": time_to,
+                "config[dr][time_from_dateonly]": "1",
+                "config[dr][time_to_dateonly]": "1",
+                "agent_uid": "",
+                "has_config_update": "1",
+                "has_date_update": "1",
+                "todaysDate": _date.today().strftime("%m/%d/%Y"),
+                "templateIdValue": self.AGENT_REPORT_PRESET,
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            timeout=90,
+        )
+        html = r.text or ""
+        result: dict[str, int] = {}
+        try:
+            # Locate the Name and Days Worked columns from the header rather than assuming
+            # fixed positions — the preset's column order is stable today, but this report
+            # has already changed shape once and silently returned nothing.
+            name_idx, days_idx = 0, 1
+            header = re.search(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL)
+            if header:
+                labels = [
+                    re.sub(r"<[^>]+>", "", h).strip().lower()
+                    for h in re.findall(r"<th[^>]*>(.*?)</th>", header.group(1), re.DOTALL)
+                ]
+                if "name" in labels:
+                    name_idx = labels.index("name")
+                for i, lbl in enumerate(labels):
+                    if "days worked" in lbl:
+                        days_idx = i
+                        break
+
+            for row_match in re.finditer(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
+                row_html = row_match.group(1)
+                td_starts = [m.start() for m in re.finditer(r"<td\b", row_html, re.IGNORECASE)]
+                cells = []
+                for i, start in enumerate(td_starts):
+                    tag_close = row_html.find(">", start)
+                    if tag_close == -1:
+                        continue
+                    end = td_starts[i + 1] if i + 1 < len(td_starts) else len(row_html)
+                    raw = row_html[tag_close + 1:end]
+                    cells.append(re.sub(r"<[^>]+>", "", raw).strip())
+                if len(cells) <= max(name_idx, days_idx):
+                    continue
+                name = cells[name_idx]
+                days_raw = cells[days_idx].replace(",", "")
+                if not name or not days_raw.isdigit():
+                    continue
+                key = name.strip().lower()
+                result[key] = max(result.get(key, 0), int(days_raw))
+        except Exception as e:
+            raise ReadyModeAgentActivityError(
+                f"Failed parsing the agent activity report on {self.dialer}: {e}"
+            ) from e
+
+        # Refuse to return "nobody was active" unless we can actually see the report and it
+        # is genuinely empty. Callers read an empty result as "zero activity for everyone,"
+        # which offers the entire roster for deletion, so the distinction matters:
+        #
+        #   report table present, no data rows -> genuinely nobody worked in range. Fine.
+        #   report table absent entirely       -> we did not get the report at all (login
+        #                                         page, permission denied, or the markup
+        #                                         changed). Must be loud.
+        #
+        # Keyed off the table rather than response size: a permission/login page can be
+        # large, and a legitimately empty report is not small either.
+        if not result and "agent_report" not in html:
+            raise ReadyModeAgentActivityError(
+                f"Agent activity report on {self.dialer} did not come back as a report "
+                f"({len(html)} bytes, no 'agent_report' table). Most likely this account "
+                f"lacks permission to view the Agent Report on this dialer, or the session "
+                f"was rejected. Refusing to report zero activity for every account, which "
+                f"would flag the whole roster."
+            )
+        return result
+
     @property
     def cookies(self) -> dict:
         return self.session.cookies.get_dict()
+
+
+def resolve_folder_listing_id(create_form_folder_id: str) -> str:
+    """The numeric id list_folder_users() expects is the prefix of the longer id
+    get_writable_folders() returns for the create-user form (e.g. "54-109-" -> "54" on
+    resva4). Confirmed live for one folder on one dialer (2026-09-01) — not yet verified
+    this prefix relationship holds on every dialer/folder, so treat call sites as
+    best-effort, not guaranteed."""
+    return (create_form_folder_id or "").split("-")[0]
+
+
+# ── lookup window (shared by delete-by-name and duplicate-detection) ────────────────────
+# fetch_report()'s userlist only includes agents with at least one call in the queried
+# date range — there is no other "list all users" endpoint anywhere in this codebase. An
+# account with zero calls in this window (freshly created, or simply never dialed) will
+# NOT appear in userlist, so neither name-based delete NOR duplicate-detection can see it.
+# "0 duplicates found" via lookup_date_range() means "0 found among users with recent call
+# activity," not "no duplicates exist on this dialer." See
+# docs/investigations/READYMODE_DUPLICATE_DETECTION_WORKFRAME.md.
+#
+# Was 730 days originally — confirmed live (2026-09-01) that a 2-year report window times
+# out fetch_report()'s 60s timeout against a real dialer (too much call history to scan in
+# one request). 90 days is a practical tradeoff: still wide enough to catch a duplicate with
+# any recent activity, without the request itself failing.
+LOOKUP_WINDOW_DAYS = 90
+
+
+def lookup_date_range(days: int = LOOKUP_WINDOW_DAYS) -> tuple[str, str]:
+    from datetime import date, timedelta
+    today = date.today()
+    start = today - timedelta(days=days)
+    return start.strftime("%m/%d/%Y"), today.strftime("%m/%d/%Y")
+
+
+def group_duplicate_users(userlist: dict) -> list[dict]:
+    """userlist: {'x<uid>': 'Folder|Name', ...} -> duplicate groups (2+ uids sharing a name).
+
+    Grouping key is the display name (text after '|'), case-insensitive and trimmed — the
+    same match strength as resolve_agent_id's exact-match first pass. Deliberately does NOT
+    use resolve_agent_id's fuzzy dot-suffix pass (_name_match): that exists to tolerantly
+    resolve a caller-supplied search term, and reusing it here would risk grouping two
+    genuinely different people ahead of a delete action. Duplicates are scoped dialer-wide,
+    regardless of which folder each account sits in (by design, not a limitation) — folder
+    is captured per-account for display only.
+
+    Within each group, accounts are sorted by uid as INTEGERS — NOT lexicographically, which
+    would wrongly rank "1000" before "999". ReadyMode assigns uids in creation order, so
+    highest = newest. The HIGHEST-uid (newest) account is tagged "keep"; every other account
+    in the group is "delete_candidate" — automatic, no manual per-group picking.
+
+    Keeps the newest rather than the oldest by product decision (changed 2026-09-02): when
+    an account gets recreated, the newer one is the copy actually in use, and the older ones
+    are the abandoned leftovers.
+
+    Groups of size 1 (no duplicate) are omitted. Returns groups sorted by name.
+
+    NOTE: this only ever sees what's in the `userlist` it's given — see lookup_date_range()'s
+    docstring for why that's not a full account roster.
+
+    GOTCHA (confirmed live 2026-09-01): userlist keeps a name->uid entry for accounts that
+    were already deleted, as long as they have historical calls in the queried range — and
+    ReadyMode labels them with a literal "(deleted)" suffix (e.g. "test (deleted)"). These
+    are not live duplicates — the account is gone, only its old call records remain — so
+    they're excluded entirely rather than grouped. Without this, an already-deleted account
+    whose name matches something still-live (or another already-deleted entry) shows up as a
+    false-positive duplicate, which is exactly what a live scan caught.
+    """
+    by_name: dict[str, list[tuple[int, str, str, str]]] = {}  # norm -> [(uid_int, uid_str, folder, label), ...]
+    for key, raw in (userlist or {}).items():
+        folder, sep, label = str(raw).partition("|")
+        label = (label if sep else folder).strip()  # tolerate a malformed entry with no '|'
+        folder = folder.strip() if sep else ""
+        if not label or "(deleted)" in label.lower():
+            continue
+        uid_str = str(key).lstrip("x")
+        try:
+            uid_int = int(uid_str)
+        except ValueError:
+            continue  # non-numeric uid shouldn't happen live; skip rather than crash the scan
+        by_name.setdefault(label.strip().lower(), []).append((uid_int, uid_str, folder, label))
+
+    groups = []
+    for accounts in by_name.values():
+        if len(accounts) < 2:
+            continue
+        accounts.sort(key=lambda a: a[0], reverse=True)  # descending uid = newest first
+        display_name = accounts[0][3]      # canonical casing = the KEPT (newest) account's own label
+        groups.append({
+            "name": display_name,
+            "accounts": [
+                {
+                    "uid": uid_str,
+                    "folder": folder,
+                    "label": f"{folder}|{label}" if folder else label,
+                    "role": "keep" if i == 0 else "delete_candidate",
+                }
+                for i, (_uid_int, uid_str, folder, label) in enumerate(accounts)
+            ],
+        })
+    groups.sort(key=lambda g: g["name"].lower())
+    return groups
 
 
 # ── name -> id resolution (mirrors the exact/dot-suffix matching of the old JS) ──────────

@@ -11,21 +11,21 @@ This is your memory. Use it to understand what was done before, what's in progre
 ---
 
 > **This file contains permanent instructions for how to work on VOS with Claude.**  
-> Updated: 2026-05-02 | Owner: Mohamed Ibrahim Abdo
+> Updated: 2026-08-25 | Owner: Mohamed Ibrahim Abdo
 
 ---
 
-## Git Remote — CRITICAL
+## Git Remote
 
-This project has **two remotes**. Always push to `vos-tool`, never `origin`:
+This project now has a **single remote**, `origin`, and it already points to the correct repo:
 
 ```
-origin    → https://github.com/MOHAMEDVOS/vos-tool-2.0-version-.git  ← WRONG REPO
-vos-tool  → https://github.com/MOHAMEDVOS/vos-tool.git               ← CORRECT REPO
+origin → https://github.com/MOHAMEDVOS/vos-tool.git   ← CORRECT REPO
 ```
 
-**Always use:** `git push vos-tool <branch>`  
-**Never use:** `git push origin <branch>`
+**Use:** `git push origin <branch>`
+
+(There used to be a second, wrong-repo remote here — it's gone. Still worth a quick `git remote -v` before pushing in case it reappears.)
 
 Current working branch: `fix/railway-session-auth`
 
@@ -38,8 +38,10 @@ Current working branch: `fix/railway-session-auth`
 Built to automatically analyze Egyptian real estate sales calls:
 - 🎤 Transcribes audio (AssemblyAI)
 - 🧠 Detects rebuttals (2000+ phrase library, 3-layer confidence system)
-- 📊 Flags quality issues (late hello, releasing, agent-only)
+- 📊 Flags quality issues (late hello, releasing, agent-only, long VM/dead calls)
 - 📈 Tracks agent performance
+- 🎯 Scores audits (multi-dialer call sampler, heavy-audit scoring, company-sheet export)
+- 📞 Surfaces campaign reachability/disposition data (Lite Audit)
 
 **Why you built it:** Manual analysis took 45s per call. VOS does it in 2-3s and costs $2-3 per 1000 calls (vs $15-20 naive approach).
 
@@ -76,7 +78,7 @@ External Services:
 | `webapp/` | React 19 + Vite + TS frontend (SPA, served via nginx) | Active UI |
 | `backend/main.py` | FastAPI app — routers, CORS, lifespan | Critical |
 | `lib/dashboard_manager.py` | Core data manager (~2000 lines) | Critical, god-class |
-| `lib/analyzer/rebuttal_detection.py` | 3-layer detection logic | Brilliant optimization |
+| `analyzer/rebuttal_detection.py` | 3-layer detection logic | Brilliant optimization |
 | `lib/phrase_learning.py` | Auto-learn new rebuttals | Working well |
 | `automation/readymode_http.py` | ReadyMode pure-HTTP client (login, fetch, download) | Working well |
 | `docs/ARCHITECTURE.md` | Architecture reference | Up-to-date |
@@ -151,7 +153,7 @@ Don't suggest changes that break these metrics.
 - Password hashing (currently using two systems — needs consolidation)
 
 **Safe to improve:**
-- Add rate limiting (slowapi present, toggled)
+- Add rate limiting (slowapi code present in `backend/core/rate_limit.py` but commented out in `backend/main.py` — disabled because slowapi wasn't installing on Railway due to cache issues)
 - Migrate to bcrypt (with migration strategy)
 - Add tests for core paths
 - Optimize connection pool
@@ -190,7 +192,7 @@ From `docs/IMPROVEMENTS.md` — prioritized by security/impact:
 3. **verify_password not constant-time** → Use hmac.compare_digest
 
 ### HIGH (Important But Lower Priority)
-4. **sys.path.insert() in 18+ files** → Add proper pyproject.toml
+4. **sys.path.insert() in 43+ files** → Add proper pyproject.toml
 5. **Two password hashing systems** → Unify on lib/security_utils.py
 6. **No database migration system** → Add Alembic
 

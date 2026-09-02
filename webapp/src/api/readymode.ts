@@ -22,7 +22,6 @@ export const DISPOSITIONS = [
   'Wrong Number',
   'Decision Maker - NYI',
   'Dead Call',
-  'Not logged',
 ]
 
 export const DURATION_FILTERS = [
@@ -49,9 +48,25 @@ export interface DownloadRequest {
   audit_type: 'heavy' | 'lite'
 }
 
+export interface CampaignDialerCount {
+  dialer: string
+  url: string
+  found: boolean
+  count: number
+}
+
+export interface CampaignDialerCountsResponse {
+  campaign_name: string
+  results: CampaignDialerCount[]
+  busiest: CampaignDialerCount | null
+  failed: string[]
+}
+
 export const readymodeApi = {
   status: () => api.get<ReadyModeStatus>('/api/readymode/status'),
   download: (body: DownloadRequest) => api.post<ReadyModeStatus>('/api/readymode/download', body),
+  campaignDialerCounts: (body: { campaign_name: string; start_date: string; end_date: string }) =>
+    api.post<CampaignDialerCountsResponse>('/api/readymode/campaign-dialer-counts', body),
   streamFetch: async (
     body: DownloadRequest,
     token: string,

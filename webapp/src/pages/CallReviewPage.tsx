@@ -5,7 +5,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { Badge } from '@/components/ui/Badge'
 import type { FlaggedCall, WordTimestamp } from '@/types/api'
 import { apiUrl, authHeaders, api } from '@/api/client'
-import { RefreshCw, Play, Pause, Volume2, MoreVertical, Search } from 'lucide-react'
+import { RefreshCw, Play, Pause, Volume2, MoreVertical, Search, Download } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/Select'
 import { KaraokeTranscript } from '@/components/KaraokeTranscript'
 import { AgentDeductionsTable, type AgentDeductionRow } from '@/pages/ActionsPage'
@@ -17,9 +17,10 @@ interface AudioPlayerProps {
   isLateHello?: boolean
   audioRef: React.RefObject<HTMLAudioElement | null>
   onAudioMounted?: (el: HTMLAudioElement) => void
+  downloadFileName?: string
 }
 
-function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted }: AudioPlayerProps) {
+function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted, downloadFileName }: AudioPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
@@ -99,6 +100,18 @@ function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted }: Audio
       >
         {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
       </motion.button>
+
+      {/* Download Button */}
+      {downloadFileName && (
+        <a
+          href={src}
+          download={downloadFileName}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-vos-600 transition-colors hover:bg-vos-50 hover:text-t-primary"
+          title="Download recording"
+        >
+          <Download size={16} />
+        </a>
+      )}
 
       {/* Waveform Container */}
       <div className="flex flex-col flex-1 gap-0.5 overflow-hidden">
@@ -291,6 +304,12 @@ function CallCard({ call }: { call: FlaggedCall }) {
 
   const audioSrc = audioQuery ? `/api/system/recordings/serve?${audioQuery}` : null
 
+  const downloadFileName = useMemo(() => {
+    const base = (fileName || `${call['Agent Name'] ?? 'call'}_${phone ?? ''}`).trim()
+    const cleaned = base.split(/[/\\]/).pop() || 'recording'
+    return /\.[a-z0-9]{2,4}$/i.test(cleaned) ? cleaned : `${cleaned}.mp3`
+  }, [fileName, call, phone])
+
   const transcription = call.Transcription?.trim()?.replace(/^n\/a$/i, '') || ''
 
   // Shared audioRef passed to both the player and the karaoke transcript
@@ -333,6 +352,7 @@ function CallCard({ call }: { call: FlaggedCall }) {
               isLateHello={call['Late Hello Detection'] === 'Yes'}
               audioRef={audioRef}
               onAudioMounted={setAudioEl}
+              downloadFileName={downloadFileName}
             />
           ) : (
             <p className="text-sm text-ship-red">Audio not available{'—'}no file path, filename, or phone number.</p>
@@ -404,9 +424,10 @@ interface AuthenticatedAudioProps {
   isLateHello?: boolean
   audioRef: React.RefObject<HTMLAudioElement | null>
   onAudioMounted?: (el: HTMLAudioElement) => void
+  downloadFileName?: string
 }
 
-function AuthenticatedAudio({ src, isLateHello, audioRef, onAudioMounted }: AuthenticatedAudioProps) {
+function AuthenticatedAudio({ src, isLateHello, audioRef, onAudioMounted, downloadFileName }: AuthenticatedAudioProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -440,5 +461,5 @@ function AuthenticatedAudio({ src, isLateHello, audioRef, onAudioMounted }: Auth
       <Spinner size="sm" /> Loading audio...
     </div>
   )
-  return <CustomAudioPlayer src={blobUrl} isLateHello={isLateHello} audioRef={audioRef} onAudioMounted={onAudioMounted} />
+  return <CustomAudioPlayer src={blobUrl} isLateHello={isLateHello} audioRef={audioRef} onAudioMounted={onAudioMounted} downloadFileName={downloadFileName} />
 }
