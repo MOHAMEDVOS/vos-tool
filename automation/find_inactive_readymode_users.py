@@ -1,15 +1,25 @@
 """Inactive-user scan orchestrator — pure HTTP, no browser.
 
-Login once per dialer, build the FULL account roster from every writable folder (see
-ReadyModeHTTPClient.list_folder_users() — not limited to accounts with recent activity,
-unlike the call-log report), cross-reference each account against its shift/login
-activity over a lookback window (ReadyModeHTTPClient.fetch_agent_activity()), and flag
-anyone at or below a "days active" threshold as an inactive candidate for review.
+Login to every requested dialer, build the FULL account roster from every writable
+folder on each (see ReadyModeHTTPClient.list_folder_users() — not limited to accounts
+with recent activity, unlike the call-log report), cross-reference each account against
+its shift/login activity over a lookback window
+(ReadyModeHTTPClient.fetch_agent_activity()), and flag anyone at or below a "days
+active" threshold as an inactive candidate.
 
 This is deliberately a SHIFT/login activity signal, not a call-volume one — see
 fetch_agent_activity()'s docstring for why. Read-only — this module never deletes
 anything; a candidate found here is removed via automation.delete_readymode_users'
 uid-based delete, the same as a duplicate-scan candidate.
+
+CROSS-DIALER RULE (added 2026-09-01, per explicit product decision): an agent can hold
+a separate account on more than one dialer. Someone low-activity on dialer A but
+actively working dialer B is active at the company — they should NOT be flagged just
+because one specific account looks idle. So a candidate is only flagged if their
+activity is at-or-below the threshold on EVERY dialer they were found on, among the
+dialers actually scanned in this request. Matching across dialers is by display name
+(case-insensitive, trimmed) — there's no other cross-dialer identity signal available;
+a uid is only ever meaningful on the dialer it came from.
 """
 
 from __future__ import annotations
@@ -60,20 +70,22 @@ def _build_full_roster(client: "ReadyModeHTTPClient", log: Callable[[str], None]
     return roster
 
 
-def find_inactive_users_on_dialer(
+def _scan_dialer_full(
     dialer_url: str,
     readymode_user: str,
     readymode_pass: str,
-    max_days_active: int = DEFAULT_MAX_DAYS_ACTIVE,
-    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
-    log_callback: Optional[Callable[[str], None]] = None,
+    lookback_days: int,
+    log_callback: Optional[Callable[[str], None]],
 ) -> dict:
-    """Login to one dialer, return every account at or below `max_days_active` shift-days
-    in the last `lookback_days` days — including accounts with zero shifts at all (they
-    simply never appear in fetch_agent_activity()'s result, so they default to 0).
+    """Login to one dialer, return EVERY roster account's activity, unfiltered by any
+    threshold. Unfiltered on purpose: find_inactive_users_multi_dialer needs each
+    dialer's full picture to check whether a locally-low account is actually active on
+    a different dialer, which it can't do from a pre-filtered "candidates only" list.
 
-    A login/fetch failure returns status="failed", never status="ok" with an empty list —
-    same reasoning as the duplicate scan: a failure must not look like "found nothing."
+    A login/fetch failure returns status="failed", never status="ok" with an empty list
+    — a failure must not look like "found nothing," and (as of the cross-dialer rule)
+    must not silently make OTHER dialers' candidates look more inactive than they are
+    by being left out of the "active anywhere?" check.
     """
     def log(msg: str):
         (log_callback or print)(msg)
@@ -87,13 +99,13 @@ def find_inactive_users_on_dialer(
     except ReadyModeLoginError as e:
         log(f"ERROR Login failed on {dialer_name}: {e}")
         return {"dialer": dialer_name, "dialer_url": dialer_url, "status": "failed",
-                "detail": f"Login failed: {e}", "users": []}
+                "detail": f"Login failed: {e}", "accounts": []}
 
     roster = _build_full_roster(client, log)
     if not roster:
         log(f"ERROR Could not build a roster on {dialer_name} (no writable folders resolved)")
         return {"dialer": dialer_name, "dialer_url": dialer_url, "status": "failed",
-                "detail": "Could not list any writable folder", "users": []}
+                "detail": "Could not list any writable folder", "accounts": []}
 
     today = date.today()
     time_from = (today - timedelta(days=lookback_days)).strftime("%m/%d/%Y")
@@ -103,25 +115,22 @@ def find_inactive_users_on_dialer(
     except Exception as e:
         log(f"ERROR Could not fetch agent activity on {dialer_name}: {e}")
         return {"dialer": dialer_name, "dialer_url": dialer_url, "status": "failed",
-                "detail": f"Could not fetch agent activity: {e}", "users": []}
+                "detail": f"Could not fetch agent activity: {e}", "accounts": []}
 
-    inactive = []
+    accounts = []
     for uid, info in roster.items():
         a = activity.get(uid)
-        days_active = a["days_active"] if a else 0
-        if days_active <= max_days_active:
-            inactive.append({
-                "uid": uid,
-                "name": info["name"],
-                "folder": info["folder"],
-                "days_active": days_active,
-                "last_day": a["last_day"] if a else "",
-            })
-    inactive.sort(key=lambda u: (u["days_active"], u["name"].lower()))
+        accounts.append({
+            "uid": uid,
+            "name": info["name"],
+            "folder": info["folder"],
+            "days_active": a["days_active"] if a else 0,
+            "last_day": a["last_day"] if a else "",
+        })
 
-    log(f"SCANNED {dialer_name} | {len(inactive)} inactive candidate(s) "
-        f"(≤{max_days_active} active days in last {lookback_days}) out of {len(roster)} total accounts")
-    return {"dialer": dialer_name, "dialer_url": dialer_url, "status": "ok", "detail": "", "users": inactive}
+    log(f"SCANNED {dialer_name} | {len(accounts)} total accounts, "
+        f"activity fetched for last {lookback_days} days")
+    return {"dialer": dialer_name, "dialer_url": dialer_url, "status": "ok", "detail": "", "accounts": accounts}
 
 
 def find_inactive_users_multi_dialer(
@@ -132,17 +141,28 @@ def find_inactive_users_multi_dialer(
     lookback_days: int = DEFAULT_LOOKBACK_DAYS,
     log_callback: Optional[Callable[[str], None]] = None,
 ) -> list[dict]:
-    """Scan multiple dialers in parallel. Returns one result dict per dialer (see
-    find_inactive_users_on_dialer) — not flattened, since a uid only means something on
-    the dialer it came from."""
-    all_results: list[dict] = []
+    """Scan multiple dialers in parallel, then apply the cross-dialer rule: only flag an
+    account if its name's activity is at-or-below `max_days_active` on EVERY
+    successfully-scanned dialer that name appears on — an agent active elsewhere isn't a
+    candidate anywhere, even on the dialer(s) where their own account looks idle.
 
+    A dialer that failed to scan is excluded from the "active elsewhere?" check (no data
+    from it either way) but still reported back with status="failed" so the caller knows
+    not to trust that dialer's silence as "confirmed inactive."
+
+    Returns one result dict per dialer — not flattened, since a uid only means something
+    on the dialer it came from.
+    """
+    def log(msg: str):
+        (log_callback or print)(msg)
+
+    raw_results: list[dict] = []
     with ThreadPoolExecutor(max_workers=len(dialer_urls)) as pool:
         futures = {
             pool.submit(
-                find_inactive_users_on_dialer, url,
+                _scan_dialer_full, url,
                 readymode_user, readymode_pass,
-                max_days_active, lookback_days, log_callback,
+                lookback_days, log_callback,
             ): url
             for url in dialer_urls
         }
@@ -150,15 +170,56 @@ def find_inactive_users_multi_dialer(
             url = futures[future]
             dialer_name = url.rstrip("/").split("//")[-1].split(".")[0]
             try:
-                all_results.append(future.result())
+                raw_results.append(future.result())
             except Exception as e:
-                if log_callback:
-                    log_callback(f"ERROR Unexpected error on {dialer_name}: {e}")
-                else:
-                    print(f"ERROR Unexpected error on {dialer_name}: {e}")
-                all_results.append({
+                log(f"ERROR Unexpected error on {dialer_name}: {e}")
+                raw_results.append({
                     "dialer": dialer_name, "dialer_url": url,
-                    "status": "failed", "detail": str(e), "users": [],
+                    "status": "failed", "detail": str(e), "accounts": [],
                 })
 
-    return all_results
+    ok_results = [r for r in raw_results if r["status"] == "ok"]
+    scanned_count = len(ok_results)
+
+    # name (normalized) -> highest days_active seen for that name on any scanned dialer
+    name_max_activity: dict[str, int] = {}
+    for r in ok_results:
+        for acc in r["accounts"]:
+            key = acc["name"].strip().lower()
+            if key:
+                name_max_activity[key] = max(name_max_activity.get(key, 0), acc["days_active"])
+
+    final_results: list[dict] = []
+    for r in raw_results:
+        if r["status"] != "ok":
+            final_results.append({
+                "dialer": r["dialer"], "dialer_url": r["dialer_url"],
+                "status": "failed", "detail": r["detail"], "users": [],
+            })
+            continue
+
+        candidates = []
+        excluded_active_elsewhere = 0
+        for acc in r["accounts"]:
+            if acc["days_active"] > max_days_active:
+                continue  # active enough right here — never a candidate regardless of elsewhere
+            key = acc["name"].strip().lower()
+            # scanned_count > 1 guards this from ever excluding anything when only one
+            # dialer was requested — name_max_activity would just equal this dialer's own
+            # data in that case, so the check degrades to a no-op, but being explicit here
+            # avoids relying on that falling out correctly by accident.
+            if scanned_count > 1 and name_max_activity.get(key, 0) > max_days_active:
+                excluded_active_elsewhere += 1
+                continue
+            candidates.append(acc)
+        candidates.sort(key=lambda u: (u["days_active"], u["name"].lower()))
+
+        log(f"FILTERED {r['dialer']} | {len(candidates)} candidate(s) after cross-dialer check"
+            + (f" ({excluded_active_elsewhere} excluded — active on another scanned dialer)"
+               if excluded_active_elsewhere else ""))
+        final_results.append({
+            "dialer": r["dialer"], "dialer_url": r["dialer_url"],
+            "status": "ok", "detail": "", "users": candidates,
+        })
+
+    return final_results

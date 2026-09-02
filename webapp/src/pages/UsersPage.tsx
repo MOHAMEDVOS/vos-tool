@@ -1156,7 +1156,10 @@ export function UsersPage() {
                 <p className="text-xs text-t-muted mt-0.5">
                   Scans every account in every folder on the selected dialer(s) (uses the
                   Dialers selection above) and flags anyone with little-to-no shift activity —
-                  a login/shift signal, not a call count. Review the list, then delete in bulk.
+                  a login/shift signal, not a call count. If you select more than one dialer,
+                  someone active on any of them is excluded everywhere, even where their own
+                  account looks idle — only flagged if inactive on every dialer selected.
+                  Review the list, then delete in bulk.
                 </p>
               </div>
 

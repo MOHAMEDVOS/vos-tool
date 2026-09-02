@@ -46,9 +46,17 @@ An agent with zero shifts in the window doesn't appear in `fetch_agent_activity(
 `automation/find_inactive_readymode_users.py`:
 1. Build the full roster via every writable folder (parallelized, same pattern as duplicate-detection's `_build_roster`).
 2. Fetch shift activity for the lookback window (default 60 days).
-3. Flag any account at or below `max_days_active` (default 2) — including accounts with zero rows in the activity report, which default to `days_active = 0`.
+3. Compute every account's `days_active` (0 for accounts with zero rows in the activity report).
 
-Exposed at `POST /api/readymode-users/inactive` (`FindInactiveUsersRequest`: `dialer_urls`, `max_days_active`, `lookback_days`), admin-gated and SSE-streamed like `/duplicates`. Deletion reuses the existing uid-based `/delete` path unchanged — same per-dialer grouping and single-dialer-per-uid-request safety rule as duplicate-detection's delete flow.
+### Cross-dialer rule (added 2026-09-01, explicit product decision)
+
+An agent can hold a separate account on more than one dialer. The original per-dialer version flagged an account purely on its own dialer's activity — but someone idle on dialer A while actively working dialer B is still active at the company; that's not who this feature is for. So when more than one dialer is scanned in the same request, a candidate is only flagged if their activity is at-or-below the threshold on **every** dialer they were found on, among the ones actually scanned — active anywhere scanned excludes them everywhere, even on the dialer where their own account looks idle.
+
+Matching across dialers is by **display name** (case-insensitive, trimmed) — there's no other cross-dialer identity available; a uid is only ever meaningful on the dialer it came from. `find_inactive_users_multi_dialer()` now scans every dialer fully (unfiltered per-account data, via `_scan_dialer_full()`), builds a name → max-days-active map across all successfully-scanned dialers, then filters each dialer's own low-activity accounts against that map before returning results. Verified with a synthetic two-dialer test: an account low on dialer A but high on dialer B is correctly excluded from A's results; an account low on both is correctly flagged on both.
+
+**A dialer that fails to scan is excluded from the "active elsewhere?" check** (no data from it either way) but still reported with `status: "failed"` — silence from a failed dialer must never be read as "confirmed inactive there." With only one dialer selected, the cross-dialer check is a no-op and behavior is identical to before.
+
+Exposed at `POST /api/readymode-users/inactive` (`FindInactiveUsersRequest`: `dialer_urls`, `max_days_active`, `lookback_days`) — request/response shape unchanged by the cross-dialer rule, only the internal filtering logic changed. Admin-gated and SSE-streamed like `/duplicates`. Deletion reuses the existing uid-based `/delete` path unchanged — same per-dialer grouping and single-dialer-per-uid-request safety rule as duplicate-detection's delete flow.
 
 **UI:** lives inside Delete mode (not a fourth top-level mode) — "Find Inactive Users" section below the existing name-based delete form, sharing that mode's dialer selection. Scan → table per dialer (checkbox per row, select-all) → bulk delete, same shape as the Duplicates scan-then-delete flow.
 
