@@ -432,30 +432,46 @@ class ReadyModeHTTPClient:
             pass  # best effort; whatever was parsed before the failure is still returned
         return result
 
+    # The Agent Report is TEMPLATE-driven: which columns come back depends on which saved
+    # template the logged-in account has selected, and templates are per-account. That is
+    # what broke this in production — a human's session had a custom template with a
+    # "User ID" column, but the service account the backend logs in as had no such
+    # template, so it got a completely different report back and parsed nothing.
+    #
+    # "P134" is a BUILT-IN preset ("Agent report" under Default Reports), available to every
+    # account, so it doesn't depend on anyone's saved templates. It reports one row per
+    # agent with a "Days Worked" column — exactly the metric needed — instead of one row
+    # per agent per day, which also makes the response ~35x smaller (118KB vs 4MB for a
+    # 60-day range on resva).
+    #
+    # Do NOT also send `loadingTemplate=1`: that makes the server load the template's own
+    # saved date range and IGNORE the one requested here (verified live — a 60-day request
+    # came back with a max of 4 days worked). Sending only templateIdValue keeps the
+    # caller's date range.
+    AGENT_REPORT_PRESET = "P134"
+
     def fetch_agent_activity(self, time_from: str, time_to: str) -> dict:
-        """POST CCS Reports/agent and parse per-agent shift activity in the date range.
+        """POST CCS Reports/agent and return each agent's days-worked in the date range.
 
-        Reverse-engineered from a live recon capture (2026-09-01), prompted by wanting to
-        find agents who are no longer active — deliberately a SHIFT/login signal (did this
-        agent log in and work a shift that day), not a call-volume one: this report has no
-        per-agent call count, and shift/login activity is what "still active" actually means
-        here anyway (an agent with shifts but few calls is a performance question, not a
-        cleanup one).
+        Reverse-engineered from live recon (2026-09-01/02), to find agents who are no longer
+        active. Deliberately a SHIFT/login signal (did this agent work at all), not a
+        call-volume one — an agent working shifts but making few calls is a performance
+        question, not an account-cleanup one.
 
-        `time_from`/`time_to` are "MM/DD/YYYY" strings, same format as fetch_report(). Returns
-        {uid: {"name": str, "days_active": int, "last_day": str}} — days_active is a COUNT of
-        distinct days in range with at least one shift row, not total hours; last_day is the
-        raw "Mon DD" string from the last such row (no year — the request's own date range is
-        the only source of truth for which year it falls in).
+        `time_from`/`time_to` are "MM/DD/YYYY" strings, same format as fetch_report().
 
-        Parsing note (found live 2026-09-01, after this shipped returning empty for everyone):
-        this table's cells are NOT properly closed — each row has ~13 opening `<td>` tags but
-        only 1-2 literal `</td>` closes (valid HTML5 "optional end tag" parsing, which browsers
-        handle natively but regex matching `<td>...</td>` pairs cannot). Cells are extracted by
-        POSITION instead — same technique as list_folder_users() — the text between one `<td`
-        tag's own `>` and the next `<td`'s start, not by matching a closing tag. Each agent's
-        block also includes one per-agent TOTAL row spanning the whole range (day cell is "-",
-        not a real date) — these are excluded from the count, not treated as an extra active day.
+        Returns {normalized_name: days_worked}, keyed by lowercased/stripped display NAME —
+        not uid. The built-in preset has no User ID column (only custom templates do, and
+        those are per-account, which is exactly the fragility being avoided here). Callers
+        match roster members by name. Name collisions resolve toward the HIGHEST days-worked,
+        which fails safe: if two accounts share a name and either is active, both are treated
+        as active, so a real person is never deleted because a namesake was idle.
+
+        Parsing note: this table's cells are NOT properly closed — rows have many opening
+        `<td>` tags but almost no literal `</td>` closes (valid HTML5 optional-end-tag markup,
+        which browsers handle natively but regex matching `<td>...</td>` pairs cannot). Cells
+        are extracted by POSITION instead, same technique as list_folder_users(): the text
+        between one `<td` tag's own `>` and the next `<td`'s start.
         """
         from datetime import date as _date
         r = self.session.post(
@@ -469,13 +485,31 @@ class ReadyModeHTTPClient:
                 "has_config_update": "1",
                 "has_date_update": "1",
                 "todaysDate": _date.today().strftime("%m/%d/%Y"),
+                "templateIdValue": self.AGENT_REPORT_PRESET,
             },
             headers={"X-Requested-With": "XMLHttpRequest"},
             timeout=90,
         )
         html = r.text or ""
-        result: dict[str, dict] = {}
+        result: dict[str, int] = {}
         try:
+            # Locate the Name and Days Worked columns from the header rather than assuming
+            # fixed positions — the preset's column order is stable today, but this report
+            # has already changed shape once and silently returned nothing.
+            name_idx, days_idx = 0, 1
+            header = re.search(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL)
+            if header:
+                labels = [
+                    re.sub(r"<[^>]+>", "", h).strip().lower()
+                    for h in re.findall(r"<th[^>]*>(.*?)</th>", header.group(1), re.DOTALL)
+                ]
+                if "name" in labels:
+                    name_idx = labels.index("name")
+                for i, lbl in enumerate(labels):
+                    if "days worked" in lbl:
+                        days_idx = i
+                        break
+
             for row_match in re.finditer(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
                 row_html = row_match.group(1)
                 td_starts = [m.start() for m in re.finditer(r"<td\b", row_html, re.IGNORECASE)]
@@ -487,16 +521,14 @@ class ReadyModeHTTPClient:
                     end = td_starts[i + 1] if i + 1 < len(td_starts) else len(row_html)
                     raw = row_html[tag_close + 1:end]
                     cells.append(re.sub(r"<[^>]+>", "", raw).strip())
-                if len(cells) < 3:
+                if len(cells) <= max(name_idx, days_idx):
                     continue
-                day, name, uid = cells[0], cells[1], cells[2]
-                if not uid.isdigit() or not name:
+                name = cells[name_idx]
+                days_raw = cells[days_idx].replace(",", "")
+                if not name or not days_raw.isdigit():
                     continue
-                if day == "-" or not day:
-                    continue  # per-agent TOTAL row for the whole range, not a single active day
-                entry = result.setdefault(uid, {"name": name, "days_active": 0, "last_day": ""})
-                entry["days_active"] += 1
-                entry["last_day"] = day  # rows are chronological; last match wins
+                key = name.strip().lower()
+                result[key] = max(result.get(key, 0), int(days_raw))
         except Exception as e:
             raise ReadyModeAgentActivityError(
                 f"Failed parsing the agent activity report on {self.dialer}: {e}"

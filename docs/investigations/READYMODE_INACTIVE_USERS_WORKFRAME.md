@@ -14,7 +14,21 @@ So the feature flags agents by **days with at least one shift in the lookback wi
 
 ---
 
-## The captured contract
+## THE ROOT CAUSE (2026-09-02): the Agent Report is template-driven
+
+Everything below about parsing was real, but it was downstream of the actual problem. **Which columns this report returns depends on which saved template the logged-in account has selected, and templates are per-account.**
+
+All the browser-based recon ran under a human admin session whose selected template ("Auditor Template RTM", a custom one) happens to include a **User ID** column. The backend logs in as the `UserCreation` service account, which has no such template — so it got a structurally different report back and matched nothing. That is why every account showed 0 days and the whole roster was offered for deletion, on *every* dialer, even after the parsing fixes. The parser was fine; it was being handed a different report.
+
+**The fix:** request a built-in preset explicitly instead of depending on the account's saved selection. `templateIdValue=P134` ("Agent report" under Default Reports) is available to every account. It returns one row per agent with a **Days Worked** column — the exact metric needed — instead of one row per agent per day, which also makes the response ~35× smaller (118KB vs 4MB for 60 days on resva).
+
+**Critical detail:** send `templateIdValue` *without* `loadingTemplate=1`. That flag makes the server load the template's own saved date range and silently ignore the requested one — verified live: a 60-day request came back with a max of 4 days worked, which would have recreated the identical "everyone looks inactive" failure.
+
+**Trade-off accepted:** no built-in preset includes User ID (checked all four: P87, P102, P117, P134 — none have it). So roster↔activity matching is by display **name** now. Both sides are ReadyMode's own names, so they line up; and a name collision resolves toward the *most active* account, which fails safe — nobody is deleted because a namesake was idle.
+
+Cross-validated live on resva: preset-based "Days Worked" for a known-active agent = **28**, exactly matching the 28 days counted independently by the old row-counting method, with 266 agents listed vs 265 counted the other way.
+
+## The originally captured contract (superseded above)
 
 Captured live (2026-09-01) from `resva.readymode.com`, widening the Agent Report's date range and inspecting the request/response directly (jQuery's cached XHR reference meant live network-tab interception didn't work — the request was reconstructed from the page's own hidden form field names instead, then verified by firing it and parsing the real response):
 

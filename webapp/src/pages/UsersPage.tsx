@@ -96,7 +96,6 @@ type InactiveUser = {
   name: string
   folder: string
   days_active: number
-  last_day: string
 }
 
 type InactiveDialerResult = {
@@ -1251,7 +1250,7 @@ export function UsersPage() {
                     <table className="w-full text-xs">
                       <thead className="sticky top-0 bg-surface-soft">
                         <tr>
-                          {['', 'Name', 'uid', 'Folder', 'Active days', 'Last active', 'Status'].map(h => (
+                          {['', 'Name', 'uid', 'Folder', 'Active days', 'Status'].map(h => (
                             <th key={h} className="px-3 py-2 text-left font-semibold text-t-muted">{h}</th>
                           ))}
                         </tr>
@@ -1274,7 +1273,6 @@ export function UsersPage() {
                               <td className="px-3 py-1.5 font-mono text-t-secondary">{u.uid}</td>
                               <td className="px-3 py-1.5 text-t-muted">{u.folder}</td>
                               <td className="px-3 py-1.5 text-t-muted">{u.days_active}</td>
-                              <td className="px-3 py-1.5 text-t-muted">{u.last_day || '—'}</td>
                               <td className="px-3 py-1.5">
                                 {inactiveDeleting && inactiveSelectedUids[key] && !deleteResult
                                   ? <Loader2 size={16} className="animate-spin text-t-muted" />

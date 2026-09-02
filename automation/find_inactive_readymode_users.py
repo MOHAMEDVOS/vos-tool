@@ -117,19 +117,27 @@ def _scan_dialer_full(
         return {"dialer": dialer_name, "dialer_url": dialer_url, "status": "failed",
                 "detail": f"Could not fetch agent activity: {e}", "accounts": []}
 
+    # Matched by NAME, not uid: the built-in Agent Report preset has no User ID column, and
+    # the custom templates that do are per-account (relying on one is what broke this in
+    # production). Both sides are ReadyMode's own display names, so they line up. A name
+    # collision resolves toward the most-active account, which fails safe — nobody gets
+    # deleted because a namesake was idle.
     accounts = []
+    matched = 0
     for uid, info in roster.items():
-        a = activity.get(uid)
+        days = activity.get(info["name"].strip().lower(), 0)
+        if days:
+            matched += 1
         accounts.append({
             "uid": uid,
             "name": info["name"],
             "folder": info["folder"],
-            "days_active": a["days_active"] if a else 0,
-            "last_day": a["last_day"] if a else "",
+            "days_active": days,
+            "last_day": "",
         })
 
-    log(f"SCANNED {dialer_name} | {len(accounts)} total accounts, "
-        f"activity fetched for last {lookback_days} days")
+    log(f"SCANNED {dialer_name} | {len(accounts)} accounts, {matched} matched to recent "
+        f"activity ({len(activity)} agents active in last {lookback_days} days)")
     return {"dialer": dialer_name, "dialer_url": dialer_url, "status": "ok", "detail": "", "accounts": accounts}
 
 
