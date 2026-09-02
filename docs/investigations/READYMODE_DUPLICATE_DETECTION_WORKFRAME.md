@@ -15,7 +15,8 @@ Building this surfaced a real gap in the delete feature built earlier: `resolve_
 ## Design decisions (locked in, not open questions)
 
 - **Duplicate scope:** same display name **anywhere on the dialer**, regardless of which folder each copy sits in. `userlist` entries carry a folder prefix (`"Admin|Name"` vs `"Agents|Name"`), and the same name can legitimately appear under different folders in the raw data — but two separate accounts (two different uids) sharing a name is exactly the shape an accidental duplicate takes, folder placement included. Scoping to "same folder only" would miss the case where one copy landed in the wrong folder.
-- **Keep-which logic:** automatically keep the account with the **lowest uid** (oldest / first-created), tag the rest `delete_candidate`. No manual per-group picking. uids sort as **integers**, not strings — `"1000"` must not rank before `"999"`.
+- **Keep-which logic:** automatically keep the account with the **highest uid** (newest / most recently created), tag the rest `delete_candidate`. No manual per-group picking. uids sort as **integers**, not strings — `"1000"` must not rank before `"999"`.
+  - Originally kept the *oldest*; flipped to newest on 2026-09-02 after seeing real groups (e.g. one name holding uids 1259–1262). When an account gets recreated, the newest copy is the one actually in use and the older ones are the abandoned leftovers.
 - **Review before delete still applies.** Scan and delete are two separate steps in the UI; nothing is removed automatically just because a scan found it.
 
 ---

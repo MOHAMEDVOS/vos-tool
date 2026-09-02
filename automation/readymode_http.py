@@ -603,11 +603,14 @@ def group_duplicate_users(userlist: dict) -> list[dict]:
     regardless of which folder each account sits in (by design, not a limitation) — folder
     is captured per-account for display only.
 
-    Within each group, accounts are sorted by uid ascending as INTEGERS (ReadyMode uids are
-    assigned in creation order, so lowest = oldest/first-created) — NOT lexicographically,
-    which would wrongly rank "1000" before "999". The lowest-uid account is tagged "keep";
-    every other account in the group is "delete_candidate" — automatic, no manual per-group
-    picking, per product decision.
+    Within each group, accounts are sorted by uid as INTEGERS — NOT lexicographically, which
+    would wrongly rank "1000" before "999". ReadyMode assigns uids in creation order, so
+    highest = newest. The HIGHEST-uid (newest) account is tagged "keep"; every other account
+    in the group is "delete_candidate" — automatic, no manual per-group picking.
+
+    Keeps the newest rather than the oldest by product decision (changed 2026-09-02): when
+    an account gets recreated, the newer one is the copy actually in use, and the older ones
+    are the abandoned leftovers.
 
     Groups of size 1 (no duplicate) are omitted. Returns groups sorted by name.
 
@@ -640,8 +643,8 @@ def group_duplicate_users(userlist: dict) -> list[dict]:
     for accounts in by_name.values():
         if len(accounts) < 2:
             continue
-        accounts.sort(key=lambda a: a[0])  # ascending uid = oldest first
-        display_name = accounts[0][3]      # canonical casing = the KEPT (oldest) account's own label
+        accounts.sort(key=lambda a: a[0], reverse=True)  # descending uid = newest first
+        display_name = accounts[0][3]      # canonical casing = the KEPT (newest) account's own label
         groups.append({
             "name": display_name,
             "accounts": [

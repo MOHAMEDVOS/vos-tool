@@ -1435,7 +1435,7 @@ export function UsersPage() {
                               <td className="px-3 py-1.5 text-t-muted">{a.folder || '—'}</td>
                               <td className="px-3 py-1.5">
                                 {a.role === 'keep'
-                                  ? <span className="text-xs font-semibold text-semantic-success">Keep (oldest)</span>
+                                  ? <span className="text-xs font-semibold text-semantic-success">Keep (newest)</span>
                                   : <span className="text-xs font-semibold text-semantic-error">Delete candidate</span>}
                               </td>
                               <td className="px-3 py-1.5">
