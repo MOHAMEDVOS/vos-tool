@@ -16,6 +16,7 @@ from backend.models.schemas import (
     BulkUserCreateRequest,
     BulkUserDeleteRequest,
     FindDuplicateUsersRequest,
+    FindInactiveUsersRequest,
 )
 from backend.core.dependencies import get_current_user, get_current_admin_user
 
@@ -216,3 +217,65 @@ async def find_duplicate_users(
             yield item
 
     return StreamingResponse(duplicates_stream(), media_type="text/event-stream")
+
+
+@router.post("/inactive")
+async def find_inactive_users(
+    request: FindInactiveUsersRequest,
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """Scan one or more ReadyMode dialers for accounts with little-to-no recent shift
+    activity (a login/shift signal, not a call-volume one), stream one 'log' line per
+    dialer plus a final 'done' event with the per-dialer candidate list. Read-only —
+    never deletes; use POST /delete with an explicit `uid` per row to remove a specific
+    candidate found here.
+
+    Admin-gated, same as /delete and /duplicates: this exposes the full account roster
+    per dialer (via folder scans) and is the direct precursor to a destructive action.
+    """
+    if not request.dialer_urls:
+        raise HTTPException(status_code=400, detail="At least one dialer URL required")
+    if request.max_days_active < 0:
+        raise HTTPException(status_code=400, detail="max_days_active must be 0 or greater")
+    if request.lookback_days < 1:
+        raise HTTPException(status_code=400, detail="lookback_days must be at least 1")
+
+    create_user, create_pass = _resolve_readymode_credentials(current_user)
+
+    dialer_urls = request.dialer_urls
+    max_days_active = request.max_days_active
+    lookback_days = request.lookback_days
+
+    result_queue: "queue.Queue[str | None]" = __import__("queue").Queue()
+
+    def log_callback(msg: str):
+        result_queue.put(_sse("log", msg.rstrip()))
+
+    def worker():
+        try:
+            from automation.find_inactive_readymode_users import find_inactive_users_multi_dialer
+            results = find_inactive_users_multi_dialer(
+                dialer_urls=dialer_urls,
+                readymode_user=create_user,
+                readymode_pass=create_pass,
+                max_days_active=max_days_active,
+                lookback_days=lookback_days,
+                log_callback=log_callback,
+            )
+            result_queue.put(_sse("done", results))
+        except Exception as e:
+            logger.error(f"find_inactive_users worker error: {e}", exc_info=True)
+            result_queue.put(_sse("error", str(e)))
+        finally:
+            result_queue.put(None)  # sentinel
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def inactive_stream():
+        while True:
+            item = result_queue.get()
+            if item is None:
+                break
+            yield item
+
+    return StreamingResponse(inactive_stream(), media_type="text/event-stream")

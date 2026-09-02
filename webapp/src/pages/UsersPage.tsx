@@ -91,6 +91,22 @@ type DuplicateDialerResult = {
   groups: DuplicateGroup[]
 }
 
+type InactiveUser = {
+  uid: string
+  name: string
+  folder: string
+  days_active: number
+  last_day: string
+}
+
+type InactiveDialerResult = {
+  dialer: string
+  dialer_url: string
+  status: 'ok' | 'failed'
+  detail: string
+  users: InactiveUser[]
+}
+
 // ── Shared dialer picker (used by both Create and Delete) ───────────────────
 function DialerPicker({
   selected, onToggle, onToggleAll,
@@ -442,6 +458,157 @@ export function UsersPage() {
     } finally {
       setDeleteRunning(false)
     }
+  }
+
+  // ── Inactive-users scan (lives inside Delete mode, shares its dialer picker) ─
+  const [maxDaysActive, setMaxDaysActive] = useState(2)
+  const [lookbackDays, setLookbackDays] = useState(60)
+  const [inactiveRunning, setInactiveRunning] = useState(false)
+  const [inactiveResults, setInactiveResults] = useState<InactiveDialerResult[]>([])
+  const [inactiveSelectedUids, setInactiveSelectedUids] = useState<Record<string, boolean>>({}) // key: `${dialer}:${uid}`
+  const [inactiveDeleting, setInactiveDeleting] = useState(false)
+  const [inactiveDeleteResults, setInactiveDeleteResults] = useState<DeleteResultRow[]>([])
+
+  const sortedInactiveResults = useMemo(() =>
+    [...inactiveResults].sort((a, b) => a.dialer.localeCompare(b.dialer)), [inactiveResults])
+
+  const inactiveCandidateCount = useMemo(() =>
+    inactiveResults.reduce((n, r) => n + r.users.length, 0), [inactiveResults])
+
+  const inactiveSelectedCount = useMemo(() =>
+    Object.values(inactiveSelectedUids).filter(Boolean).length, [inactiveSelectedUids])
+
+  const canScanInactive = deleteSelectedDialers.length > 0 && !inactiveRunning
+
+  const handleScanInactive = async () => {
+    setInactiveRunning(true)
+    setInactiveResults([])
+    setInactiveSelectedUids({})
+    setInactiveDeleteResults([])
+
+    const body = {
+      dialer_urls: deleteSelectedDialers.map(d => allDialerUrls[d]),
+      max_days_active: maxDaysActive,
+      lookback_days: lookbackDays,
+    }
+
+    try {
+      const res = await fetch('/api/readymode-users/inactive', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+      })
+
+      const reader = res.body?.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+
+      while (reader) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue
+          try {
+            const { event, data } = JSON.parse(line.slice(5).trim())
+            if (event === 'done') {
+              const results = data as InactiveDialerResult[]
+              setInactiveResults(results)
+            }
+            if (event === 'error') setInactiveResults(prev => [...prev, {
+              dialer: 'all', dialer_url: '', status: 'failed', detail: String(data), users: [],
+            }])
+          } catch { /* ignore malformed SSE */ }
+        }
+      }
+    } catch (e) {
+      setInactiveResults(prev => [...prev, {
+        dialer: 'all', dialer_url: '', status: 'failed',
+        detail: `Connection error: ${(e as Error).message}`, users: [],
+      }])
+    } finally {
+      setInactiveRunning(false)
+    }
+  }
+
+  const handleDeleteInactive = async () => {
+    const toDelete = inactiveResults.flatMap(r =>
+      r.users
+        .filter(u => inactiveSelectedUids[`${r.dialer}:${u.uid}`])
+        .map(u => ({ dialerUrl: r.dialer_url, dialer: r.dialer, name: u.name, uid: u.uid })))
+    if (toDelete.length === 0) return
+
+    const dialerCount = new Set(toDelete.map(t => t.dialerUrl)).size
+    if (!window.confirm(
+      `Permanently delete ${toDelete.length} inactive account(s) across ${dialerCount} dialer(s)?\n\nThis cannot be undone from VOS.`
+    )) return
+
+    setInactiveDeleting(true)
+    setInactiveDeleteResults([])
+
+    const byDialer = new Map<string, typeof toDelete>()
+    for (const t of toDelete) byDialer.set(t.dialerUrl, [...(byDialer.get(t.dialerUrl) ?? []), t])
+
+    // Sequential per dialer — a uid-carrying request must target exactly one dialer
+    // (enforced server-side too).
+    for (const [dialerUrl, rows] of byDialer) {
+      const body = {
+        dialer_urls: [dialerUrl],
+        users: rows.map(r => ({ name: r.name, uid: r.uid })),
+      }
+      try {
+        const res = await fetch('/api/readymode-users/delete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+        })
+
+        const reader = res.body?.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+
+        while (reader) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue
+            try {
+              const { event, data } = JSON.parse(line.slice(5).trim())
+              if (event === 'done') setInactiveDeleteResults(prev => [...prev, ...(data as DeleteResultRow[])])
+              if (event === 'error') setInactiveDeleteResults(prev => [...prev, {
+                name: '—', dialer: rows[0]?.dialer ?? 'unknown', status: 'failed', detail: String(data),
+              }])
+            } catch { /* ignore malformed SSE */ }
+          }
+        }
+      } catch (e) {
+        setInactiveDeleteResults(prev => [...prev, {
+          name: '—', dialer: rows[0]?.dialer ?? 'unknown', status: 'failed',
+          detail: `Connection error: ${(e as Error).message}`,
+        }])
+      }
+    }
+
+    setInactiveDeleting(false)
+  }
+
+  const toggleAllInactive = () => {
+    const allKeys = inactiveResults.flatMap(r => r.users.map(u => `${r.dialer}:${u.uid}`))
+    const allSelected = allKeys.length > 0 && allKeys.every(k => inactiveSelectedUids[k])
+    const next: Record<string, boolean> = {}
+    if (!allSelected) for (const k of allKeys) next[k] = true
+    setInactiveSelectedUids(next)
   }
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -981,6 +1148,151 @@ export function UsersPage() {
                 </div>
               </section>
             )}
+
+            {/* ════════ Find inactive users — separate flow within Delete mode ════════ */}
+            <section className="rounded-xl border border-b-subtle bg-surface-card p-4 space-y-3">
+              <div>
+                <span className="text-sm font-semibold text-t-primary">Find Inactive Users</span>
+                <p className="text-xs text-t-muted mt-0.5">
+                  Scans every account in every folder on the selected dialer(s) (uses the
+                  Dialers selection above) and flags anyone with little-to-no shift activity —
+                  a login/shift signal, not a call count. Review the list, then delete in bulk.
+                </p>
+              </div>
+
+              <div className="flex gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Max active days</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={maxDaysActive}
+                    onChange={e => setMaxDaysActive(Math.max(0, Number(e.target.value) || 0))}
+                    className="w-24 rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Lookback (days)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={lookbackDays}
+                    onChange={e => setLookbackDays(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-24 rounded-lg border border-b-subtle bg-surface-soft px-3 py-2 text-sm text-t-primary focus:outline-none focus:border-accent"
+                  />
+                </div>
+                <button
+                  onClick={handleScanInactive}
+                  disabled={!canScanInactive}
+                  className={[
+                    'self-end rounded-lg px-4 py-2 text-sm font-bold tracking-wide transition-all',
+                    canScanInactive
+                      ? 'bg-semantic-warning text-t-on-primary hover:opacity-90 active:scale-[0.99]'
+                      : 'bg-surface-soft text-t-muted cursor-not-allowed',
+                  ].join(' ')}
+                >
+                  {inactiveRunning
+                    ? <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Scanning…</span>
+                    : 'Scan for Inactive Users'}
+                </button>
+              </div>
+
+              {inactiveResults.length > 0 && (
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-xs text-t-muted">
+                    {inactiveCandidateCount} candidate{inactiveCandidateCount === 1 ? '' : 's'} found
+                    {inactiveResults.some(r => r.status === 'failed') &&
+                      ` — ${inactiveResults.filter(r => r.status === 'failed').length} dialer(s) failed to scan`}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={toggleAllInactive}
+                      className="text-xs font-semibold text-accent hover:underline"
+                    >Select all</button>
+                    <button
+                      onClick={handleDeleteInactive}
+                      disabled={inactiveSelectedCount === 0 || inactiveDeleting}
+                      className={[
+                        'rounded-lg px-3 py-1.5 text-xs font-bold tracking-wide transition-all',
+                        inactiveSelectedCount > 0 && !inactiveDeleting
+                          ? 'bg-semantic-error text-t-on-primary hover:opacity-90 active:scale-[0.99]'
+                          : 'bg-surface-soft text-t-muted cursor-not-allowed',
+                      ].join(' ')}
+                    >
+                      {inactiveDeleting
+                        ? <span className="flex items-center gap-2"><Loader2 size={12} className="animate-spin" /> Deleting…</span>
+                        : `Delete ${inactiveSelectedCount || ''} selected`}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {sortedInactiveResults.map(r => (
+              <section key={r.dialer} className="rounded-xl border border-b-subtle bg-surface-card overflow-hidden">
+                <div className="px-4 py-3 border-b border-b-subtle flex items-center justify-between">
+                  <span className="text-sm font-semibold text-t-primary">{r.dialer}</span>
+                  {r.status === 'ok' && (
+                    <span className="text-xs text-t-muted">
+                      {r.users.length} candidate{r.users.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+                {r.status === 'failed' ? (
+                  <p className="px-4 py-3 text-sm text-semantic-error">{r.detail || 'Scan failed on this dialer.'}</p>
+                ) : r.users.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-t-muted">No inactive candidates found on {r.dialer}.</p>
+                ) : (
+                  <div className="overflow-x-auto max-h-80 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-surface-soft">
+                        <tr>
+                          {['', 'Name', 'uid', 'Folder', 'Active days', 'Last active', 'Status'].map(h => (
+                            <th key={h} className="px-3 py-2 text-left font-semibold text-t-muted">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {r.users.map(u => {
+                          const key = `${r.dialer}:${u.uid}`
+                          const deleteResult = inactiveDeleteResults.find(dr => dr.uid === u.uid && dr.dialer === r.dialer)
+                          return (
+                            <tr key={key} className="border-t border-b-subtle hover:bg-surface-soft">
+                              <td className="px-3 py-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={!!inactiveSelectedUids[key]}
+                                  onChange={e => setInactiveSelectedUids(prev => ({ ...prev, [key]: e.target.checked }))}
+                                  className="w-4 h-4 accent-semantic-error"
+                                />
+                              </td>
+                              <td className="px-3 py-1.5 text-t-primary">{u.name}</td>
+                              <td className="px-3 py-1.5 font-mono text-t-secondary">{u.uid}</td>
+                              <td className="px-3 py-1.5 text-t-muted">{u.folder}</td>
+                              <td className="px-3 py-1.5 text-t-muted">{u.days_active}</td>
+                              <td className="px-3 py-1.5 text-t-muted">{u.last_day || '—'}</td>
+                              <td className="px-3 py-1.5">
+                                {inactiveDeleting && inactiveSelectedUids[key] && !deleteResult
+                                  ? <Loader2 size={16} className="animate-spin text-t-muted" />
+                                  : deleteResult?.status === 'deleted'
+                                    ? <CheckCircle2 size={16} className="text-semantic-success" />
+                                    : deleteResult?.status === 'failed'
+                                      ? <span className="flex items-center gap-1">
+                                          <XCircle size={16} className="text-semantic-error flex-shrink-0" />
+                                          <span className="text-xs text-semantic-error">{deleteResult.detail}</span>
+                                        </span>
+                                      : null}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            ))}
           </div>
         </div>
       ) : (
@@ -1000,8 +1312,9 @@ export function UsersPage() {
             />
 
             <p className="text-xs rounded-lg border border-semantic-warning/30 bg-[var(--semantic-warning-bg)] text-t-primary px-3 py-2">
-              Scans only see accounts with at least one call in the last 90 days — a
-              duplicate with zero recent calls won't show up here.
+              Scans check every writable folder, not just recent call history — so a
+              duplicate with zero calls is still caught as long as it exists in a folder.
+              Folder scanning takes a bit longer per dialer as a result.
             </p>
 
             <button
@@ -1086,7 +1399,7 @@ export function UsersPage() {
                   <p className="px-4 py-3 text-sm text-semantic-error">{r.detail || 'Scan failed on this dialer.'}</p>
                 ) : r.groups.length === 0 ? (
                   <p className="px-4 py-3 text-sm text-t-muted">
-                    No duplicates found on {r.dialer} among accounts with recent call activity.
+                    No duplicates found on {r.dialer}, across recent call history and every writable folder.
                   </p>
                 ) : (
                   <div className="overflow-x-auto max-h-80 overflow-y-auto">

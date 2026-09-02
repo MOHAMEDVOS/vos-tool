@@ -427,6 +427,57 @@ class ReadyModeHTTPClient:
             pass  # best effort; whatever was parsed before the failure is still returned
         return result
 
+    def fetch_agent_activity(self, time_from: str, time_to: str) -> dict:
+        """POST CCS Reports/agent and parse per-agent shift activity in the date range.
+
+        Reverse-engineered from a live recon capture (2026-09-01), prompted by wanting to
+        find agents who are no longer active — deliberately a SHIFT/login signal (did this
+        agent log in and work a shift that day), not a call-volume one: this report has no
+        per-agent call count, and shift/login activity is what "still active" actually means
+        here anyway (an agent with shifts but few calls is a performance question, not a
+        cleanup one).
+
+        `time_from`/`time_to` are "MM/DD/YYYY" strings, same format as fetch_report(). Returns
+        {uid: {"name": str, "days_active": int, "last_day": str}} — days_active is a COUNT of
+        distinct days in range with at least one shift row, not total hours; last_day is the
+        raw "Mon DD" string from the last such row (no year — the request's own date range is
+        the only source of truth for which year it falls in).
+        """
+        from datetime import date as _date
+        r = self.session.post(
+            f"{self.dialer}/CCS Reports/agent",
+            data={
+                "config[dr][time_from_d]": time_from,
+                "config[dr][time_to_d]": time_to,
+                "config[dr][time_from_dateonly]": "1",
+                "config[dr][time_to_dateonly]": "1",
+                "agent_uid": "",
+                "has_config_update": "1",
+                "has_date_update": "1",
+                "todaysDate": _date.today().strftime("%m/%d/%Y"),
+            },
+            headers={"X-Requested-With": "XMLHttpRequest"},
+            timeout=90,
+        )
+        html = r.text or ""
+        result: dict[str, dict] = {}
+        try:
+            for row_html in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
+                cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.DOTALL)
+                if len(cells) < 3:
+                    continue
+                day = re.sub(r"<[^>]+>", "", cells[0]).strip()
+                name = re.sub(r"<[^>]+>", "", cells[1]).strip()
+                uid = re.sub(r"<[^>]+>", "", cells[2]).strip()
+                if not uid.isdigit() or not name:
+                    continue
+                entry = result.setdefault(uid, {"name": name, "days_active": 0, "last_day": ""})
+                entry["days_active"] += 1
+                entry["last_day"] = day  # rows are chronological; last match wins
+        except Exception:
+            pass  # best effort; whatever was parsed before the failure is still returned
+        return result
+
     @property
     def cookies(self) -> dict:
         return self.session.cookies.get_dict()

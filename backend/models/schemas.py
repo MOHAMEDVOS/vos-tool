@@ -177,6 +177,13 @@ class FindDuplicateUsersRequest(BaseModel):
     dialer_urls: List[str]      # dialers to scan — no `users`, this scans everyone
 
 
+# Inactive-user scan schema
+class FindInactiveUsersRequest(BaseModel):
+    dialer_urls: List[str]
+    max_days_active: int = 2    # flag accounts with this many or fewer shift-days in range
+    lookback_days: int = 60
+
+
 # System health
 class SystemHealth(BaseModel):
     cpu: float
