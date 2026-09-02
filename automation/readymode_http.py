@@ -442,6 +442,15 @@ class ReadyModeHTTPClient:
         distinct days in range with at least one shift row, not total hours; last_day is the
         raw "Mon DD" string from the last such row (no year — the request's own date range is
         the only source of truth for which year it falls in).
+
+        Parsing note (found live 2026-09-01, after this shipped returning empty for everyone):
+        this table's cells are NOT properly closed — each row has ~13 opening `<td>` tags but
+        only 1-2 literal `</td>` closes (valid HTML5 "optional end tag" parsing, which browsers
+        handle natively but regex matching `<td>...</td>` pairs cannot). Cells are extracted by
+        POSITION instead — same technique as list_folder_users() — the text between one `<td`
+        tag's own `>` and the next `<td`'s start, not by matching a closing tag. Each agent's
+        block also includes one per-agent TOTAL row spanning the whole range (day cell is "-",
+        not a real date) — these are excluded from the count, not treated as an extra active day.
         """
         from datetime import date as _date
         r = self.session.post(
@@ -462,15 +471,24 @@ class ReadyModeHTTPClient:
         html = r.text or ""
         result: dict[str, dict] = {}
         try:
-            for row_html in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
-                cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.DOTALL)
+            for row_match in re.finditer(r"<tr[^>]*>(.*?)</tr>", html, re.DOTALL):
+                row_html = row_match.group(1)
+                td_starts = [m.start() for m in re.finditer(r"<td\b", row_html, re.IGNORECASE)]
+                cells = []
+                for i, start in enumerate(td_starts):
+                    tag_close = row_html.find(">", start)
+                    if tag_close == -1:
+                        continue
+                    end = td_starts[i + 1] if i + 1 < len(td_starts) else len(row_html)
+                    raw = row_html[tag_close + 1:end]
+                    cells.append(re.sub(r"<[^>]+>", "", raw).strip())
                 if len(cells) < 3:
                     continue
-                day = re.sub(r"<[^>]+>", "", cells[0]).strip()
-                name = re.sub(r"<[^>]+>", "", cells[1]).strip()
-                uid = re.sub(r"<[^>]+>", "", cells[2]).strip()
+                day, name, uid = cells[0], cells[1], cells[2]
                 if not uid.isdigit() or not name:
                     continue
+                if day == "-" or not day:
+                    continue  # per-agent TOTAL row for the whole range, not a single active day
                 entry = result.setdefault(uid, {"name": name, "days_active": 0, "last_day": ""})
                 entry["days_active"] += 1
                 entry["last_day"] = day  # rows are chronological; last match wins

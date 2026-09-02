@@ -62,6 +62,16 @@ Exposed at `POST /api/readymode-users/inactive` (`FindInactiveUsersRequest`: `di
 
 ---
 
+## Bug found in production, fixed live (2026-09-01): every account showed 0 active days
+
+Shipped, then a live production scan showed every single account at "0 active days" — including agents confirmed actively working that same day. Root cause, confirmed via the same live-recon technique used to find the endpoint in the first place: this table's HTML has ~13 opening `<td>` tags per row but only 1-2 literal `</td>` closes (valid HTML5 "optional end tag" parsing — browsers handle it natively; regex matching `<td>...</td>` *pairs* cannot, and silently matched almost nothing instead of raising). Fixed with the same position-based chunking technique `list_folder_users()` already used for the same reason: take the text between one `<td` tag's own `>` and the next `<td`'s start, never look for a closing tag.
+
+A second, smaller bug surfaced during the same investigation: each agent's block includes one per-agent **TOTAL** row spanning the entire queried range (its day cell is `-`, not a real date) — originally counted as an extra "active day" and could overwrite `last_day` with `-`. Both are now excluded by skipping any row whose day cell is `-` or empty.
+
+Verified against a synthetic HTML sample reproducing both the unclosed-tag structure and a total row before touching the live code path again.
+
+**This is a reminder, not just a fix:** the parsing logic was verified against synthetic HTML I constructed myself, and against a JS/DOM-based prototype in a live browser — but never against the *actual* raw HTML text the Python `requests`-based client would receive, because getting raw HTML text out of the browser tool triggered a safety filter (see below). DOM parsers silently correct malformed markup that naive regex takes at face value; a browser-based prototype passing doesn't guarantee a regex-based reimplementation of it works the same way. Any future regex-based scraper added to this codebase should get one live pass validating actual parse *counts* (rows found, cells found) against the real response, not just logic verified against a hand-written sample.
+
 ## Known caveats
 
 - **Folder-scan dependent, so it inherits that dependency's shakiness.** `resolve_folder_listing_id()`'s short-id/long-id derivation is confirmed for one folder on one dialer (see the duplicate-detection doc) — not yet proven everywhere.
