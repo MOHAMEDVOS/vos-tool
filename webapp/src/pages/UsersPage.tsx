@@ -1314,12 +1314,6 @@ export function UsersPage() {
               onRemoveCustomDialer={removeCustomDialer}
             />
 
-            <p className="text-xs rounded-lg border border-semantic-warning/30 bg-[var(--semantic-warning-bg)] text-t-primary px-3 py-2">
-              Scans check every writable folder, not just recent call history — so a
-              duplicate with zero calls is still caught as long as it exists in a folder.
-              Folder scanning takes a bit longer per dialer as a result.
-            </p>
-
             <button
               onClick={handleScanDuplicates}
               disabled={!canScanDuplicates}
