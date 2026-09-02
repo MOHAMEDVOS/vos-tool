@@ -171,6 +171,14 @@ NTUSER.DAT*
 .tmp-*
 .wdm/
 
+# Hugging Face / sentence-transformers model cache (downloaded at runtime,
+# ~87MB — never commit it). Note: `models/` is a real tracked package, so
+# only the `models--*` cache dirs are ignored here.
+models--*/
+.locks/
+CACHEDIR.TAG
+xet/
+
 # ────────────── SECURITY NOTES ──────────────
 # This .gitignore protects:
 # 1. Environment variables with credentials
