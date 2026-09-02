@@ -502,17 +502,24 @@ class ReadyModeHTTPClient:
                 f"Failed parsing the agent activity report on {self.dialer}: {e}"
             ) from e
 
-        # Refuse to return "nobody was active" from a response that clearly HAS content.
-        # This is the dangerous case: callers treat an empty result as "zero activity for
-        # everyone," which flags the entire roster for deletion. It has now bitten twice
-        # (unclosed <td> tags; before that, no parsing at all), both times silently. A
-        # substantial response with zero parsed rows means the markup changed again — that
-        # must surface as an error, not as a delete-everything recommendation.
-        if not result and len(html) > 2000:
+        # Refuse to return "nobody was active" unless we can actually see the report and it
+        # is genuinely empty. Callers read an empty result as "zero activity for everyone,"
+        # which offers the entire roster for deletion, so the distinction matters:
+        #
+        #   report table present, no data rows -> genuinely nobody worked in range. Fine.
+        #   report table absent entirely       -> we did not get the report at all (login
+        #                                         page, permission denied, or the markup
+        #                                         changed). Must be loud.
+        #
+        # Keyed off the table rather than response size: a permission/login page can be
+        # large, and a legitimately empty report is not small either.
+        if not result and "agent_report" not in html:
             raise ReadyModeAgentActivityError(
-                f"Agent activity report on {self.dialer} returned {len(html)} bytes but no "
-                f"parseable rows — the report's markup likely changed. Refusing to report "
-                f"zero activity for every account, which would flag the whole roster."
+                f"Agent activity report on {self.dialer} did not come back as a report "
+                f"({len(html)} bytes, no 'agent_report' table). Most likely this account "
+                f"lacks permission to view the Agent Report on this dialer, or the session "
+                f"was rejected. Refusing to report zero activity for every account, which "
+                f"would flag the whole roster."
             )
         return result
 
