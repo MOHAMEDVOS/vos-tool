@@ -18,6 +18,7 @@ from pydub import AudioSegment
 
 # Import existing components
 from analyzer.rebuttal_detection import KeywordRepository, SemanticDetectionEngine, OutputFormatter, TranscriptionEngine
+from analyzer import objection_gate
 from lib.egyptian_accent_correction import EgyptianAccentCorrection
 
 # logger level is managed by lib/logging_config.py
@@ -428,6 +429,31 @@ class AgentOnlyRebuttalDetector:
                 result = "No"
                 confidence = 0.0
                 logger.debug("No rebuttals detected")
+
+                # Second opinion: the phrase/semantic matchers only catch
+                # rebuttals matching the fixed phrase library. Before this
+                # "No" becomes a flag, check whether the owner even objected,
+                # and whether the agent made a detectable attempt the
+                # matchers missed (indirect, interrupted, or ASR-mangled).
+                # Measured on 198 labelled production calls: 55% of wrong
+                # "No Rebuttal" flags had no objection at all; 31% were real
+                # attempts the phrase library didn't cover. See
+                # docs/REBUTTAL_FALSE_FLAGS.md.
+                if dialogue:
+                    try:
+                        gate = objection_gate.evaluate(dialogue)
+                        feedback_metadata['objection_gate'] = gate
+                        if gate['verdict'] == 'no_objection':
+                            result = "N/A"
+                            logger.debug(f"Objection gate: no objection raised - {gate['reason']}")
+                        elif gate['verdict'] == 'attempted':
+                            result = "Yes"
+                            confidence = 0.55  # heuristic evidence, not a phrase match
+                            logger.debug(f"Objection gate: rebuttal attempt detected - {gate['reason']}")
+                        else:
+                            logger.debug(f"Objection gate: flag stands - {gate['reason']}")
+                    except Exception as gate_error:
+                        logger.warning(f"Objection gate failed, keeping original verdict: {gate_error}")
 
             # Step 5: Format final result
             processing_time = int((time.time() - start_time) * 1000)

@@ -1541,6 +1541,14 @@ class KeywordRepository:
             "any other property you have rights to",
             "do you own any other parcels",
             "any other property you have access to",
+            # --- Added 2026-09-02 from measured false-negative analysis.
+            # The agents' actual script lines, taken from 61 real rebuttals the
+            # detector missed. Measured over 198 labelled calls: 38 recovered,
+            # zero correctly-flagged calls lost. docs/REBUTTAL_FALSE_FLAGS.md
+            "do you have another one",
+            "do you have any other one",
+            "have another one",
+            "any other one",
         ],
         "NOT_EVEN_FUTURE_FAMILY": [
             # Agent questions/rebuttals about future selling (what agents should say)
@@ -1577,7 +1585,21 @@ class KeywordRepository:
             "could we come to an agreement next year",
             "think we could come to an agreement in the future",
             "you think you could sell maybe next year",
-            "could you possibly consider selling next year"
+            "could you possibly consider selling next year",
+            # --- Added 2026-09-02 from measured false-negative analysis.
+            # The agents' actual script lines, taken from 61 real rebuttals the
+            # detector missed. Measured over 198 labelled calls: 38 recovered,
+            # zero correctly-flagged calls lost. docs/REBUTTAL_FALSE_FLAGS.md
+            "not even down the road",
+            "not even a possibility down the road",
+            "not even anytime soon",
+            "not even in the future",
+            "not even in the near future",
+            "not even a possibility",
+            "even down the road",
+            "not even like in the next few months",
+            "not even sometime",
+            "not even in your future",
         ],
         "CALLBACK_SCHEDULE_FAMILY": [
             "when is the best time to call you back", "what's a good time to reach you",
@@ -1612,7 +1634,16 @@ class KeywordRepository:
             "would you be willing to sell",
             "would you be interested in a deal",
             "would you consider our offer",
-            "would you be open to selling"
+            "would you be open to selling",
+            # --- Added 2026-09-02 from measured false-negative analysis.
+            # The agents' actual script lines, taken from 61 real rebuttals the
+            # detector missed. Measured over 198 labelled calls: 38 recovered,
+            # zero correctly-flagged calls lost. docs/REBUTTAL_FALSE_FLAGS.md
+            "thinking about selling",
+            "open to selling",
+            "you would be open to selling",
+            "open to selling at all",
+            "considering selling in the future",
         ],
         "WE_BUY_OFFER_FAMILY": [
             "we buy houses all cash", "no commission, no fees",
@@ -1752,7 +1783,20 @@ class KeywordRepository:
             "not this time but other property anytime",
             "not this deal but other deals maybe",
             "not this opportunity but other opportunities",
-            "not this situation but other situations maybe"
+            "not this situation but other situations maybe",
+            # --- Added 2026-09-02 from measured false-negative analysis.
+            # The agents' actual script lines, taken from 61 real rebuttals the
+            # detector missed. Measured over 198 labelled calls: 38 recovered,
+            # zero correctly-flagged calls lost. docs/REBUTTAL_FALSE_FLAGS.md
+            "maybe in the next few months",
+            "maybe in the next year",
+            "maybe sometime in",
+            "maybe later on this year",
+            "in the near future",
+            "sell in the near future",
+            "anytime soon",
+            "down the road",
+            "by the end of the year",
         ]
     }
 
@@ -2017,7 +2061,11 @@ class SemanticDetectionEngine:
                     self.llm_evaluator = LLMRebuttalEvaluator(api_key=groq_api_key)
                     logger.info(f"🤖 LLM fallback evaluator initialized (threshold: {self.llm_confidence_threshold:.2f})")
                 else:
-                    logger.warning("GROQ_API_KEY not set, LLM fallback will be disabled")
+                    logger.warning(
+                        "GROQ_API_KEY not set - LLM rebuttal stage DISABLED. Rebuttals that "
+                        "the phrase library does not match will be recorded as 'No Rebuttal', "
+                        "which flags the agent. See docs/REBUTTAL_FALSE_FLAGS.md"
+                    )
                     self.llm_fallback_enabled = False
             except Exception as e:
                 logger.warning(f"Failed to initialize LLM evaluator: {e}, continuing without fallback")
@@ -2189,7 +2237,20 @@ class SemanticDetectionEngine:
                     feedback_metadata['feedback'] = f"Detected exact keyword match: '{phrase}'"
                 elif match_type == 'semantic':
                     feedback_metadata['feedback'] = f"Detected semantic similarity to: '{phrase}' (score: {best_match.get('confidence', 0):.2f})"
-                
+                elif match_type == 'llm_evaluation':
+                    # Bug found 2026-09-03: this branch was missing entirely, so
+                    # feedback_metadata['feedback'] stayed unset and the
+                    # unconditional copy below raised KeyError -- meaning every
+                    # call where the LLM stage actually FOUND a rebuttal crashed
+                    # and got silently swallowed by the except in the caller,
+                    # logged as "LLM evaluation failed" even though the LLM had
+                    # succeeded. Never observed before because GROQ_API_KEY was
+                    # unset in every environment until now.
+                    feedback_metadata['feedback'] = best_match.get(
+                        'reasoning') or f"LLM identified a rebuttal attempt: '{phrase}'"
+                else:
+                    feedback_metadata['feedback'] = f"Detected via {match_type}: '{phrase}'"
+
                 # Copy to compatibility key
                 feedback_metadata['llm_reasoning'] = feedback_metadata['feedback']
         else:

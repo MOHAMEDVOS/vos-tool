@@ -190,3 +190,6 @@ xet/
 # Always verify before committing:
 # git status --ignored
 # git add -n . (dry run to see what would be added)
+
+# Rebuttal evaluation harness data - contains real call transcripts
+eval_data/
