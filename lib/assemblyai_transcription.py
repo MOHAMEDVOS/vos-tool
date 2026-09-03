@@ -550,6 +550,37 @@ class AssemblyAITranscriptionEngine:
         
         return sorted(list(speakers))
     
+    @staticmethod
+    def _channel_roles(utterances: List[Dict[str, Any]]) -> Dict[Any, str]:
+        """Map each raw channel value to "Agent" or "Owner".
+
+        AssemblyAI does not promise a type or a base for `channel`. In practice it
+        returns the STRINGS '1' and '2'; earlier code compared them to the integers
+        0 and 1, so every comparison missed and both agent_transcript and
+        owner_transcript came back empty on every call. Rather than hard-code the
+        other convention and break the first one, derive the roles from the values
+        actually present: lowest channel is the agent (the caller/left leg), the
+        next is the owner. Works for {0,1}, {'1','2'}, and anything similar.
+        """
+        seen = []
+        for u in utterances:
+            ch = u.get('channel')
+            if ch is None or ch in seen:
+                continue
+            seen.append(ch)
+
+        def sort_key(ch):
+            try:
+                return (0, float(str(ch).strip()))
+            except (TypeError, ValueError):
+                return (1, str(ch))
+
+        ordered = sorted(seen, key=sort_key)
+        roles = {}
+        for i, ch in enumerate(ordered):
+            roles[ch] = "Agent" if i == 0 else "Owner" if i == 1 else f"Channel {ch}"
+        return roles
+
     def format_as_dialogue(self, utterances: List[Dict[str, Any]]) -> str:
         """
         Format speaker-separated utterances as chronological dialogue.
@@ -572,6 +603,7 @@ class AssemblyAITranscriptionEngine:
         
         # Determine if we're using multichannel (channel-based) or diarization (speaker-based)
         has_channels = any(u.get('channel') is not None for u in sorted_utterances)
+        channel_roles = self._channel_roles(sorted_utterances) if has_channels else {}
         
         # Format as dialogue
         dialogue_lines = []
@@ -582,9 +614,10 @@ class AssemblyAITranscriptionEngine:
             
             # Determine speaker label
             if has_channels:
-                # Multichannel mode: Use channel numbers to determine speaker
+                # Multichannel mode: roles derived from the channel values present,
+                # so '1'/'2' (strings) and 0/1 (ints) both resolve correctly.
                 channel = utterance.get('channel')
-                speaker = "Agent" if channel == 0 else "Owner" if channel == 1 else f"Channel {channel}"
+                speaker = channel_roles.get(channel, f"Channel {channel}")
             else:
                 # Diarization mode: Use speaker labels
                 speaker = utterance.get('speaker', 'Unknown')
@@ -616,12 +649,13 @@ class AssemblyAITranscriptionEngine:
         speaker_texts = []
         
         if has_channels:
-            # Multichannel mode: Use channel numbers
-            # Channel 0 (left) = Agent (A), Channel 1 (right) = Owner (B)
-            target_channel = 0 if speaker_label == "A" else 1
-            
+            # Multichannel mode: "A" = agent leg, "B" = owner leg. Roles come from
+            # the channel values actually present, not a hard-coded 0/1.
+            target_role = "Agent" if speaker_label == "A" else "Owner"
+            channel_roles = self._channel_roles(utterances)
+
             for utterance in utterances:
-                if utterance.get('channel') == target_channel:
+                if channel_roles.get(utterance.get('channel')) == target_role:
                     text = utterance.get('text', '').strip()
                     if text:
                         speaker_texts.append(text)

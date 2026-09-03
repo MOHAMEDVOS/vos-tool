@@ -4,6 +4,7 @@ Uses GroqCloud API to intelligently evaluate rebuttals with human-level reasonin
 """
 
 import os
+import re
 import time
 import json
 import logging
@@ -14,10 +15,38 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+
+def _parse_reset_seconds(value):
+    """Parse Groq's 'x-ratelimit-reset-tokens' header, e.g. "6.007s" or "1m2.5s"."""
+    if not value:
+        return None
+    try:
+        return float(value.rstrip("s"))
+    except ValueError:
+        pass
+    m = re.match(r"(?:(\d+)m)?(?:([\d.]+)s)?$", value.strip())
+    if not m:
+        return None
+    minutes, seconds = m.groups()
+    return (int(minutes) * 60 if minutes else 0) + (float(seconds) if seconds else 0)
+
+
 class GroqClient:
     """Handles communication with GroqCloud API."""
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.3-70b-versatile"):
+    # llama-3.3-70b-versatile was retired from Groq (confirmed 2026-09-03: the
+    # model is absent from /v1/models entirely, not just renamed). Verified
+    # against the live API with this project's real ~850-token system prompt
+    # and forced JSON response_format before choosing this one:
+    #   openai/gpt-oss-20b   - fails JSON validation outright
+    #   openai/gpt-oss-120b  - a reasoning model; spends its token budget on
+    #                          hidden chain-of-thought and hits max_tokens
+    #                          before emitting JSON. 0/6 succeeded in testing.
+    #   qwen/qwen3.6-27b     - works, but 5x slower than qwen3.8 (heavy retries)
+    #   qwen/qwen3.8-27b     - 6/6 clean, ~1.3s/call, distinct reasoning text
+    DEFAULT_MODEL = "qwen/qwen3.8-27b"
+
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         """
         Initialize GroqCloud API client.
         
@@ -29,7 +58,9 @@ class GroqClient:
         if not self.api_key:
             raise ValueError("GROQ_API_KEY is required. Set it in environment or pass to constructor.")
         
-        self.model = model
+        # GROQ_MODEL was previously defined in config but never reached this class,
+        # so the model could only be changed by editing the default argument.
+        self.model = model or os.getenv("GROQ_MODEL") or self.DEFAULT_MODEL
         self.temperature = float(os.getenv("GROQ_TEMPERATURE", "0.2"))
         self.max_tokens = int(os.getenv("GROQ_MAX_TOKENS", "300"))
         self.timeout = int(os.getenv("GROQ_TIMEOUT", "10"))
@@ -77,11 +108,35 @@ class GroqClient:
                 if response.status_code == 200:
                     result = response.json()
                     logger.debug(f"GroqCloud API success (attempt {attempt + 1})")
+                    # Adaptive pacing: back off BEFORE the next call hits 429,
+                    # not just after. Cheap insurance against a tight batch
+                    # (concurrent files, or a fast eval loop) burning through
+                    # a low per-minute token budget in one burst.
+                    try:
+                        remaining = int(response.headers.get("x-ratelimit-remaining-tokens", "9999"))
+                        if remaining < self.max_tokens + 800:  # roughly one more call's worth
+                            pause = _parse_reset_seconds(
+                                response.headers.get("x-ratelimit-reset-tokens")) or 2
+                            logger.debug(f"Token budget low ({remaining} left), pausing {pause:.1f}s")
+                            time.sleep(min(pause, 15))
+                    except (TypeError, ValueError):
+                        pass
                     return result
                 elif response.status_code == 429:
-                    # Rate limit - wait and retry
-                    wait_time = (2 ** attempt) * 1  # Exponential backoff
-                    logger.warning(f"Rate limited, waiting {wait_time}s before retry...")
+                    # Bug found 2026-09-03: this branch never set last_error, so
+                    # exhausting retries on rate limits alone raised "Last error:
+                    # None" -- the real cause (429) was thrown away. This key's
+                    # Groq tier is 8000 tokens/min; a ~1000-token call sustains
+                    # only ~7-8 calls/min, so bursts hit this often. Prefer
+                    # Groq's own reset-tokens header over blind exponential
+                    # backoff when it's present -- it says exactly how long
+                    # until the budget refills.
+                    reset_header = response.headers.get("x-ratelimit-reset-tokens") \
+                        or response.headers.get("retry-after")
+                    wait_time = _parse_reset_seconds(reset_header) or (2 ** attempt) * 2
+                    last_error = f"Rate limited (429), retry-after={reset_header!r}"
+                    logger.warning(f"Rate limited, waiting {wait_time:.1f}s before retry "
+                                    f"(attempt {attempt + 1}/{retry_attempts})...")
                     time.sleep(wait_time)
                     continue
                 else:
@@ -257,13 +312,17 @@ class LLMRebuttalEvaluator:
     _learned_phrases_loaded_at = 0
     _cache_lock = threading.Lock()
     
-    def __init__(self, api_key: Optional[str] = None, model: str = "llama-3.3-70b-versatile"):
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         """
         Initialize LLM evaluator.
-        
+
         Args:
             api_key: GroqCloud API key
-            model: Model to use for inference
+            model: Model to use for inference. None defers to GroqClient's own
+                resolution (GROQ_MODEL env var, then GroqClient.DEFAULT_MODEL) --
+                this used to hardcode the now-retired llama-3.3-70b-versatile,
+                which silently overrode that resolution on every call site that
+                doesn't pass model= explicitly (all of them, in this codebase).
         """
         try:
             self.client = GroqClient(api_key=api_key, model=model)
