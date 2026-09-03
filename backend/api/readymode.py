@@ -736,6 +736,10 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                 )
                 if not df.empty:
                     df["Audit Type"] = "Heavy Audit"
+                    # Same fix as the lite-audit branch above: blank detection cells are NaN,
+                    # which breaks save's json.dumps(allow_nan=False). where() keeps None from
+                    # coercing back to NaN the way fillna() would on float columns.
+                    df = df.where(pd.notna(df), "")
                     if is_campaign:
                         dashboard_manager.save_campaign_audit_results(
                             df, request.campaign_name.strip(), current_user["username"]
