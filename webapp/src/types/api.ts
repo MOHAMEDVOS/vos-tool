@@ -79,6 +79,10 @@ export interface AgentAuditRow {
   'Late Hello Detection'?: string
   'Long VM/Dead Detection'?: string
   'Rebuttal Detection'?: string
+  /** 'no_objection' | 'attempted' | 'no_attempt' | undefined. Why a "No"
+   *  Rebuttal Detection stands -- 'no_objection' means the owner never gave
+   *  the agent anything to rebut, so it shouldn't count as a flag. */
+  'Objection Gate'?: string
   Transcription?: string
   'Dialer Name'?: string
   'Agent Intro'?: string

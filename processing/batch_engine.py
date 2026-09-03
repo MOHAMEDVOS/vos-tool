@@ -676,7 +676,12 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
             RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
             RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', ''),  # Fallback for legacy key
             "File Name": file_name,
-            "File Path": file_path_str
+            "File Path": file_path_str,
+            # "no_objection" | "attempted" | "no_attempt" | None. Rebuttal
+            # Detection stays strictly Yes/No; this carries WHY a "No" stands
+            # so the flagging query can exclude calls where nothing needed
+            # rebutting, without a third value in the detection column itself.
+            "Objection Gate": (result.get('rebuttal_detection', {}) or {}).get('objection_gate_verdict'),
         }
         
         # Add dialer name if available in metadata

@@ -120,7 +120,7 @@ export function AuditTable({ rows, leftActions, excludeColumns = [] }: Props) {
                   {columns.map((col) => {
                     const val = row[col]
                     const isDetection = DETECTION_COLS.has(col)
-                    const variant = isDetection ? detectionVariant(val, col) : null
+                    const variant = isDetection ? detectionVariant(val, col, row) : null
                     const isLargeText = col === 'Transcription' || col === 'Reason for calling'
                     const copyId = `${idx}-${col}`
 

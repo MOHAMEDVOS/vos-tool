@@ -444,7 +444,10 @@ class AgentOnlyRebuttalDetector:
                         gate = objection_gate.evaluate(dialogue)
                         feedback_metadata['objection_gate'] = gate
                         if gate['verdict'] == 'no_objection':
-                            result = "N/A"
+                            # Kept as "No" (not "N/A") so the column stays
+                            # strictly Yes/No -- the reason is carried in
+                            # objection_gate.verdict for the flagging query to
+                            # exclude, not encoded as a third detection value.
                             logger.debug(f"Objection gate: no objection raised - {gate['reason']}")
                         elif gate['verdict'] == 'attempted':
                             result = "Yes"
@@ -490,7 +493,10 @@ class AgentOnlyRebuttalDetector:
                     "utterances_count": len(transcription_result.get("utterances", [])),
                     "dialogue": dialogue,  # Full conversation for LLM (also used for display now)
                     "owner_transcript": transcription_result.get("owner_transcript", ""),  # Owner's words
-                    "feedback": feedback_str  # Pass feedback to formatter
+                    "feedback": feedback_str,  # Pass feedback to formatter
+                    # Flat verdict so downstream flagging can exclude
+                    # no-objection calls without a third detection value.
+                    "objection_gate_verdict": feedback_metadata.get('objection_gate', {}).get('verdict'),
                 }
             )
 
