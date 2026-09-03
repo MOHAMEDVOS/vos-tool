@@ -95,20 +95,31 @@ export function dedupeLongCallRows<T extends AgentAuditRow>(rows: T[]): T[] {
   return out
 }
 
-// Flag logic - mirrors app.py:2398-2403 exactly, plus long VM/Dead-call detection
+// Flag logic - mirrors backend/services/dashboard_service.py get_flagged_calls,
+// plus long VM/Dead-call detection. A "No" Rebuttal Detection where the owner
+// never objected ('Objection Gate' === 'no_objection') isn't a fair flag --
+// see docs/REBUTTAL_FALSE_FLAGS.md.
 export function isRowFlagged(row: AgentAuditRow): boolean {
+  const rebuttalIssue =
+    row['Rebuttal Detection'] === 'No' && row['Objection Gate'] !== 'no_objection'
   return (
     row['Releasing Detection'] === 'Yes' ||
     row['Late Hello Detection'] === 'Yes' ||
     isLongCallFlagged(row['Long VM/Dead Detection']) ||
-    row['Rebuttal Detection'] === 'No'
+    rebuttalIssue
   )
 }
 
 // Badge variant for detection columns
-export function detectionVariant(val: unknown, col: string) {
+export function detectionVariant(val: unknown, col: string, row?: AgentAuditRow) {
   if (col === 'Rebuttal Detection') {
-    return val === 'Yes' ? 'success' : val === 'No' ? 'danger' : 'muted'
+    if (val === 'Yes') return 'success'
+    if (val === 'No') {
+      // A "No" where the owner never objected isn't an issue -- don't paint
+      // it red. See isRowFlagged above for the matching flag logic.
+      return row?.['Objection Gate'] === 'no_objection' ? 'success' : 'danger'
+    }
+    return 'muted'
   }
   if (col === 'Releasing Detection' || col === 'Late Hello Detection') {
     return val === 'Yes' ? 'danger' : 'success'

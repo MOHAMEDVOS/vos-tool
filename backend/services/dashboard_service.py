@@ -215,6 +215,13 @@ def get_flagged_calls(
         if "Rebuttal Detection" in combined.columns:
             no_rebuttal = combined["Rebuttal Detection"].isin(["No", "N/A"])
             rebuttal_issue = combined["Rebuttal Detection"] == "No"
+            # "No" stays "No" whether or not the owner ever objected -- the
+            # column is strictly Yes/No. "Objection Gate" carries why, and a
+            # "No" with no objection to rebut isn't a fair flag.
+            # See docs/REBUTTAL_FALSE_FLAGS.md.
+            if "Objection Gate" in combined.columns:
+                no_objection = combined["Objection Gate"] == "no_objection"
+                rebuttal_issue = rebuttal_issue & ~no_objection
         else:
             no_rebuttal = pd.Series([True] * len(combined), index=combined.index)
             rebuttal_issue = pd.Series([False] * len(combined), index=combined.index)
