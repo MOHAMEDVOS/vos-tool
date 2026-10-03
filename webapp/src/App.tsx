@@ -18,6 +18,7 @@ import { PhrasesPage }    from '@/pages/PhrasesPage'
 import { SettingsPage }   from '@/pages/SettingsPage'
 import { UsersPage }      from '@/pages/UsersPage'
 import { ScoringPage }    from '@/pages/ScoringPage'
+import { TlActionsPage }  from '@/pages/TlActionsPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,6 +31,7 @@ import { useAuthStore } from '@/store/authStore'
 const TAB_ROLES: Partial<Record<string, string[]>> = {
   'Users':             ['Owner', 'Admin'],
   'Scoring':           ['Owner', 'Admin'],
+  'TL Actions':        ['Owner', 'Admin'],
   'Phrase Management': ['Owner'],
   'Settings':          ['Owner', 'Admin'],
 }
@@ -72,6 +74,7 @@ function InnerApp() {
     <AppShell pageKey={activeTab}>
       {activeTab === 'Audit'             && <AuditPage />}
       {activeTab === 'Actions'           && <ActionsPage />}
+      {activeTab === 'TL Actions'        && <TlActionsPage />}
       {activeTab === 'Call Review'       && <CallReviewPage />}
       {activeTab === 'Dashboard'         && <DashboardPage />}
       {activeTab === 'Scoring'           && <ScoringPage />}

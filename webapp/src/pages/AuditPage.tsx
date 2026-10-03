@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { useAuthStore } from '@/store/authStore'
 import { ChevronDown, Settings2, Square } from 'lucide-react'
 import { CustomDatePicker } from '@/components/ui/DatePicker'
+import { DateRangePicker } from '@/components/ui/DateRangePicker'
 import { CustomSelect } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { useAuditStore } from '@/store/auditStore'
@@ -28,6 +29,18 @@ function todayISO() {
 }
 function localISO(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+function previousTwoWorkWeeksRange(): [string, string] {
+  const today = new Date()
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const daysSinceMonday = (todayStart.getDay() + 6) % 7
+  const currentMonday = new Date(todayStart)
+  currentMonday.setDate(todayStart.getDate() - daysSinceMonday)
+  const twoWeeksAgoMonday = new Date(currentMonday)
+  twoWeeksAgoMonday.setDate(currentMonday.getDate() - 7)
+  const currentFriday = new Date(currentMonday)
+  currentFriday.setDate(currentMonday.getDate() + 4)
+  return [localISO(twoWeeksAgoMonday), localISO(currentFriday)]
 }
 
 /* â”€â”€â”€ Motion Variants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -675,8 +688,8 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const [dialerUrl2, setDialerUrl2] = useState('')
   const [identifier, setIdentifier] = useState(mode === 'agent' ? 'All users' : '')
   const [maxCalls, setMaxCalls] = useState(500)
-  const [startDate, setStartDate] = useState(todayISO())
-  const [endDate, setEndDate] = useState(todayISO())
+  const [startDate, setStartDate] = useState(() => mode === 'campaign' ? previousTwoWorkWeeksRange()[0] : todayISO())
+  const [endDate, setEndDate] = useState(() => mode === 'campaign' ? previousTwoWorkWeeksRange()[1] : todayISO())
   const [startTimeHour, setStartTimeHour] = useState('12')
   const [startTimeMinute, setStartTimeMinute] = useState('00')
   const [startTimeAmPm, setStartTimeAmPm] = useState<'AM' | 'PM'>('AM')
@@ -874,10 +887,19 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
           <motion.section variants={itemVariants}>
             <h2 className={`${sectionHeaderClass} lowercase`} style={{ color: 'var(--t-primary)' }}>Date parameters</h2>
             <div className="flex flex-col gap-4 w-full">
-              <div>
+              {isCampaign && <div>
+                <label className={labelClass} style={{ color: 'var(--t-label)' }}>Date Range</label>
+                <DateRangePicker
+                  startDate={startDate}
+                  endDate={endDate}
+                  onChange={(start, end) => { setStartDate(start); setEndDate(end) }}
+                  disabled={isRunning}
+                />
+              </div>}
+              {!isCampaign && <div>
                 <label className={labelClass} style={{ color: 'var(--t-label)' }}>Start Date</label>
                 <CustomDatePicker value={startDate} onChange={setStartDate} disabled={isRunning} />
-              </div>
+              </div>}
 
               {/* Start Time picker — toggle with a small checkbox */}
               <div>
@@ -960,10 +982,10 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                 )}
               </div>
 
-              <div>
+              {!isCampaign && <div>
                 <label className={labelClass} style={{ color: 'var(--t-label)' }}>End Date</label>
                 <CustomDatePicker value={endDate} onChange={setEndDate} disabled={isRunning} />
-              </div>
+              </div>}
             </div>
           </motion.section>
         </div>

@@ -17,9 +17,11 @@ interface Props {
   onChange: (val: string) => void
   disabled?: boolean
   className?: string
+  min?: string
+  max?: string
 }
 
-export function CustomDatePicker({ value, onChange, disabled, label, className = '' }: Props) {
+export function CustomDatePicker({ value, onChange, disabled, label, className = '', min, max }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   
   const parseLocalDate = (iso: string) => {
@@ -133,10 +135,12 @@ export function CustomDatePicker({ value, onChange, disabled, label, className =
                   const dateStr = localISO(new Date(year, month + d.monthOffset, d.day))
                   const isSelected = value === dateStr
                   const isToday = todayISO() === dateStr
+                  const isOutOfRange = (min && dateStr < min) || (max && dateStr > max)
                   return (
                     <button
                       key={i}
                       onClick={() => handleDayClick(d.day, d.monthOffset)}
+                      disabled={Boolean(isOutOfRange)}
                       style={
                         isSelected
                           ? { backgroundColor: 'var(--cal-selected-bg)', color: 'var(--cal-selected-text)' }
@@ -146,7 +150,7 @@ export function CustomDatePicker({ value, onChange, disabled, label, className =
                           ? { color: 'var(--cal-current-text)' }
                           : { color: 'var(--cal-other-text)' }
                       }
-                      className={`h-8 w-8 rounded-lg flex items-center justify-center text-[10px] transition-all ${isSelected ? 'font-bold shadow-lg scale-110' : isToday ? 'font-bold' : 'hover:bg-c-raised'}`}
+                      className={`h-8 w-8 rounded-lg flex items-center justify-center text-[10px] transition-all disabled:cursor-not-allowed disabled:opacity-30 ${isSelected ? 'font-bold shadow-lg scale-110' : isToday ? 'font-bold' : 'hover:bg-c-raised'}`}
                     >
                       {d.day}
                     </button>
