@@ -391,7 +391,7 @@ export function TlActionsPage() {
         </Button>
       </section>
 
-      {(isOwner || role === 'Admin') && <section aria-label="Podio confirmation setup" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-b-medium bg-surface-card px-5 py-4 shadow-card">
+      {(isOwner || role === 'Admin') && !podioStatus?.connected && <section aria-label="Podio confirmation setup" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-b-medium bg-surface-card px-5 py-4 shadow-card">
         <div>
           <h2 className="text-sm font-bold text-t-primary">Podio submission confirmation</h2>
           <p className="mt-1 text-sm text-t-secondary">
