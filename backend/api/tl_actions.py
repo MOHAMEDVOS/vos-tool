@@ -1,6 +1,8 @@
 """Admin and Owner access to TL Actions reconciliation."""
 
 from datetime import date
+from html import escape
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
@@ -12,6 +14,7 @@ from backend.services.tl_actions_reconciliation import reconcile_tl_actions
 from backend.services.tl_actions_submission import prepare_missing_action
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class ReconcileRequest(BaseModel):
@@ -88,11 +91,17 @@ def podio_connect(current_user: dict = Depends(get_current_user)):
 @router.get("/podio/callback", response_class=HTMLResponse)
 def podio_callback(code: str | None = None, state: str | None = None, error: str | None = None):
     if error or not code or not state:
-        return HTMLResponse("<h2>Podio was not connected. Close this window and try again.</h2>", status_code=400)
+        reason = "Podio authorization was cancelled or did not include a code. Close this window and try again."
+        return HTMLResponse(f"<h2>{reason}</h2>", status_code=400)
     try:
         podio_integration.complete_authorization(code, state)
-    except Exception:
-        return HTMLResponse("<h2>Podio connection failed. Close this window and try again.</h2>", status_code=400)
+    except (ValueError, RuntimeError) as exc:
+        message = escape(str(exc))
+        logger.warning("Podio OAuth callback could not complete: %s", message)
+        return HTMLResponse(f"<h2>Podio connection failed: {message}</h2><p>Close this window and fix the setting shown, then connect again.</p>", status_code=400)
+    except Exception as exc:
+        logger.error("Podio OAuth callback failed unexpectedly (%s)", type(exc).__name__)
+        return HTMLResponse("<h2>Podio connection could not be saved. Check the backend logs, then try again.</h2>", status_code=500)
     origin = podio_integration.callback_origin()
     return HTMLResponse(
         "<!doctype html><meta charset='utf-8'><title>Podio connected</title>"

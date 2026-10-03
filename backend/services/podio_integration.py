@@ -96,7 +96,12 @@ def create_authorization_url(username: str) -> str:
 def _exchange_token(payload: dict[str, str]) -> dict[str, Any]:
     response = requests.post(PODIO_TOKEN, data=payload, timeout=_REQUEST_TIMEOUT)
     if not response.ok:
-        raise RuntimeError(f"Podio token request failed (HTTP {response.status_code})")
+        try:
+            error_code = response.json().get("error")
+        except (ValueError, AttributeError):
+            error_code = None
+        suffix = f", Podio error: {error_code}" if isinstance(error_code, str) and error_code.isascii() else ""
+        raise RuntimeError(f"Podio token request failed (HTTP {response.status_code}{suffix})")
     data = response.json()
     if not data.get("access_token") or not data.get("refresh_token"):
         raise RuntimeError("Podio token response did not include the required tokens")
