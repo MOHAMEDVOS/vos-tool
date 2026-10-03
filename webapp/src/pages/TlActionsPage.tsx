@@ -215,7 +215,6 @@ export function TlActionsPage() {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin || event.data?.type !== 'vos-podio-connected') return
       void refreshPodioStatus()
-      setPodioCheckNotice('Podio connected. VOS will now check submitted actions automatically.')
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
