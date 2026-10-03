@@ -12,7 +12,7 @@ from urllib.parse import urlencode, urlparse
 import requests
 
 from backend.services.tl_actions_reconciliation import normalize_details
-from backend.services.tl_actions_submission import _action_fields
+from backend.services.tl_actions_submission import _action_fields, _full_action_text
 from lib.database import get_db_manager
 from lib.security_utils import SecurityManager
 
@@ -171,20 +171,71 @@ def _access_token() -> str:
     return tokens["access_token"]
 
 
-def _item_text(item: dict[str, Any]) -> str:
-    return normalize_details(json.dumps(item.get("fields", []), ensure_ascii=False, default=str))
+def _item_created_at(item: dict[str, Any]) -> datetime | None:
+    for revision_name in ("initial_revision", "current_revision"):
+        revision = item.get(revision_name) or {}
+        raw_date = revision.get("created_on")
+        if not raw_date:
+            continue
+        try:
+            value = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
+            return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+        except ValueError:
+            continue
+    return None
 
 
-def find_submitted_action(action_date: date, details: str) -> int | None:
-    """Return a matching Podio item ID when the generated action report exists."""
+def _field_text(item: dict[str, Any], label: str) -> str:
+    """Read text values from a Podio field without including its metadata."""
+    field = next(
+        (field for field in item.get("fields", []) if str(field.get("label", "")).strip().casefold() == label.casefold()),
+        None,
+    )
+    if not field:
+        return ""
+
+    parts: list[str] = []
+
+    def collect(value: Any) -> None:
+        if isinstance(value, str):
+            parts.append(value)
+        elif isinstance(value, (int, float)):
+            parts.append(str(value))
+        elif isinstance(value, list):
+            for child in value:
+                collect(child)
+        elif isinstance(value, dict):
+            value_keys = ("value", "text", "name", "title")
+            found = False
+            for key in value_keys:
+                if key in value:
+                    found = True
+                    collect(value[key])
+            if not found:
+                for key, child in value.items():
+                    if key not in {"sub_id", "id"}:
+                        collect(child)
+
+    collect(field.get("values", []))
+    return "\n".join(parts)
+
+
+def find_submitted_action(
+    action_date: date, details: str, started_after: datetime | None = None,
+) -> int | None:
+    """Match the exact generated report in a Podio item created near submission time."""
     fields = _action_fields(details)
     team_leader = fields.get("Team Leader", "").strip()
     agent = fields.get("Agent Name", "").strip()
     if not team_leader or not agent:
         raise ValueError("Action details are missing the team leader or agent")
 
-    marker = normalize_details(f"Action of [{agent}] was not sent by [{team_leader}]").casefold()
-    date_marker = f"{action_date.month}/{action_date.day}/{action_date.year}"
+    if started_after is None:
+        return None
+    expected_text = normalize_details(_full_action_text(fields, action_date)).casefold()
+    submitted_after = started_after.replace(tzinfo=timezone.utc) if started_after.tzinfo is None else started_after.astimezone(timezone.utc)
+    earliest_created_at = submitted_after - timedelta(minutes=2)
+    latest_created_at = submitted_after + timedelta(minutes=30)
     token = _access_token()
     headers = {"Authorization": f"OAuth2 {token}"}
 
@@ -200,8 +251,9 @@ def find_submitted_action(action_date: date, details: str) -> int | None:
         payload = response.json()
         items = payload.get("items", [])
         for item in items:
-            text = _item_text(item).casefold()
-            if marker in text and normalize_details(date_marker).casefold() in text:
+            created_at = _item_created_at(item)
+            actual_text = normalize_details(_field_text(item, "Details about incident")).casefold()
+            if created_at and earliest_created_at <= created_at <= latest_created_at and actual_text == expected_text:
                 return int(item["item_id"])
         if not items or offset + len(items) >= int(payload.get("filtered", payload.get("total", 0))):
             break

@@ -176,15 +176,25 @@ export function TlActionsPage() {
       return []
     }
   })
+  const [startedAtByKey, setStartedAtByKey] = useState<Record<string, string>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('vos-tl-actions-started-at-v1') || '{}')
+      return saved && !Array.isArray(saved) && typeof saved === 'object' ? saved as Record<string, string> : {}
+    } catch {
+      return {}
+    }
+  })
   const [podioStatus, setPodioStatus] = useState<{ configured: boolean; connected: boolean } | null>(null)
   const [podioStatusError, setPodioStatusError] = useState('')
   const [podioSaveError, setPodioSaveError] = useState('')
   const [podioConnectBusy, setPodioConnectBusy] = useState(false)
   const podioCheckInFlight = useRef(false)
   const startedKeysRef = useRef(startedKeys)
+  const startedAtByKeyRef = useRef(startedAtByKey)
   const podioConfirmedKeysRef = useRef(podioConfirmedKeys)
   const [podioCheckNotice, setPodioCheckNotice] = useState('')
   useEffect(() => { startedKeysRef.current = startedKeys }, [startedKeys])
+  useEffect(() => { startedAtByKeyRef.current = startedAtByKey }, [startedAtByKey])
   useEffect(() => { podioConfirmedKeysRef.current = podioConfirmedKeys }, [podioConfirmedKeys])
   const leaderCounts = useMemo(() => {
     const counts = new Map<string, number>()
@@ -230,7 +240,7 @@ export function TlActionsPage() {
         for (const row of result.results) {
           const key = actionStatusKey(row)
           if (cancelled || !startedKeysRef.current.includes(key) || podioConfirmedKeysRef.current.includes(key)) continue
-          const match = await tlActionsApi.checkPodio(row)
+          const match = await tlActionsApi.checkPodio(row, startedAtByKeyRef.current[key])
           if (cancelled || !match.confirmed) continue
           setPodioConfirmedKeys((current) => {
             const next = [...new Set([...current, key])]
@@ -247,6 +257,13 @@ export function TlActionsPage() {
             const next = current.filter((item) => item !== key)
             startedKeysRef.current = next
             try { localStorage.setItem('vos-tl-actions-started-v1', JSON.stringify(next)) } catch { /* confirmation is already saved above */ }
+            return next
+          })
+          setStartedAtByKey((current) => {
+            const next = { ...current }
+            delete next[key]
+            startedAtByKeyRef.current = next
+            try { localStorage.setItem('vos-tl-actions-started-at-v1', JSON.stringify(next)) } catch { /* confirmation is already saved above */ }
             return next
           })
         }
@@ -286,11 +303,15 @@ export function TlActionsPage() {
 
   const rowKey = (row: TlActionResult) => `${row.sheet_row ?? 'row'}-${row.action_date ?? 'date'}`
 
-  const saveStartedStatus = (key: string) => {
+  const saveStartedStatus = (key: string, startedAt: string) => {
     const next = [...new Set([...startedKeys, key])]
+    const nextStartedAt = { ...startedAtByKeyRef.current, [key]: startedAtByKeyRef.current[key] ?? startedAt }
     try {
       localStorage.setItem('vos-tl-actions-started-v1', JSON.stringify(next))
+      localStorage.setItem('vos-tl-actions-started-at-v1', JSON.stringify(nextStartedAt))
       startedKeysRef.current = next
+      startedAtByKeyRef.current = nextStartedAt
+      setStartedAtByKey(nextStartedAt)
       setStartedKeys(next)
       setPodioSaveError('')
     } catch {
@@ -340,6 +361,7 @@ export function TlActionsPage() {
 
   const openActionForms = async (row: TlActionResult) => {
     const key = rowKey(row)
+    const startedAt = new Date().toISOString()
     const isPodioConfirmed = podioConfirmedKeys.includes(actionStatusKey(row))
     const podioTab = isPodioConfirmed ? null : window.open('about:blank', '_blank')
     const googleTab = window.open('about:blank', '_blank')
@@ -357,7 +379,7 @@ export function TlActionsPage() {
       const forms = await tlActionsApi.prepare(row)
       if (podioTab) podioTab.location.href = forms.podio_url
       googleTab.location.href = forms.google_form_url
-      if (!isPodioConfirmed) saveStartedStatus(actionStatusKey(row))
+      if (!isPodioConfirmed) saveStartedStatus(actionStatusKey(row), startedAt)
       if (!isPodioConfirmed && forms.agent_warning) {
         setPrepareWarnings((current) => ({ ...current, [key]: forms.agent_warning ?? '' }))
         window.alert(`Both forms are open. ${forms.agent_warning}`)

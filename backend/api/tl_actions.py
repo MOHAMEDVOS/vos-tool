@@ -1,6 +1,6 @@
 """Admin and Owner access to TL Actions reconciliation."""
 
-from datetime import date
+from datetime import date, datetime
 from html import escape
 import logging
 
@@ -26,6 +26,7 @@ class SubmitActionRequest(BaseModel):
     sheet_row: PositiveInt
     action_date: date
     details: str = Field(min_length=1, max_length=20000)
+    started_after: datetime | None = None
 
 
 def _require_admin(current_user: dict) -> None:
@@ -114,7 +115,7 @@ def podio_callback(code: str | None = None, state: str | None = None, error: str
 def check_podio_action(body: SubmitActionRequest, current_user: dict = Depends(get_current_user)):
     _require_admin(current_user)
     try:
-        item_id = podio_integration.find_submitted_action(body.action_date, body.details)
+        item_id = podio_integration.find_submitted_action(body.action_date, body.details, body.started_after)
         return {"confirmed": item_id is not None, "item_id": item_id}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

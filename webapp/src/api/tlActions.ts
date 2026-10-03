@@ -38,9 +38,10 @@ export const tlActionsApi = {
     }),
   podioStatus: () => api.get<PodioConnectionStatus>('/api/tl-actions/podio/status'),
   podioConnect: () => api.get<{ auth_url: string }>('/api/tl-actions/podio/connect'),
-  checkPodio: (row: TlActionResult) => api.post<{ confirmed: boolean; item_id: number | null }>('/api/tl-actions/podio/check', {
+  checkPodio: (row: TlActionResult, started_after?: string) => api.post<{ confirmed: boolean; item_id: number | null }>('/api/tl-actions/podio/check', {
     sheet_row: row.sheet_row,
     action_date: row.action_date,
     details: row.details,
+    started_after,
   }),
 }

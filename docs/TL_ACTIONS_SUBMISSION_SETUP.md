@@ -11,7 +11,7 @@ If the Agent cannot be matched uniquely, VOS still opens both forms with the Pod
 1. In Podio API keys, create the VOS API key and set its return domain to `vos-tool.up.railway.app`.
 2. Add `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET`, and `PODIO_OAUTH_REDIRECT_URI=https://vos-tool.up.railway.app/api/tl-actions/podio/callback` to the **backend** Railway service. `PODIO_TL_ACTIONS_APP_ID` defaults to the TL Actions app ID (`2500783`). Keep `ENCRYPTION_KEY` stable so stored OAuth tokens can be decrypted.
 3. Redeploy the backend, open TL Actions as the Owner, and click **Connect Podio** once. Approve the requested app read access.
-4. After setup, clicking **Send action** saves a pending marker in this browser. VOS checks Podio every 15 seconds while the page is open, then stores a green confirmation when it finds the matching action.
+4. After setup, clicking **Send action** saves the submission time in this browser. VOS checks Podio every 15 seconds while the page is open. It marks the card green only when the Podio item's **Details about incident** exactly matches the complete generated report (after whitespace/HTML normalization) and Podio created the item within two minutes before to 30 minutes after that saved time. Similar items, or items with edited report text, are not confirmed.
 
 The OAuth client secret and tokens must only be stored in Railway environment variables and the encrypted backend settings table. Never paste them into chat or commit them. If a secret has been exposed, revoke it in Podio and use a replacement.
 
