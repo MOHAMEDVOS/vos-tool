@@ -94,7 +94,7 @@ def create_authorization_url(username: str) -> str:
 
 
 def _exchange_token(payload: dict[str, str]) -> dict[str, Any]:
-    response = requests.post(PODIO_TOKEN, data=payload, timeout=_REQUEST_TIMEOUT)
+    response = requests.post(PODIO_TOKEN, json=payload, timeout=_REQUEST_TIMEOUT)
     if not response.ok:
         try:
             error_code = response.json().get("error")
