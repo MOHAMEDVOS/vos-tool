@@ -20,6 +20,8 @@ from lib.google_workspace import build_sheets, get_service_account_credentials
 PAYROLL_API = "https://payroll-backend-prod.azurewebsites.net"
 SPREADSHEET_ID = "1x_pcfm0_NMpfAYLIOHStTKwgA94k9chcrZbJyx1gJII"
 SHEET_NAME = "Actions"
+WAIVER_SPREADSHEET_ID = "1zlyYv5srp_mjEFlADeMOPLbF7u3shWjtzXSwqbuCwYI"
+WAIVER_SHEET_NAME = "Audit Reply"
 PAGE_SIZE = 100
 
 
@@ -114,34 +116,64 @@ def _date_value(value: Any) -> date | None:
     return None
 
 
-def _sheet_rows(start_date: date, end_date: date) -> list[dict[str, str]]:
-    spreadsheet_id = os.getenv("TL_ACTIONS_SPREADSHEET_ID", SPREADSHEET_ID)
+def _google_sheet_values(spreadsheet_id: str, sheet_name: str, range_name: str) -> list[list[str]]:
     csv_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/gviz/tq"
     try:
         response = requests.get(
             csv_url,
-            params={"tqx": "out:csv", "sheet": SHEET_NAME},
+            params={"tqx": "out:csv", "sheet": sheet_name},
             timeout=(10, 45),
         )
         response.raise_for_status()
         if response.text.lstrip().lower().startswith(("<!doctype html", "<html")):
             raise ValueError("Google returned a web page instead of the sheet CSV")
-        values = list(csv.reader(io.StringIO(response.text)))
+        return list(csv.reader(io.StringIO(response.text)))
     except (requests.RequestException, ValueError) as public_error:
-        # Private sheets can still be read with the configured service account.
         if not os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"):
             raise ValueError(
-                "Could not read the public Actions sheet. Confirm it is shared with anyone who has the link, "
+                f"Could not read the public {sheet_name} sheet. Confirm it is shared with anyone who has the link, "
                 "or configure GOOGLE_SERVICE_ACCOUNT_JSON for the backend."
             ) from public_error
         credentials = get_service_account_credentials()
         sheets = build_sheets(credentials)
-        escaped_tab = SHEET_NAME.replace("'", "''")
-        values = sheets.spreadsheets().values().get(
+        escaped_tab = sheet_name.replace("'", "''")
+        return sheets.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
-            range=f"'{escaped_tab}'!A:Z",
+            range=f"'{escaped_tab}'!{range_name}",
             valueRenderOption="FORMATTED_VALUE",
         ).execute().get("values", [])
+
+
+def _waived_action_templates() -> set[str]:
+    spreadsheet_id = os.getenv("TL_ACTIONS_WAIVER_SPREADSHEET_ID", WAIVER_SPREADSHEET_ID)
+    sheet_name = os.getenv("TL_ACTIONS_WAIVER_SHEET_NAME", WAIVER_SHEET_NAME)
+    values = _google_sheet_values(spreadsheet_id, sheet_name, "A:Z")
+    header_index = None
+    template_index = result_index = None
+    for row_index, row in enumerate(values[:20]):
+        keys = [_header_key(cell) for cell in row]
+        template = next((i for i, key in enumerate(keys) if key == "pleaseinsertactiontempfromthereportinggroup"), None)
+        result = next((i for i, key in enumerate(keys) if key == "result"), None)
+        if template is not None and result is not None:
+            header_index, template_index, result_index = row_index, template, result
+            break
+    if header_index is None or template_index is None or result_index is None:
+        raise ValueError("Could not find the action template and Result columns in the waiver sheet")
+
+    waived = set()
+    for row in values[header_index + 1:]:
+        template = row[template_index] if template_index < len(row) else ""
+        result = row[result_index] if result_index < len(row) else ""
+        normalized_template = normalize_details(template).casefold()
+        if normalized_template and str(result).strip().casefold() == "waived":
+            waived.add(normalized_template)
+    return waived
+
+
+def _sheet_rows(start_date: date, end_date: date) -> list[dict[str, str]]:
+    spreadsheet_id = os.getenv("TL_ACTIONS_SPREADSHEET_ID", SPREADSHEET_ID)
+    values = _google_sheet_values(spreadsheet_id, SHEET_NAME, "A:Z")
+    waived_templates = _waived_action_templates()
     if not values:
         raise ValueError("The Actions tab is empty")
 
@@ -169,7 +201,7 @@ def _sheet_rows(start_date: date, end_date: date) -> list[dict[str, str]]:
         details = fields.get(headers[detail_index], "")
         if not normalize_details(details):
             continue
-        if _is_verbal_action(details):
+        if _is_verbal_action(details) or normalize_details(details).casefold() in waived_templates:
             continue
         result.append({"sheet_row": row_number, "action_date": str(action_day), "details": details})
     return result
