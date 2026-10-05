@@ -144,6 +144,16 @@ def _google_sheet_values(spreadsheet_id: str, sheet_name: str, range_name: str) 
         ).execute().get("values", [])
 
 
+def _waiver_template_key(value: Any) -> str:
+    text = normalize_details(value).strip()
+    quote_pairs = (("\"", "\""), ("'", "'"), ("“", "”"), ("‘", "’"))
+    for opening, closing in quote_pairs:
+        if len(text) >= 2 and text.startswith(opening) and text.endswith(closing):
+            text = text[len(opening):-len(closing)].strip()
+            break
+    return text.casefold()
+
+
 def _waived_action_templates() -> set[str]:
     spreadsheet_id = os.getenv("TL_ACTIONS_WAIVER_SPREADSHEET_ID", WAIVER_SPREADSHEET_ID)
     sheet_name = os.getenv("TL_ACTIONS_WAIVER_SHEET_NAME", WAIVER_SHEET_NAME)
@@ -164,7 +174,7 @@ def _waived_action_templates() -> set[str]:
     for row in values[header_index + 1:]:
         template = row[template_index] if template_index < len(row) else ""
         result = row[result_index] if result_index < len(row) else ""
-        normalized_template = normalize_details(template).casefold()
+        normalized_template = _waiver_template_key(template)
         if normalized_template and str(result).strip().casefold() == "waived":
             waived.add(normalized_template)
     return waived
@@ -201,7 +211,7 @@ def _sheet_rows(start_date: date, end_date: date) -> list[dict[str, str]]:
         details = fields.get(headers[detail_index], "")
         if not normalize_details(details):
             continue
-        if _is_verbal_action(details) or normalize_details(details).casefold() in waived_templates:
+        if _is_verbal_action(details) or _waiver_template_key(details) in waived_templates:
             continue
         result.append({"sheet_row": row_number, "action_date": str(action_day), "details": details})
     return result

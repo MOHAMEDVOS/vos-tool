@@ -20,7 +20,7 @@ TL Actions currently excludes verbal actions, but it does not consult the appeal
 
 ## Chosen solution
 
-Use option 1. Normalize templates with `normalize_details`, treat only a status equal to `Waived` ignoring case and surrounding whitespace as waived, and leave `Not Waived` eligible. Keep existing verbal filtering. Configure the waiver spreadsheet ID and tab with environment overrides and safe defaults.
+Use option 1. Normalize templates with `normalize_details`, remove a matching pair of outer quotes (the form response wraps submitted templates in quotes), treat only a status equal to `Waived` ignoring case and surrounding whitespace as waived, and leave `Not Waived` eligible. Keep existing verbal filtering. Configure the waiver spreadsheet ID and tab with environment overrides and safe defaults.
 
 ## Files
 

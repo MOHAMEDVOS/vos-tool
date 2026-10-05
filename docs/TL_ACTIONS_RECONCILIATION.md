@@ -21,7 +21,7 @@ The sheet is read from Google's public CSV export when its sharing setting permi
 - Only sheet actions without a remaining exact Payroll match are returned to the page. Exact matches and Payroll-only rows are omitted.
 - Duplicate details are matched one at a time, so an extra repeated sheet action is still shown as missing.
 - Rows whose `Action Given` value is exactly `Verbal` are ignored before reconciliation, so they do not appear in results or the sheet action count. This does not filter values such as `Verbal warning`.
-- Actions whose full `Details` text matches an action template with `Result` set to `Waived` in the `Audit Reply` sheet are also ignored before reconciliation. Template matching ignores case and normalizes HTML markup, Unicode compatibility forms, and whitespace. `Not Waived` remains eligible.
+- Actions whose full `Details` text matches an action template with `Result` set to `Waived` in the `Audit Reply` sheet are also ignored before reconciliation. Template matching ignores case, removes matching outer quotes, and normalizes HTML markup, Unicode compatibility forms, and whitespace. `Not Waived` remains eligible.
 
 Reconciliation is read-only. **Send action** prepares the selected missing row in the Podio webform and Google Form for review; it never submits either form. VOS preselects the Podio Agent when its list has one exact name match. If it cannot, both forms still open and VOS asks you to select the Agent manually. Review the details and press Submit in both forms. See [TL_ACTIONS_SUBMISSION_SETUP.md](TL_ACTIONS_SUBMISSION_SETUP.md).
 
