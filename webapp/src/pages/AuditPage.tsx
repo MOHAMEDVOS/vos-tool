@@ -37,10 +37,10 @@ function previousTwoWorkWeeksRange(): [string, string] {
   const currentMonday = new Date(todayStart)
   currentMonday.setDate(todayStart.getDate() - daysSinceMonday)
   const twoWeeksAgoMonday = new Date(currentMonday)
-  twoWeeksAgoMonday.setDate(currentMonday.getDate() - 7)
-  const currentFriday = new Date(currentMonday)
-  currentFriday.setDate(currentMonday.getDate() + 4)
-  return [localISO(twoWeeksAgoMonday), localISO(currentFriday)]
+  twoWeeksAgoMonday.setDate(currentMonday.getDate() - 14)
+  const previousFriday = new Date(currentMonday)
+  previousFriday.setDate(currentMonday.getDate() - 3)
+  return [localISO(twoWeeksAgoMonday), localISO(previousFriday)]
 }
 
 /* â”€â”€â”€ Motion Variants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -688,6 +688,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const [dialerUrl2, setDialerUrl2] = useState('')
   const [identifier, setIdentifier] = useState(mode === 'agent' ? 'All users' : '')
   const [maxCalls, setMaxCalls] = useState(500)
+  const [campaignRangeCustomized, setCampaignRangeCustomized] = useState(false)
   const [startDate, setStartDate] = useState(() => mode === 'campaign' ? previousTwoWorkWeeksRange()[0] : todayISO())
   const [endDate, setEndDate] = useState(() => mode === 'campaign' ? previousTwoWorkWeeksRange()[1] : todayISO())
   const [startTimeHour, setStartTimeHour] = useState('12')
@@ -703,6 +704,19 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
     error?: string
   }>({ status: 'idle' })
   const isCampaign = mode === 'campaign'
+
+  useEffect(() => {
+    if (!isCampaign || campaignRangeCustomized) return
+
+    const refreshDefaultRange = () => {
+      const [nextStart, nextEnd] = previousTwoWorkWeeksRange()
+      setStartDate((currentStart) => currentStart === nextStart ? currentStart : nextStart)
+      setEndDate((currentEnd) => currentEnd === nextEnd ? currentEnd : nextEnd)
+    }
+
+    const intervalId = window.setInterval(refreshDefaultRange, 60_000)
+    return () => window.clearInterval(intervalId)
+  }, [isCampaign, campaignRangeCustomized])
 
   const runDialerCheck = useCallback(async () => {
     setDialerCheck({ status: 'loading' })
@@ -892,7 +906,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                 <DateRangePicker
                   startDate={startDate}
                   endDate={endDate}
-                  onChange={(start, end) => { setStartDate(start); setEndDate(end) }}
+                  onChange={(start, end) => { setCampaignRangeCustomized(true); setStartDate(start); setEndDate(end) }}
                   disabled={isRunning}
                 />
               </div>}
