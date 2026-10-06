@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import unicodedata
 from datetime import date, datetime
 from typing import Any
@@ -13,6 +14,15 @@ from backend.services.tl_actions_reconciliation import _date_value, normalize_de
 from lib.google_workspace import build_sheets, get_service_account_credentials
 
 DEFAULT_TRACKER_SPREADSHEET_ID = "1TxjbS5PMEP5vmBX8I6VA5I5XY8QW6k2O6S6AzckGjyQ"
+ACTION_FIELD_LABELS = (
+    "Team Leader",
+    "Agent Name",
+    "Type of Issue",
+    "Details about incident",
+    "Reported by TL",
+    "Action Given",
+    "Deduction",
+)
 
 
 def _leader_key(value: Any) -> str:
@@ -23,6 +33,116 @@ def _action_key(action_day: Any, leader: Any, details: Any) -> tuple[str, str, s
     parsed_day = _date_value(action_day)
     date_key = parsed_day.isoformat() if parsed_day else str(action_day or "").strip()
     return date_key, _leader_key(leader), normalize_details(details).casefold()
+
+
+def _readable_details(value: Any) -> str:
+    """Keep all action text while separating its fields and phone entries onto lines."""
+    text = normalize_details(value)
+    if not text:
+        return ""
+    labels = "|".join(re.escape(label) for label in ACTION_FIELD_LABELS)
+    text = re.sub(
+        rf"\s*\b({labels})\s*:\s*",
+        lambda match: f"\n{match.group(1)}: ",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    return re.sub(r"\s+(?=\(\d{3}\)\s*\d{3}[-.\s]\d{4}\b)", "\n  ", text)
+
+
+def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, title: str, row_count: int, sheet_row_count: int, banded_ranges: list[dict[str, Any]]) -> None:
+    """Apply a simple, readable table style to the whole tracker worksheet."""
+    requests: list[dict[str, Any]] = []
+    for banded_range in banded_ranges:
+        banded_range_id = banded_range.get("bandedRangeId")
+        if banded_range_id is not None:
+            requests.append({"deleteBanding": {"bandedRangeId": banded_range_id}})
+
+    requests.extend([
+        {
+            "updateSheetProperties": {
+                "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
+                "fields": "gridProperties.frozenRowCount",
+            }
+        },
+        {
+            "updateDimensionProperties": {
+                "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 1},
+                "properties": {"pixelSize": 130},
+                "fields": "pixelSize",
+            }
+        },
+        {
+            "updateDimensionProperties": {
+                "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 1, "endIndex": 2},
+                "properties": {"pixelSize": 275},
+                "fields": "pixelSize",
+            }
+        },
+        {
+            "updateDimensionProperties": {
+                "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 2, "endIndex": 3},
+                "properties": {"pixelSize": 820},
+                "fields": "pixelSize",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 3},
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": {"red": 0.12, "green": 0.27, "blue": 0.42},
+                        "textFormat": {"foregroundColor": {"red": 1, "green": 1, "blue": 1}, "bold": True, "fontSize": 11},
+                        "verticalAlignment": "MIDDLE",
+                        "horizontalAlignment": "LEFT",
+                    }
+                },
+                "fields": "userEnteredFormat(backgroundColor,textFormat,verticalAlignment,horizontalAlignment)",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": max(row_count, 2), "startColumnIndex": 0, "endColumnIndex": 3},
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+                        "textFormat": {"foregroundColor": {"red": 0.16, "green": 0.20, "blue": 0.25}, "bold": False, "fontSize": 10},
+                        "verticalAlignment": "TOP",
+                        "horizontalAlignment": "LEFT",
+                        "wrapStrategy": "WRAP",
+                    }
+                },
+                "fields": "userEnteredFormat(backgroundColor,textFormat,verticalAlignment,horizontalAlignment,wrapStrategy)",
+            }
+        },
+        {
+            "addBanding": {
+                "bandedRange": {
+                    "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": max(sheet_row_count, row_count, 2), "startColumnIndex": 0, "endColumnIndex": 3},
+                    "rowProperties": {
+                        "headerColor": {"red": 0.12, "green": 0.27, "blue": 0.42},
+                        "firstBandColor": {"red": 1, "green": 1, "blue": 1},
+                        "secondBandColor": {"red": 0.94, "green": 0.97, "blue": 0.99},
+                    },
+                }
+            }
+        },
+        {
+            "setBasicFilter": {
+                "filter": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": max(row_count, 1), "startColumnIndex": 0, "endColumnIndex": 3}}
+            }
+        },
+    ])
+    if row_count > 1:
+        requests.append({
+            "autoResizeDimensions": {
+                "dimensions": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": row_count}
+            }
+        })
+    sheets.spreadsheets().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={"requests": requests},
+    ).execute()
 
 
 def append_missing_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
@@ -37,7 +157,7 @@ def append_missing_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
     spreadsheet_id = os.getenv("TL_ACTIONS_TRACKER_SPREADSHEET_ID", DEFAULT_TRACKER_SPREADSHEET_ID)
     metadata = sheets.spreadsheets().get(
         spreadsheetId=spreadsheet_id,
-        fields="sheets(properties(sheetId,title,index))",
+        fields="sheets(properties(sheetId,title,index,gridProperties(rowCount)),bandedRanges(bandedRangeId))",
     ).execute()
     sheet_properties = sorted(
         (sheet.get("properties", {}) for sheet in metadata.get("sheets", [])),
@@ -46,7 +166,11 @@ def append_missing_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
     if not sheet_properties:
         raise ValueError("The tracker spreadsheet has no worksheet")
 
-    title = str(sheet_properties[0].get("title", "Sheet1"))
+    selected_sheet = sheet_properties[0]
+    title = str(selected_sheet.get("title", "Sheet1"))
+    sheet_id = int(selected_sheet.get("sheetId", 0))
+    sheet_row_count = int(selected_sheet.get("gridProperties", {}).get("rowCount", 1000))
+    banded_ranges = selected_sheet.get("bandedRanges", [])
     escaped_title = title.replace("'", "''")
     values = sheets.spreadsheets().values().get(
         spreadsheetId=spreadsheet_id,
@@ -75,7 +199,7 @@ def append_missing_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             parsed_day = date.fromisoformat(str(action_day))
         leader = str(action["team_leader"]).strip()
-        details = str(action["details"]).strip()
+        details = _readable_details(action["details"])
         key = _action_key(parsed_day, leader, details)
         if key in existing:
             skipped_count += 1
@@ -99,6 +223,30 @@ def append_missing_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
         updated_range = response.get("updates", {}).get("updatedRange")
     else:
         updated_range = None
+
+    # Reformat old rows too, so the existing tracker is cleaned up on the next button click.
+    formatted_details = [[_readable_details(row[2] if len(row) > 2 else "")] for row in values[1:]]
+    if formatted_details and any(
+        formatted_details[index][0] != (row[2] if len(row) > 2 else "")
+        for index, row in enumerate(values[1:])
+    ):
+        sheets.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=f"'{escaped_title}'!C2:C{len(values)}",
+            valueInputOption="RAW",
+            body={"values": formatted_details},
+        ).execute()
+
+    total_rows = len(values) + len(rows_to_append)
+    _format_tracker_sheet(
+        sheets,
+        spreadsheet_id,
+        sheet_id,
+        title,
+        total_rows,
+        sheet_row_count,
+        banded_ranges,
+    )
 
     return {
         "added_count": len(rows_to_append),
