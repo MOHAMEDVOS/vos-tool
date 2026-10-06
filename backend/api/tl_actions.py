@@ -6,12 +6,14 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from googleapiclient.errors import HttpError
 from pydantic import BaseModel, Field, PositiveInt
 
 from backend.core.dependencies import get_current_user
 from backend.services import podio_integration
 from backend.services.tl_actions_reconciliation import reconcile_tl_actions
 from backend.services.tl_actions_submission import prepare_missing_action
+from backend.services.tl_actions_tracker import append_missing_actions
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -29,6 +31,16 @@ class SubmitActionRequest(BaseModel):
     started_after: datetime | None = None
 
 
+class TrackerAction(BaseModel):
+    action_date: date
+    team_leader: str = Field(min_length=1, max_length=500)
+    details: str = Field(min_length=1, max_length=20000)
+
+
+class TrackerAppendRequest(BaseModel):
+    actions: list[TrackerAction] = Field(min_length=1, max_length=2000)
+
+
 def _require_admin(current_user: dict) -> None:
     if current_user.get("role") not in {"Admin", "Owner"}:
         raise HTTPException(status_code=403, detail="Admin or Owner access required")
@@ -37,6 +49,26 @@ def _require_admin(current_user: dict) -> None:
 def _require_owner(current_user: dict) -> None:
     if current_user.get("role") != "Owner":
         raise HTTPException(status_code=403, detail="Owner access required")
+
+
+@router.post("/tracker/append")
+def append_actions_to_tracker(
+    body: TrackerAppendRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_owner(current_user)
+    try:
+        return append_missing_actions([action.model_dump() for action in body.actions])
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except HttpError as exc:
+        if exc.resp.status == 403:
+            raise HTTPException(status_code=503, detail="Share the tracker spreadsheet with the backend service account as Editor") from exc
+        logger.exception("Google Sheets rejected the TL actions tracker request")
+        raise HTTPException(status_code=502, detail="Could not access the tracker spreadsheet") from exc
+    except Exception as exc:
+        logger.exception("Could not append TL actions to the tracker")
+        raise HTTPException(status_code=502, detail="Could not save actions to the tracker sheet") from exc
 
 
 @router.post("/reconcile")

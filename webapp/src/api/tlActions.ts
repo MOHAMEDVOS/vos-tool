@@ -7,9 +7,17 @@ export interface TlActionResult {
   team_leader: string
 }
 
+export interface TlActionsTrackerAppendResult {
+  added_count: number
+  skipped_count: number
+  updated_range: string | null
+}
+
 export interface TlActionsReconciliation {
   start_date: string
   end_date: string
+  payroll_start_date: string
+  payroll_end_date: string
   sheet_count: number
   missing_count: number
   action_count: number
@@ -35,6 +43,10 @@ export interface PodioConnectionStatus {
 export const tlActionsApi = {
   reconcile: (start_date: string, end_date: string) =>
     api.post<TlActionsReconciliation>('/api/tl-actions/reconcile', { start_date, end_date }),
+  appendToTracker: (actions: TlActionResult[]) =>
+    api.post<TlActionsTrackerAppendResult>('/api/tl-actions/tracker/append', {
+      actions: actions.map(({ action_date, team_leader, details }) => ({ action_date, team_leader, details })),
+    }),
   prepare: (row: TlActionResult) =>
     api.post<TlActionFormLinks>('/api/tl-actions/prepare', {
       sheet_row: row.sheet_row,

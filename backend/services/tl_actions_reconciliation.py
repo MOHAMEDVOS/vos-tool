@@ -9,7 +9,7 @@ import os
 import re
 import unicodedata
 from collections import defaultdict, deque
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from html.parser import HTMLParser
 from typing import Any
 
@@ -228,6 +228,12 @@ def _sheet_rows(start_date: date, end_date: date) -> list[dict[str, str]]:
     return [row for row in _sheet_action_rows(start_date, end_date) if row["category"] == "hr_required"]
 
 
+def _default_payroll_date_range(today: date | None = None) -> tuple[date, date]:
+    """Use the latest 14 calendar days, including today, for the HR portal lookup."""
+    end_date = today or date.today()
+    return end_date - timedelta(days=13), end_date
+
+
 def _payroll_actions(start_date: date, end_date: date) -> list[dict[str, Any]]:
     email = os.getenv("PAYROLL_EMAIL")
     password = os.getenv("PAYROLL_PASSWORD")
@@ -289,7 +295,8 @@ def reconcile_tl_actions(start_date: date, end_date: date) -> dict[str, Any]:
         raise ValueError("End date must be on or after start date")
     all_sheet_actions = _sheet_action_rows(start_date, end_date)
     sheet = [row for row in all_sheet_actions if row["category"] == "hr_required"]
-    payroll = _payroll_actions(start_date, end_date)
+    payroll_start_date, payroll_end_date = _default_payroll_date_range()
+    payroll = _payroll_actions(payroll_start_date, payroll_end_date)
 
     payroll_by_details: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
     for item in payroll:
@@ -316,6 +323,8 @@ def reconcile_tl_actions(start_date: date, end_date: date) -> dict[str, Any]:
     return {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
+        "payroll_start_date": payroll_start_date.isoformat(),
+        "payroll_end_date": payroll_end_date.isoformat(),
         "sheet_count": len(sheet),
         "missing_count": len(missing),
         "action_count": len(all_sheet_actions),

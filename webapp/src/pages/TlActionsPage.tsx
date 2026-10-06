@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, AlertTriangle, Check, CheckCircle2, ClipboardCheck, Copy, ExternalLink, RefreshCw, Search } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Check, CheckCircle2, ClipboardCheck, Copy, ExternalLink, RefreshCw, Search, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { DateRangePicker } from '@/components/ui/DateRangePicker'
 import { Spinner } from '@/components/ui/Spinner'
@@ -157,6 +157,8 @@ export function TlActionsPage() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [copyFeedback, setCopyFeedback] = useState('')
+  const [trackerBusy, setTrackerBusy] = useState(false)
+  const [trackerFeedback, setTrackerFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [preparingKey, setPreparingKey] = useState<string | null>(null)
   const [prepareErrors, setPrepareErrors] = useState<Record<string, string>>({})
   const [prepareWarnings, setPrepareWarnings] = useState<Record<string, string>>({})
@@ -299,6 +301,22 @@ export function TlActionsPage() {
       setCopyFeedback('Could not copy. Check clipboard access.')
     }
     window.setTimeout(() => setCopyFeedback(''), 2500)
+  }
+
+  const saveMissingActionsToTracker = async () => {
+    if (!result?.results.length || !isOwner) return
+    setTrackerBusy(true)
+    setTrackerFeedback(null)
+    try {
+      const saved = await tlActionsApi.appendToTracker(result.results)
+      const added = `${saved.added_count} ${saved.added_count === 1 ? 'action' : 'actions'} added`
+      const skipped = saved.skipped_count ? `; ${saved.skipped_count} already in the tracker` : ''
+      setTrackerFeedback({ type: 'success', message: `${added}${skipped}.` })
+    } catch (err) {
+      setTrackerFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Could not save actions to the tracker.' })
+    } finally {
+      setTrackerBusy(false)
+    }
   }
 
   const rowKey = (row: TlActionResult) => `${row.sheet_row ?? 'row'}-${row.action_date ?? 'date'}`
@@ -457,7 +475,7 @@ export function TlActionsPage() {
               </span>
             </div>
             <p className="mt-2 text-2xl font-bold tabular-nums text-t-primary">{result.hr_found_count} <span className="text-base font-medium text-t-secondary">/ {result.hr_expected_count}</span></p>
-            <p className="mt-1 text-xs text-t-secondary">Found / expected submissions</p>
+            <p className="mt-1 text-xs text-t-secondary">Found / expected · Portal checked {displayDateRange(result.payroll_start_date, result.payroll_end_date)}</p>
           </article>
         </section>
 
@@ -471,7 +489,15 @@ export function TlActionsPage() {
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search agent, team leader, issue…"
               className="min-h-10 w-full rounded-md border border-b-strong bg-surface-input py-2 pl-9 pr-3 text-sm text-t-primary placeholder:text-t-placeholder outline-none focus:border-b-focus focus:ring-2 focus:ring-b-focus/20" />
           </label>
+          {isOwner && <Button type="button" variant="secondary" onClick={saveMissingActionsToTracker}
+            disabled={trackerBusy || result.results.length === 0} className="min-h-10 px-3 text-sm">
+            {trackerBusy ? <><Spinner size="sm" /> Saving…</> : <><Upload size={14} /> Add to tracker</>}
+          </Button>}
         </section>
+        {isOwner && trackerFeedback && <p role={trackerFeedback.type === 'error' ? 'alert' : 'status'}
+          className={`rounded-lg border p-3 text-sm ${trackerFeedback.type === 'error' ? 'border-red-500/30 bg-red-500/10 text-red-500' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'}`}>
+          {trackerFeedback.message}
+        </p>}
 
         {isOwner && <section aria-labelledby="tl-action-tracking-title" className="rounded-xl border border-b-medium bg-surface-card p-5 shadow-card">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
