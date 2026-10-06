@@ -180,7 +180,7 @@ def _waived_action_templates() -> set[str]:
     return waived
 
 
-def _sheet_rows(start_date: date, end_date: date) -> list[dict[str, str]]:
+def _sheet_action_rows(start_date: date, end_date: date) -> list[dict[str, str]]:
     spreadsheet_id = os.getenv("TL_ACTIONS_SPREADSHEET_ID", SPREADSHEET_ID)
     values = _google_sheet_values(spreadsheet_id, SHEET_NAME, "A:Z")
     waived_templates = _waived_action_templates()
@@ -211,10 +211,21 @@ def _sheet_rows(start_date: date, end_date: date) -> list[dict[str, str]]:
         details = fields.get(headers[detail_index], "")
         if not normalize_details(details):
             continue
-        if _is_verbal_action(details) or _waiver_template_key(details) in waived_templates:
-            continue
-        result.append({"sheet_row": row_number, "action_date": str(action_day), "details": details})
+        is_verbal = _is_verbal_action(details)
+        is_waived = _waiver_template_key(details) in waived_templates
+        category = "verbal" if is_verbal else "waived" if is_waived else "hr_required"
+        result.append({
+            "sheet_row": row_number,
+            "action_date": str(action_day),
+            "details": details,
+            "category": category,
+        })
     return result
+
+
+def _sheet_rows(start_date: date, end_date: date) -> list[dict[str, str]]:
+    """Return only actions that team leaders are expected to submit to Payroll."""
+    return [row for row in _sheet_action_rows(start_date, end_date) if row["category"] == "hr_required"]
 
 
 def _payroll_actions(start_date: date, end_date: date) -> list[dict[str, Any]]:
@@ -276,7 +287,8 @@ def _payroll_actions(start_date: date, end_date: date) -> list[dict[str, Any]]:
 def reconcile_tl_actions(start_date: date, end_date: date) -> dict[str, Any]:
     if end_date < start_date:
         raise ValueError("End date must be on or after start date")
-    sheet = _sheet_rows(start_date, end_date)
+    all_sheet_actions = _sheet_action_rows(start_date, end_date)
+    sheet = [row for row in all_sheet_actions if row["category"] == "hr_required"]
     payroll = _payroll_actions(start_date, end_date)
 
     payroll_by_details: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
@@ -286,10 +298,12 @@ def reconcile_tl_actions(start_date: date, end_date: date) -> dict[str, Any]:
             payroll_by_details[key].append(item)
 
     missing = []
+    matched_count = 0
     for source in sheet:
         candidates = payroll_by_details[normalize_details(source["details"])]
         if candidates:
             candidates.popleft()
+            matched_count += 1
         else:
             details = _plain_text(source["details"])
             missing.append({
@@ -304,5 +318,10 @@ def reconcile_tl_actions(start_date: date, end_date: date) -> dict[str, Any]:
         "end_date": end_date.isoformat(),
         "sheet_count": len(sheet),
         "missing_count": len(missing),
+        "action_count": len(all_sheet_actions),
+        "verbal_count": sum(row["category"] == "verbal" for row in all_sheet_actions),
+        "waived_count": sum(row["category"] == "waived" for row in all_sheet_actions),
+        "hr_expected_count": len(sheet),
+        "hr_found_count": matched_count,
         "results": missing,
     }

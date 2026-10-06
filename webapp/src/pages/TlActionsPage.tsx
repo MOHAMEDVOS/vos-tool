@@ -432,6 +432,35 @@ export function TlActionsPage() {
       {podioSaveError && <div role="alert" className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700">{podioSaveError}</div>}
 
       {result && <>
+        <section aria-label="Action summary" className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <article className="rounded-xl border border-b-medium bg-surface-card px-4 py-4 shadow-card">
+            <p className="text-xs font-semibold text-t-secondary">Actions logged</p>
+            <p className="mt-2 text-2xl font-bold tabular-nums text-t-primary">{result.action_count}</p>
+            <p className="mt-1 text-xs text-t-secondary">In selected date range</p>
+          </article>
+          <article className="rounded-xl border border-b-medium bg-surface-card px-4 py-4 shadow-card">
+            <p className="text-xs font-semibold text-t-secondary">Verbal</p>
+            <p className="mt-2 text-2xl font-bold tabular-nums text-t-primary">{result.verbal_count}</p>
+            <p className="mt-1 text-xs text-t-secondary">No HR submission expected</p>
+          </article>
+          <article className="rounded-xl border border-b-medium bg-surface-card px-4 py-4 shadow-card">
+            <p className="text-xs font-semibold text-t-secondary">Waived</p>
+            <p className="mt-2 text-2xl font-bold tabular-nums text-t-primary">{result.waived_count}</p>
+            <p className="mt-1 text-xs text-t-secondary">No HR submission expected</p>
+          </article>
+          <article className="rounded-xl border border-b-medium bg-surface-card px-4 py-4 shadow-card">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold text-t-secondary">HR portal</p>
+              <span className={`inline-flex items-center gap-1 text-xs font-bold ${result.missing_count === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {result.missing_count === 0 ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+                {result.missing_count === 0 ? 'Match' : `${result.missing_count} missing`}
+              </span>
+            </div>
+            <p className="mt-2 text-2xl font-bold tabular-nums text-t-primary">{result.hr_found_count} <span className="text-base font-medium text-t-secondary">/ {result.hr_expected_count}</span></p>
+            <p className="mt-1 text-xs text-t-secondary">Found / expected submissions</p>
+          </article>
+        </section>
+
         <section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-b-medium bg-surface-card px-5 py-4 shadow-card">
           <div>
             <h2 className="text-lg font-bold text-t-primary">{result.missing_count} missing {result.missing_count === 1 ? 'action' : 'actions'}</h2>

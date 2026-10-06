@@ -12,6 +12,11 @@ export interface TlActionsReconciliation {
   end_date: string
   sheet_count: number
   missing_count: number
+  action_count: number
+  verbal_count: number
+  waived_count: number
+  hr_expected_count: number
+  hr_found_count: number
   results: TlActionResult[]
 }
 
