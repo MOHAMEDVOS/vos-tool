@@ -38,6 +38,8 @@ class TrackerAction(BaseModel):
 
 
 class TrackerAppendRequest(BaseModel):
+    start_date: date
+    end_date: date
     actions: list[TrackerAction] = Field(min_length=1, max_length=2000)
 
 
@@ -57,8 +59,14 @@ def append_actions_to_tracker(
     current_user: dict = Depends(get_current_user),
 ):
     _require_owner(current_user)
+    if body.end_date < body.start_date:
+        raise HTTPException(status_code=400, detail="End date must be on or after start date")
     try:
-        return append_missing_actions([action.model_dump() for action in body.actions])
+        return append_missing_actions(
+            [action.model_dump() for action in body.actions],
+            body.start_date,
+            body.end_date,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except HttpError as exc:

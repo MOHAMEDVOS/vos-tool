@@ -43,8 +43,10 @@ export interface PodioConnectionStatus {
 export const tlActionsApi = {
   reconcile: (start_date: string, end_date: string) =>
     api.post<TlActionsReconciliation>('/api/tl-actions/reconcile', { start_date, end_date }),
-  appendToTracker: (actions: TlActionResult[]) =>
+  appendToTracker: (actions: TlActionResult[], start_date: string, end_date: string) =>
     api.post<TlActionsTrackerAppendResult>('/api/tl-actions/tracker/append', {
+      start_date,
+      end_date,
       actions: actions.map(({ action_date, team_leader, details }) => ({ action_date, team_leader, details })),
     }),
   prepare: (row: TlActionResult) =>

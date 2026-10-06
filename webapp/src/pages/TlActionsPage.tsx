@@ -308,7 +308,7 @@ export function TlActionsPage() {
     setTrackerBusy(true)
     setTrackerFeedback(null)
     try {
-      const saved = await tlActionsApi.appendToTracker(result.results)
+      const saved = await tlActionsApi.appendToTracker(result.results, result.start_date, result.end_date)
       const added = `${saved.added_count} ${saved.added_count === 1 ? 'action' : 'actions'} added`
       const skipped = saved.skipped_count ? `; ${saved.skipped_count} already in the tracker` : ''
       setTrackerFeedback({ type: 'success', message: `${added}${skipped}.` })

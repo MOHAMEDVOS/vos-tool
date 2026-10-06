@@ -35,6 +35,10 @@ def _action_key(action_day: Any, leader: Any, details: Any) -> tuple[str, str, s
     return date_key, _leader_key(leader), normalize_details(details).casefold()
 
 
+def _date_serial(value: date) -> int:
+    return (value - date(1899, 12, 30)).days
+
+
 def _readable_details(value: Any) -> str:
     """Keep all action text while separating its fields and phone entries onto lines."""
     text = normalize_details(value)
@@ -50,7 +54,7 @@ def _readable_details(value: Any) -> str:
     return re.sub(r"\s+(?=\(\d{3}\)\s*\d{3}[-.\s]\d{4}\b)", "\n  ", text)
 
 
-def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, title: str, row_count: int, sheet_row_count: int, banded_ranges: list[dict[str, Any]]) -> None:
+def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, row_count: int, sheet_row_count: int, banded_ranges: list[dict[str, Any]]) -> None:
     """Apply a simple, readable table style to the whole tracker worksheet."""
     requests: list[dict[str, Any]] = []
     for banded_range in banded_ranges:
@@ -68,21 +72,49 @@ def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, title
         {
             "updateDimensionProperties": {
                 "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 0, "endIndex": 1},
-                "properties": {"pixelSize": 130},
+                "properties": {"pixelSize": 115},
                 "fields": "pixelSize",
             }
         },
         {
             "updateDimensionProperties": {
                 "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 1, "endIndex": 2},
-                "properties": {"pixelSize": 275},
+                "properties": {"pixelSize": 240},
                 "fields": "pixelSize",
             }
         },
         {
             "updateDimensionProperties": {
                 "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 2, "endIndex": 3},
-                "properties": {"pixelSize": 820},
+                "properties": {"pixelSize": 620},
+                "fields": "pixelSize",
+            }
+        },
+        {
+            "updateDimensionProperties": {
+                "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 3, "endIndex": 4},
+                "properties": {"pixelSize": 36},
+                "fields": "pixelSize",
+            }
+        },
+        {
+            "updateDimensionProperties": {
+                "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 4, "endIndex": 5},
+                "properties": {"pixelSize": 65},
+                "fields": "pixelSize",
+            }
+        },
+        {
+            "updateDimensionProperties": {
+                "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 5, "endIndex": 6},
+                "properties": {"pixelSize": 270},
+                "fields": "pixelSize",
+            }
+        },
+        {
+            "updateDimensionProperties": {
+                "range": {"sheetId": sheet_id, "dimension": "COLUMNS", "startIndex": 6, "endIndex": 7},
+                "properties": {"pixelSize": 150},
                 "fields": "pixelSize",
             }
         },
@@ -116,6 +148,93 @@ def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, title
             }
         },
         {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 4, "endColumnIndex": 7},
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": {"red": 0.12, "green": 0.27, "blue": 0.42},
+                        "textFormat": {"foregroundColor": {"red": 1, "green": 1, "blue": 1}, "bold": True, "fontSize": 11},
+                        "verticalAlignment": "MIDDLE",
+                    }
+                },
+                "fields": "userEnteredFormat(backgroundColor,textFormat,verticalAlignment)",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 4, "startColumnIndex": 4, "endColumnIndex": 6},
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": {"red": 0.92, "green": 0.96, "blue": 0.99},
+                        "textFormat": {"foregroundColor": {"red": 0.16, "green": 0.20, "blue": 0.25}, "fontSize": 10},
+                        "verticalAlignment": "MIDDLE",
+                    }
+                },
+                "fields": "userEnteredFormat(backgroundColor,textFormat,verticalAlignment)",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 3, "startColumnIndex": 5, "endColumnIndex": 6},
+                "cell": {
+                    "userEnteredFormat": {
+                        "numberFormat": {"type": "DATE", "pattern": "M/d/yyyy"},
+                        "textFormat": {"foregroundColor": {"red": 0.12, "green": 0.27, "blue": 0.42}, "bold": True, "fontSize": 10},
+                    }
+                },
+                "fields": "userEnteredFormat(numberFormat,textFormat)",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 3, "endRowIndex": 4, "startColumnIndex": 5, "endColumnIndex": 6},
+                "cell": {
+                    "userEnteredFormat": {
+                        "textFormat": {"foregroundColor": {"red": 0.12, "green": 0.27, "blue": 0.42}, "bold": True, "fontSize": 12},
+                    }
+                },
+                "fields": "userEnteredFormat(textFormat)",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": 6, "startColumnIndex": 4, "endColumnIndex": 7},
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": {"red": 0.22, "green": 0.43, "blue": 0.61},
+                        "textFormat": {"foregroundColor": {"red": 1, "green": 1, "blue": 1}, "bold": True, "fontSize": 10},
+                        "verticalAlignment": "MIDDLE",
+                    }
+                },
+                "fields": "userEnteredFormat(backgroundColor,textFormat,verticalAlignment)",
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 6, "endRowIndex": max(sheet_row_count, row_count, 7), "startColumnIndex": 4, "endColumnIndex": 7},
+                "cell": {
+                    "userEnteredFormat": {
+                        "backgroundColor": {"red": 1, "green": 1, "blue": 1},
+                        "textFormat": {"foregroundColor": {"red": 0.16, "green": 0.20, "blue": 0.25}, "fontSize": 10},
+                        "verticalAlignment": "MIDDLE",
+                    }
+                },
+                "fields": "userEnteredFormat(backgroundColor,textFormat,verticalAlignment)",
+            }
+        },
+        {
+            "addBanding": {
+                "bandedRange": {
+                    "range": {"sheetId": sheet_id, "startRowIndex": 5, "endRowIndex": max(sheet_row_count, row_count, 7), "startColumnIndex": 4, "endColumnIndex": 7},
+                    "rowProperties": {
+                        "headerColor": {"red": 0.22, "green": 0.43, "blue": 0.61},
+                        "firstBandColor": {"red": 1, "green": 1, "blue": 1},
+                        "secondBandColor": {"red": 0.94, "green": 0.97, "blue": 0.99},
+                    },
+                }
+            }
+        },
+        {
             "addBanding": {
                 "bandedRange": {
                     "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": max(sheet_row_count, row_count, 2), "startColumnIndex": 0, "endColumnIndex": 3},
@@ -132,6 +251,19 @@ def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, title
                 "filter": {"range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": max(row_count, 1), "startColumnIndex": 0, "endColumnIndex": 3}}
             }
         },
+        {
+            "setDataValidation": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": 3, "startColumnIndex": 5, "endColumnIndex": 6},
+                "rule": {"condition": {"type": "DATE_IS_VALID"}, "strict": True, "showCustomUi": True},
+            }
+        },
+        {
+            "repeatCell": {
+                "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": max(row_count, 2), "startColumnIndex": 0, "endColumnIndex": 1},
+                "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE", "pattern": "M/d/yyyy"}}},
+                "fields": "userEnteredFormat.numberFormat",
+            }
+        },
     ])
     if row_count > 1:
         requests.append({
@@ -145,7 +277,29 @@ def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, title
     ).execute()
 
 
-def append_missing_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
+def _update_report(sheets: Any, spreadsheet_id: str, title: str, start_date: date, end_date: date) -> None:
+    escaped_title = title.replace("'", "''")
+    prefix = f"'{escaped_title}'!"
+    query_formula = (
+        '=IFERROR(QUERY(FILTER({$B$2:$B,$A$2:$A},$A$2:$A>=$F$2,$A$2:$A<=$F$3,$B$2:$B<>""),'
+        '"select Col1,count(Col1) group by Col1 order by count(Col1) desc label Col1 \'\',count(Col1) \'\'",0),"")'
+    )
+    sheets.spreadsheets().values().batchUpdate(
+        spreadsheetId=spreadsheet_id,
+        body={
+            "valueInputOption": "USER_ENTERED",
+            "data": [
+                {"range": f"{prefix}E1:G1", "values": [["Missing actions by team leader", "", ""]]},
+                {"range": f"{prefix}E2:F4", "values": [["From", _date_serial(start_date)], ["To", _date_serial(end_date)], ["Total missing actions", "=SUM(G7:G)"]]},
+                {"range": f"{prefix}E6:G6", "values": [["Rank", "Team leader", "Missing actions"]]},
+                {"range": f"{prefix}E7", "values": [["=ARRAYFORMULA(IF(F7:F=\"\",\"\",ROW(F7:F)-6))"]]},
+                {"range": f"{prefix}F7", "values": [[query_formula]]},
+            ],
+        },
+    ).execute()
+
+
+def append_missing_actions(actions: list[dict[str, Any]], report_start_date: date, report_end_date: date) -> dict[str, Any]:
     """Append rows not already in the tracker; never overwrite existing rows."""
     if not os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON"):
         raise ValueError(
@@ -190,7 +344,7 @@ def append_missing_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
         for row in values[1:]
         if any(str(cell).strip() for cell in row)
     }
-    rows_to_append: list[list[str]] = []
+    rows_to_append: list[list[Any]] = []
     skipped_count = 0
     for action in actions:
         action_day = action["action_date"]
@@ -205,7 +359,7 @@ def append_missing_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
             skipped_count += 1
             continue
         existing.add(key)
-        rows_to_append.append([f"{parsed_day.month}/{parsed_day.day}/{parsed_day.year}", leader, details])
+        rows_to_append.append([_date_serial(parsed_day), leader, details])
 
     if rows_to_append:
         try:
@@ -225,24 +379,26 @@ def append_missing_actions(actions: list[dict[str, Any]]) -> dict[str, Any]:
         updated_range = None
 
     # Reformat old rows too, so the existing tracker is cleaned up on the next button click.
+    formatted_dates = [[_date_serial(day) if (day := _date_value(row[0] if row else "")) else ""] for row in values[1:]]
     formatted_details = [[_readable_details(row[2] if len(row) > 2 else "")] for row in values[1:]]
-    if formatted_details and any(
-        formatted_details[index][0] != (row[2] if len(row) > 2 else "")
-        for index, row in enumerate(values[1:])
-    ):
-        sheets.spreadsheets().values().update(
+    if formatted_dates:
+        sheets.spreadsheets().values().batchUpdate(
             spreadsheetId=spreadsheet_id,
-            range=f"'{escaped_title}'!C2:C{len(values)}",
-            valueInputOption="RAW",
-            body={"values": formatted_details},
+            body={
+                "valueInputOption": "RAW",
+                "data": [
+                    {"range": f"'{escaped_title}'!A2:A{len(values)}", "values": formatted_dates},
+                    {"range": f"'{escaped_title}'!C2:C{len(values)}", "values": formatted_details},
+                ],
+            },
         ).execute()
 
     total_rows = len(values) + len(rows_to_append)
+    _update_report(sheets, spreadsheet_id, title, report_start_date, report_end_date)
     _format_tracker_sheet(
         sheets,
         spreadsheet_id,
         sheet_id,
-        title,
         total_rows,
         sheet_row_count,
         banded_ranges,
