@@ -49,6 +49,10 @@ export const dashboardApi = {
   },
 
   clearAgentAudits:    () => api.post('/api/dashboard/clear/agent-audits'),
+  deleteAgentAudits:   (agentName: string) => api.post<{ message: string; deleted_count: number }>(
+    '/api/dashboard/agent-audits/delete',
+    { agent_name: agentName },
+  ),
   clearLiteAudits:     () => api.post('/api/dashboard/clear/lite-audits'),
   clearCampaignAudits: (campaign?: string) => 
     api.post(`/api/dashboard/clear/campaign-audits${campaign ? `?campaign=${encodeURIComponent(campaign)}` : ''}`),

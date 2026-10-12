@@ -6,7 +6,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import type { FlaggedCall } from '@/types/api'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
-import { RefreshCw, Search, ChevronDown, Check, Copy, ArrowUp, ArrowDown } from 'lucide-react'
+import { RefreshCw, Search, ChevronDown, Check, Copy, ArrowUp, ArrowDown, Trash2 } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/Select'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CountUp, Metric } from '@/components/ui/Metric'
@@ -19,7 +19,17 @@ export interface AgentDeductionRow {
 }
 
 
-export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
+export function AgentDeductionsTable({
+  rows,
+  onDeleteAgent,
+  deletingAgent,
+  deletableAgents,
+}: {
+  rows: AgentDeductionRow[]
+  onDeleteAgent?: (agentName: string) => void
+  deletingAgent?: string | null
+  deletableAgents?: Set<string>
+}) {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [sortCol, setSortCol] = useState<keyof AgentDeductionRow | null>('flaggedCalls')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
@@ -41,6 +51,7 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
     { key: 'dialerNames',  label: 'Dialer(s)',      cls: '' },
     { key: 'deduction',    label: 'Deduction',      cls: '' },
   ]
+  if (onDeleteAgent) headers.push({ key: 'agentName', label: 'Delete', cls: 'w-16' })
 
   const sortedRows = useMemo(() => {
     if (!sortCol) return rows
@@ -83,15 +94,15 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
                 const isSorted = sortCol === h.key
                 return (
                   <th 
-                    key={h.key} 
-                    onClick={() => toggleSort(h.key)}
-                    className={`${h.cls} border-r border-b-subtle px-2.5 py-2.5 text-left text-[10px] font-black uppercase tracking-[0.12em] text-vos-500 leading-tight last:border-r-0 cursor-pointer hover:bg-c-raised/30 transition-colors select-none`}
+                    key={`${h.label}-${h.key}`}
+                    onClick={() => { if (h.label !== 'Delete') toggleSort(h.key) }}
+                    className={`${h.cls} border-r border-b-subtle px-2.5 py-2.5 text-left text-[10px] font-black uppercase tracking-[0.12em] text-vos-500 leading-tight last:border-r-0 ${h.label !== 'Delete' ? 'cursor-pointer hover:bg-c-raised/30' : ''} transition-colors select-none`}
                   >
                     <div className={`flex items-center gap-2 ${h.cls.includes('text-right') ? 'justify-end' : 'justify-start'}`}>
                       {h.label}
-                      <span className={`transition-opacity duration-200 ${isSorted ? 'opacity-100' : 'opacity-0'}`}>
+                      {h.label !== 'Delete' && <span className={`transition-opacity duration-200 ${isSorted ? 'opacity-100' : 'opacity-0'}`}>
                         {sortDir === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />}
-                      </span>
+                      </span>}
                     </div>
                   </th>
                 )
@@ -159,6 +170,25 @@ export function AgentDeductionsTable({ rows }: { rows: AgentDeductionRow[] }) {
                   <span className="block break-words">{row.dialerNames.length ? row.dialerNames.join(' & ') : '—'}</span>
                 </td>
                 <td className={`px-2.5 py-2.5 whitespace-nowrap font-black uppercase tracking-widest text-[10px] ${deductionBg} ${deductionText}`}>{row.deduction ? 'Yes' : 'No'}</td>
+                {onDeleteAgent && (
+                  <td className="px-2 py-2.5 text-center">
+                    {(!deletableAgents || deletableAgents.has(row.agentName)) ? <button
+                      type="button"
+                      aria-label={`Delete Agent Audit results for ${row.agentName}`}
+                      title={`Delete Agent Audit results for ${row.agentName}`}
+                      disabled={Boolean(deletingAgent)}
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          `Permanently delete Agent Audit results for ${row.agentName} from your shared dashboard? This removes those calls from Agent Audit, Actions, and Call Review. Lite Audit and campaign results are not deleted.`,
+                        )
+                        if (confirmed) onDeleteAgent(row.agentName)
+                      }}
+                      className="rounded p-1.5 text-vos-500 transition-colors hover:bg-ship-red/10 hover:text-ship-red disabled:cursor-wait disabled:opacity-50"
+                    >
+                      <Trash2 size={14} />
+                    </button> : <span className="text-vos-600" title="No Agent Audit results to delete">—</span>}
+                  </td>
+                )}
               </tr>
             )
           })}
@@ -177,6 +207,8 @@ export function ActionsPage() {
   const { data: liteAuditsData, isLoading: liteLoading } = useLiteAudits()
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deleteNotice, setDeleteNotice] = useState<string | null>(null)
   const markAsSeen = useBadgeStore(s => s.markAsSeen)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
@@ -185,6 +217,18 @@ export function ActionsPage() {
     setCopiedId(id)
     setTimeout(() => setCopiedId(null), 2000)
   }
+
+  const deleteAgentAudits = useMutation({
+    mutationFn: (agentName: string) => dashboardApi.deleteAgentAudits(agentName),
+    onSuccess: (result, agentName) => {
+      setDeleteError(null)
+      setDeleteNotice(`${result.deleted_count} Agent Audit result${result.deleted_count === 1 ? '' : 's'} deleted for ${agentName}. Lite Audit and campaign results are unchanged.`)
+      qc.invalidateQueries({ queryKey: ['agent-audits'] })
+      qc.invalidateQueries({ queryKey: ['flagged-calls'] })
+      qc.invalidateQueries({ queryKey: ['flagged-count'] })
+    },
+    onError: () => setDeleteError('Could not delete this agent’s Agent Audit results. Please try again.'),
+  })
 
   // Normalize a phone to (xxx) xxx-xxxx. Idempotent: already-formatted values re-format the
   // same; non-10-digit values (and 'Unknown') pass through untouched.
@@ -230,6 +274,12 @@ export function ActionsPage() {
     }
     return map
   }, [allAuditRecords])
+
+  const deletableAgents = useMemo(() => new Set(
+    (allAuditsData?.records ?? [])
+      .map((record) => String(((record.metadata ?? record) as Record<string, unknown>)['Agent Name'] ?? '').trim())
+      .filter(Boolean),
+  ), [allAuditsData])
 
   const auditedDialers = useMemo(() => {
     const map = new Map<string, number>()
@@ -324,7 +374,18 @@ export function ActionsPage() {
           <p className="py-4 text-sm text-vos-500">No flagged calls found.</p>
         ) : (
           <>
-            <AgentDeductionsTable rows={agentDeductions} />
+            {deleteError && <p role="alert" className="text-sm text-ship-red">{deleteError}</p>}
+            {deleteNotice && <p role="status" className="text-sm text-t-muted">{deleteNotice}</p>}
+            <AgentDeductionsTable
+              rows={agentDeductions}
+              deletableAgents={deletableAgents}
+              onDeleteAgent={(agentName) => {
+                setDeleteError(null)
+                setDeleteNotice(null)
+                deleteAgentAudits.mutate(agentName)
+              }}
+              deletingAgent={deleteAgentAudits.isPending ? deleteAgentAudits.variables : null}
+            />
             <div className="flex justify-end relative mt-1">
               {!showConfirm ? (
                 <DestroyButton size="sm" onClick={() => setShowConfirm(true)}>Clear All Data</DestroyButton>

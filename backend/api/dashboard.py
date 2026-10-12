@@ -3,6 +3,7 @@ Dashboard API endpoints.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends, Query
+from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import date, datetime
 import sys
@@ -19,6 +20,7 @@ from backend.services.dashboard_service import (
     clear_agent_audits,
     clear_lite_audits,
     clear_campaign_audits,
+    delete_agent_audit_results,
     get_available_campaigns,
     get_flagged_calls,
     get_flagged_count,
@@ -28,6 +30,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class DeleteAgentAuditRequest(BaseModel):
+    agent_name: str = Field(min_length=1, max_length=255)
 
 
 @router.get("/agent-audits", response_model=DashboardData)
@@ -228,6 +234,27 @@ async def clear_agent_audit_data(current_user: dict = Depends(get_current_user))
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to clear agent audit data"
         )
+
+
+@router.post("/agent-audits/delete")
+async def delete_agent_audit_data(
+    body: DeleteAgentAuditRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    agent_name = body.agent_name.strip()
+    if not agent_name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Agent name is required")
+    try:
+        deleted_count = delete_agent_audit_results(current_user["username"], agent_name)
+        return {"message": "Agent Audit results deleted", "deleted_count": deleted_count}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
+    except Exception as e:
+        logger.error("Error deleting Agent Audit results for %r: %s", agent_name, e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete Agent Audit results",
+        ) from e
 
 
 @router.post("/clear/lite-audits")

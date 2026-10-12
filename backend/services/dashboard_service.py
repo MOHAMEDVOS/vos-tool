@@ -133,6 +133,11 @@ def clear_agent_audits(username: str) -> bool:
         return False
 
 
+def delete_agent_audit_results(username: str, agent_name: str) -> int:
+    """Delete one agent's Agent Audit results from the caller's shared dashboard."""
+    return dashboard_manager.delete_agent_audit_results(username, agent_name)
+
+
 def clear_lite_audits(username: str) -> bool:
     """Clear all lite audit data for user."""
     try:
