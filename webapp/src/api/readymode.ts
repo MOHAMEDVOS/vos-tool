@@ -62,11 +62,20 @@ export interface CampaignDialerCountsResponse {
   failed: string[]
 }
 
+export interface AgentDialerCountsResponse {
+  agent_name: string
+  results: CampaignDialerCount[]
+  busiest: CampaignDialerCount | null
+  failed: string[]
+}
+
 export const readymodeApi = {
   status: () => api.get<ReadyModeStatus>('/api/readymode/status'),
   download: (body: DownloadRequest) => api.post<ReadyModeStatus>('/api/readymode/download', body),
   campaignDialerCounts: (body: { campaign_name: string; start_date: string; end_date: string }) =>
     api.post<CampaignDialerCountsResponse>('/api/readymode/campaign-dialer-counts', body),
+  agentDialerCounts: (body: { agent_name: string; start_date: string; end_date: string }) =>
+    api.post<AgentDialerCountsResponse>('/api/readymode/agent-dialer-counts', body),
   streamFetch: async (
     body: DownloadRequest,
     token: string,

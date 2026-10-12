@@ -122,6 +122,7 @@ tmp/
 test_*.py
 debug_*.py
 *_test.py
+!tests/test_agent_dialer_counts.py
 
 # ────────────── SYSTEM FILES & DIRECTORIES ──────────────
 # Windows system directories (should not be in project)

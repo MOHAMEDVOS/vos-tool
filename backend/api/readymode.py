@@ -47,7 +47,13 @@ from automation.download_readymode_calls import (
     ReadyModeNoCallsError,
     extract_dialer_name_from_url,
 )
-from automation.readymode_http import ReadyModeHTTPClient, resolve_campaign_id
+from automation.readymode_http import (
+    ReadyModeHTTPClient,
+    DISPOSITION_TYPE_IDS,
+    all_type_ids,
+    resolve_agent_id,
+    resolve_campaign_id,
+)
 
 from backend.models.schemas import ReadyModeDownloadRequest, ReadyModeStatus
 from backend.core.dependencies import get_current_user
@@ -563,6 +569,12 @@ class CampaignDialerCountRequest(BaseModel):
     end_date: str    # ISO YYYY-MM-DD
 
 
+class AgentDialerCountRequest(BaseModel):
+    agent_name: str
+    start_date: str  # ISO YYYY-MM-DD
+    end_date: str    # ISO YYYY-MM-DD
+
+
 def _campaign_count_for_dialer(name: str, url: str, rm_user: str, rm_pass: str,
                                 campaign_name: str, rm_start: str, rm_end: str) -> dict:
     """Login to one dialer and count its calls for this campaign, without exporting anything."""
@@ -583,6 +595,34 @@ def _campaign_count_for_dialer(name: str, url: str, rm_user: str, rm_pass: str,
     else:
         last = client.fetch_report(time_from=rm_start, time_to=rm_end,
                                     restrict_campaign=cid, page=total_pages - 1)
+        count = (total_pages - 1) * 25 + len(last.get("results") or {})
+
+    return {"dialer": name, "url": url, "found": True, "count": count}
+
+
+def _agent_count_for_dialer(name: str, url: str, rm_user: str, rm_pass: str,
+                            agent_name: str, rm_start: str, rm_end: str) -> dict:
+    """Resolve this dialer's agent ID, then count matching calls in the date range."""
+    client = ReadyModeHTTPClient(url)
+    client.login(rm_user, rm_pass)
+    dialer_map = client.init_call_log()
+    types = all_type_ids(dialer_map or DISPOSITION_TYPE_IDS)
+
+    probe = client.fetch_report(time_from=rm_start, time_to=rm_end, types=types, page=0)
+    uid, _label = resolve_agent_id(probe.get("userlist", {}), agent_name)
+    if not uid:
+        return {"dialer": name, "url": url, "found": False, "count": 0}
+
+    filtered = client.fetch_report(time_from=rm_start, time_to=rm_end,
+                                  restrict_uid=uid, types=types, page=0)
+    total_pages = int(filtered.get("pages") or 0)
+    first_page_len = len(filtered.get("results") or {})
+
+    if total_pages <= 1:
+        count = first_page_len
+    else:
+        last = client.fetch_report(time_from=rm_start, time_to=rm_end,
+                                   restrict_uid=uid, types=types, page=total_pages - 1)
         count = (total_pages - 1) * 25 + len(last.get("results") or {})
 
     return {"dialer": name, "url": url, "found": True, "count": count}
@@ -625,6 +665,49 @@ async def campaign_dialer_counts(request: CampaignDialerCountRequest,
 
     return {
         "campaign_name": campaign_name,
+        "results": sorted(results, key=lambda r: r["count"], reverse=True),
+        "busiest": busiest,
+        "failed": failed,
+    }
+
+
+@router.post("/agent-dialer-counts")
+async def agent_dialer_counts(request: AgentDialerCountRequest,
+                              current_user: dict = Depends(get_current_user)):
+    """Count this agent's calls on every configured dialer."""
+    from config import get_user_readymode_credentials, READY_MODE_URLS
+    rm_user, rm_pass = get_user_readymode_credentials(current_user["username"])
+    if not rm_user or not rm_pass:
+        raise HTTPException(status_code=400, detail="ReadyMode credentials not configured")
+
+    agent_name = request.agent_name.strip()
+    if not agent_name:
+        raise HTTPException(status_code=400, detail="agent_name is required")
+
+    rm_start = _date.fromisoformat(request.start_date).strftime("%m/%d/%Y")
+    rm_end = _date.fromisoformat(request.end_date).strftime("%m/%d/%Y")
+    dialers = [(name, url) for name, url in READY_MODE_URLS.items() if name != "default"]
+
+    results, failed = [], []
+    with ThreadPoolExecutor(max_workers=len(dialers)) as ex:
+        futures = {
+            ex.submit(_agent_count_for_dialer, name, url, rm_user, rm_pass,
+                      agent_name, rm_start, rm_end): name
+            for name, url in dialers
+        }
+        for fut in as_completed(futures):
+            name = futures[fut]
+            try:
+                results.append(fut.result())
+            except Exception as e:
+                logger.warning(f"agent-dialer-counts: {name} failed: {e}")
+                failed.append(name)
+
+    found = [r for r in results if r["found"]]
+    busiest = max(found, key=lambda r: r["count"]) if found else None
+
+    return {
+        "agent_name": agent_name,
         "results": sorted(results, key=lambda r: r["count"], reverse=True),
         "busiest": busiest,
         "failed": failed,
