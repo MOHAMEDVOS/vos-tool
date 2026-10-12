@@ -133,7 +133,7 @@ def clear_agent_audits(username: str) -> bool:
         return False
 
 
-def delete_agent_audit_results(username: str, agent_name: str) -> int:
+def delete_agent_audit_results(username: str, agent_name: str) -> dict:
     """Delete one agent's Agent Audit results from the caller's shared dashboard."""
     return dashboard_manager.delete_agent_audit_results(username, agent_name)
 

@@ -49,7 +49,11 @@ export const dashboardApi = {
   },
 
   clearAgentAudits:    () => api.post('/api/dashboard/clear/agent-audits'),
-  deleteAgentAudits:   (agentName: string) => api.post<{ message: string; deleted_count: number }>(
+  deleteAgentAudits:   (agentName: string) => api.post<{
+    message: string
+    deleted_agent_audit_count: number
+    deleted_lite_audit_count: number
+  }>(
     '/api/dashboard/agent-audits/delete',
     { agent_name: agentName },
   ),

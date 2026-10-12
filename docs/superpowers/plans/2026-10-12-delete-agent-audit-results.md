@@ -35,11 +35,11 @@
 - Modify: `backend/api/dashboard.py`
 - Create: `tests/test_agent_audit_deletion.py`
 
-**Interface:** `POST /api/dashboard/agent-audits/delete` accepts `{"agent_name": "..."}` and returns `{"message": "Agent Audit results deleted", "deleted_count": n}` for the authenticated caller.
+**Interface:** `POST /api/dashboard/agent-audits/delete` accepts `{"agent_name": "..."}` and returns separate deleted row counts for Agent Audit and Lite Audit results for the authenticated caller.
 
 - [x] Write manager/API tests for successful deletion, blank-name rejection, shared-user scoping, case-insensitive exact agent-name matching, and DB failure handling.
 - [x] Run the new tests and confirm they fail because the endpoint and manager method do not exist.
-- [x] Add `delete_agent_audit_results(username, agent_name)` to delete matching rows in `agent_audit_results` for the caller's shared users only; return deleted row count.
+- [x] Add `delete_agent_audit_results(username, agent_name)` to delete matching rows in `agent_audit_results` and `lite_audit_results` for the caller's shared users only; return each deleted row count.
 - [x] Add a service wrapper and a Pydantic-validated FastAPI route; reject blank names and return a clear error on DB failure.
 - [x] Run the new tests and then the existing Python test suite.
 
@@ -51,7 +51,7 @@
 
 **Interface:** `dashboardApi.deleteAgentAudits(agentName: string)` calls the new route. `AgentDeductionsTable` accepts optional delete props so the control is enabled only on Actions, not Call Review.
 
-- [x] Add a delete control in each Actions agent row and a confirmation naming the agent and explaining that only Agent Audit results are deleted; Lite Audit results may remain.
+- [x] Add a delete control in each Actions agent row and a confirmation naming the agent and explaining that Agent Audit and Lite Audit results are deleted; separate Campaign Audit results remain.
 - [x] On confirmed deletion, call the API and invalidate `agent-audits`, `flagged-calls`, and `flagged-count`; show an error if the request fails.
 - [x] Build the frontend with `npm run build` in `webapp`.
 

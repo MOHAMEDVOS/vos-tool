@@ -174,19 +174,19 @@ export function AgentDeductionsTable({
                   <td className="px-2 py-2.5 text-center">
                     {(!deletableAgents || deletableAgents.has(row.agentName)) ? <button
                       type="button"
-                      aria-label={`Delete Agent Audit results for ${row.agentName}`}
-                      title={`Delete Agent Audit results for ${row.agentName}`}
+                      aria-label={`Delete audit results for ${row.agentName}`}
+                      title={`Delete Agent and Lite Audit results for ${row.agentName}`}
                       disabled={Boolean(deletingAgent)}
                       onClick={() => {
                         const confirmed = window.confirm(
-                          `Permanently delete Agent Audit results for ${row.agentName} from your shared dashboard? This removes those calls from Agent Audit, Actions, and Call Review. Lite Audit and campaign results are not deleted.`,
+                          `Permanently delete Agent Audit and Lite Audit results for ${row.agentName} from your shared dashboard? This removes matching calls from Agent Audit, Lite Audit, Actions, and Call Review. Separate Campaign Audit results are not deleted.`,
                         )
                         if (confirmed) onDeleteAgent(row.agentName)
                       }}
                       className="rounded p-1.5 text-vos-500 transition-colors hover:bg-ship-red/10 hover:text-ship-red disabled:cursor-wait disabled:opacity-50"
                     >
                       <Trash2 size={14} />
-                    </button> : <span className="text-vos-600" title="No Agent Audit results to delete">—</span>}
+                    </button> : <span className="text-vos-600" title="No Agent or Lite Audit results to delete">—</span>}
                   </td>
                 )}
               </tr>
@@ -222,12 +222,13 @@ export function ActionsPage() {
     mutationFn: (agentName: string) => dashboardApi.deleteAgentAudits(agentName),
     onSuccess: (result, agentName) => {
       setDeleteError(null)
-      setDeleteNotice(`${result.deleted_count} Agent Audit result${result.deleted_count === 1 ? '' : 's'} deleted for ${agentName}. Lite Audit and campaign results are unchanged.`)
+      setDeleteNotice(`${result.deleted_agent_audit_count} Agent Audit and ${result.deleted_lite_audit_count} Lite Audit result${result.deleted_lite_audit_count === 1 ? '' : 's'} deleted for ${agentName}.`)
       qc.invalidateQueries({ queryKey: ['agent-audits'] })
+      qc.invalidateQueries({ queryKey: ['lite-audits'] })
       qc.invalidateQueries({ queryKey: ['flagged-calls'] })
       qc.invalidateQueries({ queryKey: ['flagged-count'] })
     },
-    onError: () => setDeleteError('Could not delete this agent’s Agent Audit results. Please try again.'),
+    onError: () => setDeleteError('Could not delete this agent’s audit results. Please try again.'),
   })
 
   // Normalize a phone to (xxx) xxx-xxxx. Idempotent: already-formatted values re-format the
@@ -276,10 +277,10 @@ export function ActionsPage() {
   }, [allAuditRecords])
 
   const deletableAgents = useMemo(() => new Set(
-    (allAuditsData?.records ?? [])
+    [...(allAuditsData?.records ?? []), ...(liteAuditsData?.records ?? [])]
       .map((record) => String(((record.metadata ?? record) as Record<string, unknown>)['Agent Name'] ?? '').trim())
       .filter(Boolean),
-  ), [allAuditsData])
+  ), [allAuditsData, liteAuditsData])
 
   const auditedDialers = useMemo(() => {
     const map = new Map<string, number>()

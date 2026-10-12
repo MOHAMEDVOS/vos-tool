@@ -245,8 +245,12 @@ async def delete_agent_audit_data(
     if not agent_name:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Agent name is required")
     try:
-        deleted_count = delete_agent_audit_results(current_user["username"], agent_name)
-        return {"message": "Agent Audit results deleted", "deleted_count": deleted_count}
+        deleted_counts = delete_agent_audit_results(current_user["username"], agent_name)
+        return {
+            "message": "Agent and Lite Audit results deleted",
+            "deleted_agent_audit_count": deleted_counts["agent_audit"],
+            "deleted_lite_audit_count": deleted_counts["lite_audit"],
+        }
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
     except Exception as e:

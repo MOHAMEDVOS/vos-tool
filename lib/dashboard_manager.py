@@ -3155,8 +3155,8 @@ class DashboardManager:
                         pass
         pass
 
-    def delete_agent_audit_results(self, username: str, agent_name: str) -> int:
-        """Delete one agent's heavy audit results for the user's shared dashboard."""
+    def delete_agent_audit_results(self, username: str, agent_name: str) -> dict:
+        """Delete one agent's heavy and lite audit results for the user's shared dashboard."""
         normalized_agent_name = (agent_name or "").strip()
         if not normalized_agent_name:
             raise ValueError("Agent name is required")
@@ -3165,23 +3165,36 @@ class DashboardManager:
 
         shared_users = self.get_shared_users(username) or [username]
         placeholders = ",".join(["%s"] * len(shared_users))
-        query = f"""
-            DELETE FROM agent_audit_results
-            WHERE username IN ({placeholders})
-              AND LOWER(TRIM(COALESCE(agent_name, ''))) = LOWER(%s)
-        """
-        deleted_count = self._db_manager.execute_query(
-            query,
-            tuple(shared_users) + (normalized_agent_name,),
+        params = tuple(shared_users) + (normalized_agent_name,)
+        deleted_agent_audit_count = self._db_manager.execute_query(
+            f"""
+                DELETE FROM agent_audit_results
+                WHERE username IN ({placeholders})
+                  AND LOWER(TRIM(COALESCE(agent_name, ''))) = LOWER(%s)
+            """,
+            params,
+            fetch=False,
+        )
+        deleted_lite_audit_count = self._db_manager.execute_query(
+            f"""
+                DELETE FROM lite_audit_results
+                WHERE username IN ({placeholders})
+                  AND LOWER(TRIM(COALESCE(agent_name, ''))) = LOWER(%s)
+            """,
+            params,
             fetch=False,
         )
         logger.info(
-            "Deleted %s Agent Audit results for agent %r across shared users %s",
-            deleted_count,
+            "Deleted %s Agent Audit and %s Lite Audit results for agent %r across shared users %s",
+            deleted_agent_audit_count,
+            deleted_lite_audit_count,
             normalized_agent_name,
             shared_users,
         )
-        return int(deleted_count or 0)
+        return {
+            "agent_audit": int(deleted_agent_audit_count or 0),
+            "lite_audit": int(deleted_lite_audit_count or 0),
+        }
     
     def get_agent_data_time_remaining(self) -> str:
         """

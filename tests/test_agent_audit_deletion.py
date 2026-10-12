@@ -8,24 +8,27 @@ from lib.dashboard_manager import dashboard_manager
 
 
 def test_delete_agent_audit_results_scopes_to_shared_users_and_exact_agent(monkeypatch):
-    captured = {}
+    captured = []
 
     class FakeDatabase:
         def execute_query(self, query, params, fetch):
-            captured.update(query=query, params=params, fetch=fetch)
-            return 3
+            captured.append((query, params, fetch))
+            return 3 if "agent_audit_results" in query else 2
 
     monkeypatch.setattr(dashboard_manager, "_db_manager", FakeDatabase())
     monkeypatch.setattr(dashboard_manager, "get_shared_users", lambda username: [username, "teammate"])
 
     deleted = dashboard_manager.delete_agent_audit_results("owner", "  Mona Hassan  ")
 
-    assert deleted == 3
-    assert "DELETE FROM agent_audit_results" in captured["query"]
-    assert "LOWER(TRIM(COALESCE(agent_name, ''))) = LOWER(%s)" in captured["query"]
-    assert "username IN (%s,%s)" in captured["query"]
-    assert captured["params"] == ("owner", "teammate", "Mona Hassan")
-    assert captured["fetch"] is False
+    assert deleted == {"agent_audit": 3, "lite_audit": 2}
+    assert len(captured) == 2
+    assert "DELETE FROM agent_audit_results" in captured[0][0]
+    assert "DELETE FROM lite_audit_results" in captured[1][0]
+    for query, params, fetch in captured:
+        assert "LOWER(TRIM(COALESCE(agent_name, ''))) = LOWER(%s)" in query
+        assert "username IN (%s,%s)" in query
+        assert params == ("owner", "teammate", "Mona Hassan")
+        assert fetch is False
 
 
 def test_delete_agent_audit_results_rejects_blank_name_before_database(monkeypatch):
@@ -63,7 +66,7 @@ def test_delete_agent_audit_endpoint_returns_deleted_count(monkeypatch):
     monkeypatch.setattr(
         dashboard_api,
         "delete_agent_audit_results",
-        lambda username, agent_name: 4,
+        lambda username, agent_name: {"agent_audit": 4, "lite_audit": 2},
     )
 
     response = asyncio.run(
@@ -73,7 +76,11 @@ def test_delete_agent_audit_endpoint_returns_deleted_count(monkeypatch):
         )
     )
 
-    assert response == {"message": "Agent Audit results deleted", "deleted_count": 4}
+    assert response == {
+        "message": "Agent and Lite Audit results deleted",
+        "deleted_agent_audit_count": 4,
+        "deleted_lite_audit_count": 2,
+    }
 
 
 def test_delete_agent_audit_endpoint_rejects_whitespace_name():
