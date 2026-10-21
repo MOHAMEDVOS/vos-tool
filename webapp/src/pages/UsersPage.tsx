@@ -39,20 +39,11 @@ function loadCustomDialers(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(LS_KEY) ?? '{}') } catch { return {} }
 }
 
-function generatePassword(): string {
-  const upper   = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
-  const lower   = 'abcdefghjkmnpqrstuvwxyz'
-  const digits  = '23456789'
-  const symbols = '@#!$'
-  const all     = upper + lower + digits + symbols
-  const guaranteed = [
-    upper[Math.floor(Math.random() * upper.length)],
-    lower[Math.floor(Math.random() * lower.length)],
-    digits[Math.floor(Math.random() * digits.length)],
-    symbols[Math.floor(Math.random() * symbols.length)],
-  ]
-  for (let i = 4; i < 10; i++) guaranteed.push(all[Math.floor(Math.random() * all.length)])
-  return guaranteed.sort(() => Math.random() - 0.5).join('')
+function generatePassword(loginId: string): string {
+  const id = loginId.replace(/-/g, '').toUpperCase()
+  const randomBytes = crypto.getRandomValues(new Uint8Array(8))
+  const digits = Array.from(randomBytes, byte => String(byte % 10)).join('')
+  return `${id}@${digits}`
 }
 
 type ResultRow = {
@@ -304,11 +295,23 @@ export function UsersPage() {
   useEffect(() => {
     if (names.length === 0) return
     const current = passwordsText.split('\n').map(s => s.trim())
-    const next = names.map((_, i) => current[i] || generatePassword())
+    const next = names.map((_, i) => current[i] || (loginIds[i] ? generatePassword(loginIds[i]) : ''))
     if (next.join('\n') !== passwordsText) setPasswordsText(next.join('\n'))
   }, [names.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const regenerateAll = () => setPasswordsText(names.map(() => generatePassword()).join('\n'))
+  useEffect(() => {
+    if (names.length === 0 || loginIds.length === 0) return
+    const current = passwordsText.split('\n').map(s => s.trim())
+    const next = names.map((_, i) => {
+      const expectedPrefix = `${loginIds[i]?.replace(/-/g, '').toUpperCase()}@`
+      return loginIds[i] && !current[i]?.startsWith(expectedPrefix)
+        ? generatePassword(loginIds[i])
+        : current[i] ?? ''
+    })
+    if (next.join('\n') !== passwordsText) setPasswordsText(next.join('\n'))
+  }, [loginIdsText]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const regenerateAll = () => setPasswordsText(names.map((_, i) => loginIds[i] ? generatePassword(loginIds[i]) : '').join('\n'))
 
   const preview = useMemo(() => {
     return names.map((name, i) => ({
