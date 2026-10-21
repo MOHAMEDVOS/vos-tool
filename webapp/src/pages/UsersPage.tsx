@@ -337,15 +337,10 @@ export function UsersPage() {
     setSelectedDialers(selectedDialers.length === allDialerNames.length ? [] : [...allDialerNames])
 
   const handleCopy = () => {
-    const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length))
-    const nameW = Math.max(4, ...preview.map(r => r.name.length))
-    const idW   = Math.max(8, ...preview.map(r => r.login_id.length))
-    const header  = `${pad('Name', nameW)}  ${pad('Login ID', idW)}  Password`
-    const divider = `${'-'.repeat(nameW)}  ${'-'.repeat(idW)}  ----------`
     const rows = preview.map(r =>
-      `${pad(r.name, nameW)}  ${pad(r.login_id, idW)}  ${r.password}`
+      [r.login_id, r.name, r.login_id, r.password].join('\t')
     ).join('\n')
-    navigator.clipboard.writeText(`${header}\n${divider}\n${rows}`)
+    navigator.clipboard.writeText(rows)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
