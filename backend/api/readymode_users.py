@@ -34,18 +34,13 @@ def _sse(event: str, data) -> str:
 
 
 def _resolve_readymode_credentials(current_user: dict) -> tuple[str, str]:
-    """Shared creation-account credentials from env, falling back to the caller's own."""
-    import os
-    create_user = os.environ.get("READYMODE_CREATE_USER", "UserCreation")
-    create_pass = os.environ.get("READYMODE_CREATE_PASSWORD", "RES370@370")
+    """Use the caller's saved ReadyMode credentials, matching audits and Scoring."""
+    from config import get_user_readymode_credentials
 
-    if not create_pass:
-        from config import get_user_readymode_credentials
-        create_user, create_pass = get_user_readymode_credentials(current_user["username"])
-
-    if not create_user or not create_pass:
-        raise HTTPException(status_code=400, detail="ReadyMode creation credentials not configured")
-    return create_user, create_pass
+    readymode_user, readymode_pass = get_user_readymode_credentials(current_user["username"])
+    if not readymode_user or not readymode_pass:
+        raise HTTPException(status_code=400, detail="ReadyMode credentials not configured")
+    return readymode_user, readymode_pass
 
 
 @router.post("/create")
