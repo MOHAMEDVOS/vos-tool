@@ -134,8 +134,9 @@ class ReadyModeDownloadRequest(BaseModel):
     end_date: Optional[str] = None
     start_time: Optional[str] = None   # e.g. "02:30 PM" — time of day for start date
     dispositions: Optional[List[str]] = None
-    duration_filter: Optional[str] = None   # e.g. "all", "lt30", "30to60", "60to600", "gt_custom", "lt_custom"
-    custom_duration_seconds: Optional[int] = None
+    duration_filter: Optional[str] = None   # Legacy campaign duration filter
+    custom_duration_seconds: Optional[int] = None  # Legacy campaign custom duration
+    minimum_call_duration_seconds: int = Field(20, ge=1, description="Minimum recording duration for agent heavy audits")
     audit_type: Optional[str] = "heavy"  # "heavy" | "lite"
 
 

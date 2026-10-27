@@ -145,7 +145,7 @@ def _probe_duration_seconds(path):
 
 
 def download_single_file(session, cookies, headers, href, filepath, min_duration, max_duration, lock):
-    """Download a single file; always discards calls under MIN_CALL_DURATION_S.
+    """Download a single file; discard it when shorter than the selected minimum.
 
     Streams the body to disk in chunks (never holds the whole MP3 in RAM) and reads the
     duration from container metadata via ffprobe (no full PCM decode). Both keep peak
@@ -180,8 +180,9 @@ def download_single_file(session, cookies, headers, href, filepath, min_duration
                         f.write(chunk)
 
         # Duration filter after download - STRICT MODE (authoritative; same as before).
-        # The MIN_CALL_DURATION_S floor always applies on top of whatever the caller asked for.
-        effective_min_duration = max(min_duration, MIN_CALL_DURATION_S) if min_duration is not None else MIN_CALL_DURATION_S
+        # An explicit minimum is authoritative. Keep the legacy floor only when no minimum was
+        # supplied, so agent Heavy Audit honors the auditor's chosen cutoff, including <5 seconds.
+        effective_min_duration = min_duration if min_duration is not None else MIN_CALL_DURATION_S
         try:
             dur = _probe_duration_seconds(temp_filepath)
 

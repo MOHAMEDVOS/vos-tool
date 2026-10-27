@@ -311,6 +311,8 @@ async def download_readymode_calls(
         min_duration, max_duration = _resolve_duration(
             request.duration_filter or "all", audit_type, request.custom_duration_seconds
         )
+        if audit_type == "heavy" and not is_campaign:
+            min_duration = request.minimum_call_duration_seconds
         dialer_url = request.dialer_url or "https://resva.readymode.com/"
         max_calls = request.max_calls or daily_limit
 
@@ -388,6 +390,8 @@ async def stream_readymode_audit(
     min_duration, max_duration = _resolve_duration(
         request.duration_filter or "all", audit_type, request.custom_duration_seconds
     )
+    if audit_type == "heavy" and not is_campaign:
+        min_duration = request.minimum_call_duration_seconds
     dialer_url = request.dialer_url or "https://resva.readymode.com/"
     max_calls  = request.max_calls or daily_limit
 

@@ -43,8 +43,9 @@ export interface DownloadRequest {
   end_date: string
   start_time?: string   // e.g. "02:30 PM" — optional start-of-day time filter
   dispositions: string[]
-  duration_filter: string
+  duration_filter?: string
   custom_duration_seconds?: number
+  minimum_call_duration_seconds?: number
   audit_type: 'heavy' | 'lite'
 }
 

@@ -698,6 +698,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const [dispositions, setDispositions] = useState<string[]>([...DISPOSITIONS])
   const [durationFilter, setDurationFilter] = useState('all')
   const [customDuration, setCustomDuration] = useState(60)
+  const [minimumCallDuration, setMinimumCallDuration] = useState('20')
   const [dialerCheck, setDialerCheck] = useState<{
     status: 'idle' | 'loading' | 'done' | 'error'
     data?: CampaignDialerCountsResponse
@@ -787,13 +788,17 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
         ? `${startTimeHour.padStart(2,'0')}:${startTimeMinute.padStart(2,'0')} ${startTimeAmPm}`
         : undefined,
       dispositions,
-      duration_filter: durationFilter,
       audit_type: auditType,
     }
-    if (durationFilter === 'gt_custom' || durationFilter === 'lt_custom')
-      body.custom_duration_seconds = customDuration
+    if (isCampaign) {
+      body.duration_filter = durationFilter
+      if (durationFilter === 'gt_custom' || durationFilter === 'lt_custom')
+        body.custom_duration_seconds = customDuration
+    } else {
+      body.minimum_call_duration_seconds = Math.max(1, Number.parseInt(minimumCallDuration, 10) || 20)
+    }
     return body
-  }, [dialerUrl, dialerUrl2, isCampaign, identifier, maxCalls, startDate, endDate, useStartTime, startTimeHour, startTimeMinute, startTimeAmPm, dispositions, durationFilter, customDuration])
+  }, [dialerUrl, dialerUrl2, isCampaign, identifier, maxCalls, startDate, endDate, useStartTime, startTimeHour, startTimeMinute, startTimeAmPm, dispositions, durationFilter, customDuration, minimumCallDuration])
 
   const notConfigured = rmStatus?.status === 'not_configured'
   const needsCustomDuration = durationFilter === 'gt_custom' || durationFilter === 'lt_custom'
@@ -1100,27 +1105,46 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
               />
             </div>
             <div>
-              <label className={labelClass} style={{ color: 'var(--t-label)' }}>Duration Filter</label>
-              <CustomSelect
-                options={DURATION_FILTERS}
-                value={durationFilter}
-                onChange={setDurationFilter}
-                disabled={isRunning}
-                placeholder="Select duration..."
-              />
-              {needsCustomDuration && (
-                <motion.input
-                  initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                  animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
-                  type="number"
-                  min={1}
-                  value={customDuration}
-                  onChange={(e) => setCustomDuration(Number(e.target.value))}
-                  disabled={isRunning}
-                  placeholder="Seconds"
-                  style={{ ...inputBase, borderRadius: 6, padding: '6px 12px', fontSize: 14, outline: 'none' }}
-                  className="w-full rounded-md border px-3 py-1.5 text-sm shadow-inner transition-all disabled:opacity-50"
-                />
+              {isCampaign ? (
+                <>
+                  <label className={labelClass} style={{ color: 'var(--t-label)' }}>Duration Filter</label>
+                  <CustomSelect
+                    options={DURATION_FILTERS}
+                    value={durationFilter}
+                    onChange={setDurationFilter}
+                    disabled={isRunning}
+                    placeholder="Select duration..."
+                  />
+                  {needsCustomDuration && (
+                    <motion.input
+                      initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                      animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
+                      type="number"
+                      min={1}
+                      value={customDuration}
+                      onChange={(e) => setCustomDuration(Number(e.target.value))}
+                      disabled={isRunning}
+                      placeholder="Seconds"
+                      style={{ ...inputBase, borderRadius: 6, padding: '6px 12px', fontSize: 14, outline: 'none' }}
+                      className="w-full rounded-md border px-3 py-1.5 text-sm shadow-inner transition-all disabled:opacity-50"
+                    />
+                  )}
+                </>
+              ) : (
+                <>
+                  <label className={labelClass} style={{ color: 'var(--t-label)' }}>Minimum Call Length (seconds)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={minimumCallDuration}
+                    onChange={(e) => setMinimumCallDuration(e.target.value)}
+                    disabled={isRunning}
+                    style={{ ...inputBase, borderRadius: 6, padding: '6px 12px', fontSize: 14, outline: 'none' }}
+                    className="w-full rounded-md border px-3 py-1.5 text-sm shadow-inner transition-all disabled:opacity-50"
+                  />
+                  <p className="mt-1 text-xs" style={{ color: 'var(--t-muted)' }}>Calls shorter than this are skipped. Default: 20 seconds.</p>
+                </>
               )}
             </div>
           </div>
