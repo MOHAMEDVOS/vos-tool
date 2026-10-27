@@ -1143,7 +1143,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                     style={{ ...inputBase, borderRadius: 6, padding: '6px 12px', fontSize: 14, outline: 'none' }}
                     className="w-full rounded-md border px-3 py-1.5 text-sm shadow-inner transition-all disabled:opacity-50"
                   />
-                  <p className="mt-1 text-xs" style={{ color: 'var(--t-muted)' }}>Calls shorter than this are skipped. Default: 20 seconds.</p>
+                  <p className="mt-1 text-xs" style={{ color: 'var(--t-muted)' }}>Heavy Audit only. Shorter calls are skipped.</p>
                 </>
               )}
             </div>
