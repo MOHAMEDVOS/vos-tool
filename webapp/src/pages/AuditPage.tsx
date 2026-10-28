@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { readymodeApi, DISPOSITIONS, DURATION_FILTERS, type DownloadRequest, type CampaignDialerCountsResponse, type AgentDialerCountsResponse } from '@/api/readymode'
+import { BrowserConnectorUnavailableError, getAgentDialerCountsFromBrowser } from '@/api/readymode-browser'
 import { Info, Link2, X } from 'lucide-react'
 import { LiveCountUp } from '@/components/ui/LiveCountUp'
 import { Spinner } from '@/components/ui/Spinner'
@@ -754,11 +755,18 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
     const queryKey = JSON.stringify([identifier.trim(), startDate, endDate])
     setAgentDialerCheck({ status: 'loading', queryKey })
     try {
-      const data = await readymodeApi.agentDialerCounts({
+      const request = {
         agent_name: identifier.trim(),
         start_date: startDate,
         end_date: endDate,
-      })
+      }
+      let data: AgentDialerCountsResponse
+      try {
+        data = await getAgentDialerCountsFromBrowser(request)
+      } catch (error) {
+        if (!(error instanceof BrowserConnectorUnavailableError)) throw error
+        data = await readymodeApi.agentDialerCounts(request)
+      }
       setAgentDialerCheck({ status: 'done', queryKey, data })
     } catch (e) {
       setAgentDialerCheck({
@@ -817,7 +825,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const identifierMissing = !identifier.trim()
   const currentAgentDialerQueryKey = JSON.stringify([identifier.trim(), startDate, endDate])
   const agentDialerCheckIsCurrent = agentDialerCheck.queryKey === currentAgentDialerQueryKey
-  const disabled = notConfigured || identifierMissing || isRunning
+  const disabled = identifierMissing || isRunning
 
   const labelClass = 'text-[10px] font-black uppercase tracking-[0.1em] mb-2 block'
   const sectionHeaderClass = 'text-xl font-black mb-4 tracking-tight'
@@ -836,7 +844,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
         {notConfigured && (
           <motion.div variants={itemVariants} className="rounded-lg border border-semantic-warning/30 bg-semantic-warning/10 px-4 py-3 text-sm text-semantic-warning flex items-center gap-2">
             <Settings2 size={16} className="text-semantic-warning shrink-0" />
-            ReadyMode credentials are not configured. Please contact the owner to set them up.
+            ReadyMode uses your signed-in Chrome session. Sign in to the selected dialer in Chrome before starting an audit.
           </motion.div>
         )}
 

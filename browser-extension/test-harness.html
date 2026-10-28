@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VOS ReadyMode connector test</title>
+    <style>
+      body { font: 16px system-ui, sans-serif; margin: 2rem auto; max-width: 42rem; padding: 0 1rem; }
+      label { display: block; margin: 1rem 0 .35rem; }
+      input, button { font: inherit; padding: .55rem; }
+      pre { background: #f3f4f6; border-radius: .5rem; overflow: auto; padding: 1rem; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>VOS ReadyMode connector test</h1>
+    <p>This local page checks dialer counts through the extension. It does not start an audit.</p>
+    <label for="agent">Agent name</label>
+    <input id="agent" value="Example Agent">
+    <label for="start">Start date</label>
+    <input id="start" type="date" value="2026-10-28">
+    <label for="end">End date</label>
+    <input id="end" type="date" value="2026-10-28">
+    <p><button id="run">Check ReadyMode sessions</button></p>
+    <pre id="result">Ready to test.</pre>
+    <script>
+      const channel = 'vos-readymode-connector'
+      const result = document.querySelector('#result')
+      document.querySelector('#run').addEventListener('click', () => {
+        const id = crypto.randomUUID()
+        const agentName = document.querySelector('#agent').value.trim()
+        result.textContent = 'Checking signed-in dialer sessions…'
+        const timeout = setTimeout(() => {
+          window.removeEventListener('message', handleMessage)
+          result.textContent = 'No connector response. Reload the extension and this page, then retry.'
+        }, 90_000)
+
+        function handleMessage(event) {
+          if (event.source !== window || event.origin !== window.location.origin) return
+          if (event.data?.channel !== channel || event.data.id !== id) return
+          if (event.data.type !== 'agent-counts-result') return
+          clearTimeout(timeout)
+          window.removeEventListener('message', handleMessage)
+          result.textContent = event.data.error || JSON.stringify(event.data.result, null, 2)
+        }
+
+        window.addEventListener('message', handleMessage)
+        window.postMessage({
+          channel,
+          type: 'agent-counts',
+          id,
+          payload: {
+            agent_name: agentName,
+            start_date: document.querySelector('#start').value,
+            end_date: document.querySelector('#end').value,
+          },
+        }, window.location.origin)
+      })
+    </script>
+  </body>
+</html>

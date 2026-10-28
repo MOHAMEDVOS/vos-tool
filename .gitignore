@@ -124,6 +124,7 @@ debug_*.py
 *_test.py
 !tests/test_agent_dialer_counts.py
 !tests/test_readymode_record_deduplication.py
+!tests/test_readymode_browser_import.py
 
 # ────────────── SYSTEM FILES & DIRECTORIES ──────────────
 # Windows system directories (should not be in project)
@@ -195,3 +196,7 @@ xet/
 
 # Rebuttal evaluation harness data - contains real call transcripts
 eval_data/
+
+# Chrome's Pack extension output includes a private signing key. Keep local only.
+browser-extension.crx
+browser-extension.pem
