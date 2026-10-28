@@ -12,7 +12,6 @@ import importlib.util
 from pathlib import Path
 
 import numpy as np
-from pydub import AudioSegment
 from thefuzz import fuzz
 
 # Import app_settings from root-level config.py (not the config package)
@@ -31,7 +30,6 @@ else:
     import config as root_config
     app_settings = root_config.app_settings
 
-from scipy import signal
 from scipy.fft import rfft, rfftfreq
 
 logger = logging.getLogger(__name__)

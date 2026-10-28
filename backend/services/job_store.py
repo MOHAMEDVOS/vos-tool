@@ -33,13 +33,7 @@ def create_job(
     options: Optional[Dict[str, Any]] = None,
 ) -> None:
     db = get_db()
-    options_payload: Any
-    if options is None:
-        options_payload = None
-    elif getattr(db, "db_type", "postgresql") == "sqlite":
-        options_payload = json.dumps(options)
-    else:
-        options_payload = json.dumps(options)
+    options_payload = json.dumps(options) if options is not None else None
 
     if getattr(db, "db_type", "postgresql") == "sqlite":
         query = """

@@ -25,6 +25,7 @@ from automation.readymode_http import (
     group_duplicate_users,
     lookup_date_range,
     resolve_folder_listing_id,
+    dialer_name_from_url,
 )
 
 
@@ -84,7 +85,7 @@ def find_duplicate_users_on_dialer(
         else:
             print(msg)
 
-    dialer_name = dialer_url.rstrip("/").split("//")[-1].split(".")[0]
+    dialer_name = dialer_name_from_url(dialer_url)
     client = ReadyModeHTTPClient(dialer_url)
 
     try:
@@ -141,7 +142,7 @@ def find_duplicate_users_multi_dialer(
         }
         for future in as_completed(futures):
             url = futures[future]
-            dialer_name = url.rstrip("/").split("//")[-1].split(".")[0]
+            dialer_name = dialer_name_from_url(url)
             try:
                 all_results.append(future.result())
             except Exception as e:

@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { scoringApi, type GatherResult, type ScoreRow, type AuditProgress, type AuditScores } from '@/api/scoring'
 import { Copy, Check, AlertTriangle } from 'lucide-react'
+import { getErrorMessage, isAbortError } from '@/utils/errors'
 
 const labelClass = 'text-[10px] font-black uppercase tracking-[0.1em] mb-2 block'
 
@@ -85,8 +86,8 @@ export function ScoringPage() {
         abortRef.current.signal,
       )
       setGatherResult(result)
-    } catch (e: any) {
-      if (e?.name !== 'AbortError') setError(e?.message || 'Gather failed')
+    } catch (error: unknown) {
+      if (!isAbortError(error)) setError(getErrorMessage(error, 'Gather failed'))
     } finally {
       setGathering(false)
     }
@@ -101,8 +102,8 @@ export function ScoringPage() {
       const res = await scoringApi.generate(gatherResult.run_id, agentNames)
       setRows(res.rows)
       setSkipped(res.skipped)
-    } catch (e: any) {
-      setError(e?.message || 'Generate failed')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Generate failed'))
     } finally {
       setGenerating(false)
     }
@@ -124,8 +125,8 @@ export function ScoringPage() {
       )
       setRows(res.rows)
       setSkipped(res.skipped)
-    } catch (e: any) {
-      if (e?.name !== 'AbortError') setError(e?.message || 'Audit failed')
+    } catch (error: unknown) {
+      if (!isAbortError(error)) setError(getErrorMessage(error, 'Audit failed'))
     } finally {
       setAuditing(false)
     }
@@ -164,8 +165,8 @@ export function ScoringPage() {
       await scoringApi.exportSheet(rows, `Scoring ${date}`)   // send quietly — no redirect, no message
       setSent(true)
       setTimeout(() => setSent(false), 2500)
-    } catch (e: any) {
-      setError(e?.message || 'Export failed')
+    } catch (error: unknown) {
+      setError(getErrorMessage(error, 'Export failed'))
     } finally {
       setExporting(false)
     }

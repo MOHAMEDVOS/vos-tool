@@ -30,12 +30,11 @@ export function CustomDatePicker({ value, onChange, disabled, label, className =
     return new Date(y, m - 1, d)
   }
 
-  const [viewDate, setViewDate] = useState(() => parseLocalDate(value || todayISO()))
+  const [viewState, setViewState] = useState({ baseValue: value, monthOffset: 0 })
+  const monthOffset = viewState.baseValue === value ? viewState.monthOffset : 0
+  const selectedDate = parseLocalDate(value || todayISO())
+  const viewDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + monthOffset, 1)
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    setViewDate(parseLocalDate(value || todayISO()))
-  }, [value])
 
   useEffect(() => {
     function handle(e: MouseEvent) {
@@ -67,11 +66,12 @@ export function CustomDatePicker({ value, onChange, disabled, label, className =
   const handleDayClick = (d: number, offset: number) => {
     const iso = localISO(new Date(year, month + offset, d))
     onChange(iso)
+    setViewState({ baseValue: iso, monthOffset: 0 })
     setIsOpen(false)
   }
 
-  const changeMonth = (offset: number) => setViewDate(new Date(year, month + offset, 1))
-  const changeYear = (offset: number) => setViewDate(new Date(year + offset, month, 1))
+  const changeMonth = (offset: number) => setViewState({ baseValue: value, monthOffset: monthOffset + offset })
+  const changeYear = (offset: number) => setViewState({ baseValue: value, monthOffset: monthOffset + offset * 12 })
 
   return (
     <div ref={ref} className={`flex flex-col gap-2 group ${className}`}>

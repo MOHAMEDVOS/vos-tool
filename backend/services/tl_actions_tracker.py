@@ -54,15 +54,9 @@ def _readable_details(value: Any) -> str:
     return re.sub(r"\s+(?=\(\d{3}\)\s*\d{3}[-.\s]\d{4}\b)", "\n  ", text)
 
 
-def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, row_count: int, sheet_row_count: int, banded_ranges: list[dict[str, Any]]) -> None:
-    """Apply a simple, readable table style to the whole tracker worksheet."""
-    requests: list[dict[str, Any]] = []
-    for banded_range in banded_ranges:
-        banded_range_id = banded_range.get("bandedRangeId")
-        if banded_range_id is not None:
-            requests.append({"deleteBanding": {"bandedRangeId": banded_range_id}})
-
-    requests.extend([
+def _build_tracker_sheet_setup_requests(sheet_id: int) -> list[dict[str, Any]]:
+    """Set the frozen header row and tracker column widths."""
+    return [
         {
             "updateSheetProperties": {
                 "properties": {"sheetId": sheet_id, "gridProperties": {"frozenRowCount": 1}},
@@ -118,6 +112,12 @@ def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, row_c
                 "fields": "pixelSize",
             }
         },
+    ]
+
+
+def _build_tracker_action_table_requests(sheet_id: int, row_count: int) -> list[dict[str, Any]]:
+    """Format the action table in columns A through C."""
+    return [
         {
             "repeatCell": {
                 "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": 3},
@@ -147,6 +147,16 @@ def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, row_c
                 "fields": "userEnteredFormat(backgroundColor,textFormat,verticalAlignment,horizontalAlignment,wrapStrategy)",
             }
         },
+    ]
+
+
+def _build_tracker_summary_cell_requests(
+    sheet_id: int,
+    row_count: int,
+    sheet_row_count: int,
+) -> list[dict[str, Any]]:
+    """Format the summary headings and cells."""
+    return [
         {
             "repeatCell": {
                 "range": {"sheetId": sheet_id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 4, "endColumnIndex": 7},
@@ -222,6 +232,16 @@ def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, row_c
                 "fields": "userEnteredFormat(backgroundColor,textFormat,verticalAlignment)",
             }
         },
+    ]
+
+
+def _build_tracker_table_control_requests(
+    sheet_id: int,
+    row_count: int,
+    sheet_row_count: int,
+) -> list[dict[str, Any]]:
+    """Apply banding, filtering, and date validation to tracker tables."""
+    return [
         {
             "addBanding": {
                 "bandedRange": {
@@ -257,20 +277,57 @@ def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, row_c
                 "rule": {"condition": {"type": "DATE_IS_VALID"}, "strict": True, "showCustomUi": True},
             }
         },
-        {
-            "repeatCell": {
-                "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": max(row_count, 2), "startColumnIndex": 0, "endColumnIndex": 1},
-                "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE", "pattern": "M/d/yyyy"}}},
-                "fields": "userEnteredFormat.numberFormat",
-            }
-        },
-    ])
+    ]
+
+
+def _build_tracker_action_date_request(sheet_id: int, row_count: int) -> dict[str, Any]:
+    """Format the action-date column."""
+    return {
+        "repeatCell": {
+            "range": {"sheetId": sheet_id, "startRowIndex": 1, "endRowIndex": max(row_count, 2), "startColumnIndex": 0, "endColumnIndex": 1},
+            "cell": {"userEnteredFormat": {"numberFormat": {"type": "DATE", "pattern": "M/d/yyyy"}}},
+            "fields": "userEnteredFormat.numberFormat",
+        }
+    }
+
+
+def _build_tracker_format_requests(
+    sheet_id: int,
+    row_count: int,
+    sheet_row_count: int,
+    banded_ranges: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build ordered Google Sheets formatting requests for the tracker."""
+    requests: list[dict[str, Any]] = []
+    for banded_range in banded_ranges:
+        banded_range_id = banded_range.get("bandedRangeId")
+        if banded_range_id is not None:
+            requests.append({"deleteBanding": {"bandedRangeId": banded_range_id}})
+
+    requests.extend(_build_tracker_sheet_setup_requests(sheet_id))
+    requests.extend(_build_tracker_action_table_requests(sheet_id, row_count))
+    requests.extend(_build_tracker_summary_cell_requests(sheet_id, row_count, sheet_row_count))
+    requests.extend(_build_tracker_table_control_requests(sheet_id, row_count, sheet_row_count))
+    requests.append(_build_tracker_action_date_request(sheet_id, row_count))
+
     if row_count > 1:
         requests.append({
             "autoResizeDimensions": {
                 "dimensions": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": row_count}
             }
         })
+
+    return requests
+
+
+def _format_tracker_sheet(sheets: Any, spreadsheet_id: str, sheet_id: int, row_count: int, sheet_row_count: int, banded_ranges: list[dict[str, Any]]) -> None:
+    """Apply the tracker worksheet formatting requests through Google Sheets."""
+    requests = _build_tracker_format_requests(
+        sheet_id,
+        row_count,
+        sheet_row_count,
+        banded_ranges,
+    )
     sheets.spreadsheets().batchUpdate(
         spreadsheetId=spreadsheet_id,
         body={"requests": requests},

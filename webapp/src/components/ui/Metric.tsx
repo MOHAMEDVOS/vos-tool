@@ -10,16 +10,12 @@ interface Props {
 /* Animates numeric values from 0 → target when scrolled into view.
    Non-numeric values just fade in. */
 function useCountUp(target: number | string, inView: boolean) {
-  const [display, setDisplay] = useState<number | string>(
-    typeof target === 'number' ? 0 : target,
-  )
+  const [animation, setAnimation] = useState<{ target: number; value: number } | null>(null)
   const rafRef = useRef<number | null>(null)
 
   useEffect(() => {
-    if (!inView || typeof target !== 'number') {
-      setDisplay(target)
-      return
-    }
+    if (!inView || typeof target !== 'number') return
+    const numericTarget = target
     const duration = 900   // ms
     const start    = performance.now()
     const from     = 0
@@ -30,7 +26,7 @@ function useCountUp(target: number | string, inView: boolean) {
       /* ease-out-expo */
       const eased = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress)
       const current = Math.round(from + (Number(target) - from) * eased)
-      setDisplay(current)
+      setAnimation({ target: numericTarget, value: current })
       if (progress < 1) rafRef.current = requestAnimationFrame(tick)
     }
 
@@ -38,7 +34,8 @@ function useCountUp(target: number | string, inView: boolean) {
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
   }, [target, inView])
 
-  return display
+  if (typeof target !== 'number' || !inView) return target
+  return animation?.target === target ? animation.value : 0
 }
 
 export function CountUp({ value }: { value: number | string }) {

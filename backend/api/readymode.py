@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import date as _date
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import sys, io, threading, queue, json, time
+import sys, io, threading, queue, json, uuid
 
 # ── Thread-local stdout router ────────────────────────────────────────────────
 # Each worker thread registers its own QueueWriter here so concurrent audits
@@ -56,6 +56,10 @@ from automation.readymode_http import (
 )
 
 from backend.models.schemas import ReadyModeDownloadRequest, ReadyModeStatus
+from backend.services.readymode_recording_metadata import (
+    attach_recording_identity as _attach_recording_identity,
+    recording_rows_from_dataframe as _recording_rows_from_dataframe,
+)
 from backend.core.dependencies import get_current_user
 import logging
 
@@ -104,6 +108,53 @@ def _release_dialer_locks(readymode_user: str, dialer_urls: list[str]) -> None:
                 _dialer_locks.pop(_dialer_key(readymode_user, d), None)
 
 
+def _recording_registry_callbacks(username: str):
+    from backend.services.readymode_recording_registry import claim_recordings, release_recordings
+
+    def claim(dialer_host: str, recording_ids: list[str], run_id: str, force_reaudit: bool):
+        return claim_recordings(username, dialer_host, recording_ids, run_id, force_reaudit)
+
+    def release(recordings: list[dict[str, str]], run_id: str):
+        return release_recordings(username, recordings, run_id)
+
+    return claim, release
+
+
+def _read_readymode_manifest(download_path: Path | None) -> dict:
+    manifest_path = download_path / ".readymode_manifest.json" if download_path else None
+    if not manifest_path or not manifest_path.is_file():
+        return {}
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not read ReadyMode recording manifest at %s", manifest_path)
+        return {}
+
+
+def _release_manifest_recordings(download_result, username: str) -> None:
+    download_path = Path(download_result) if isinstance(download_result, (str, Path)) else None
+    manifest = _read_readymode_manifest(download_path)
+    records = manifest.get("records") or []
+    run_id = manifest.get("run_id")
+    if not records or not run_id:
+        return
+    try:
+        from backend.services.readymode_recording_registry import release_recordings
+        release_recordings(username, records, run_id)
+    except Exception:
+        logger.exception("Could not release unfinished ReadyMode recording claims")
+
+
+def _mark_recordings_audited(username: str, recordings: list[dict[str, str]], run_id: str | None) -> None:
+    if not recordings or not run_id:
+        return
+    from backend.services.readymode_recording_registry import mark_recordings_audited
+    unique = {(row["dialer_host"], row["recording_id"]): row for row in recordings}
+    updated = mark_recordings_audited(username, list(unique.values()), run_id)
+    if updated != len(unique):
+        logger.warning("Marked %s of %s ReadyMode recording claims as audited", updated, len(unique))
+
+
 # ── Duration filter resolver (shared) ────────────────────────────────────────
 def _resolve_duration(df: str, audit_type: str, custom_secs: Optional[int]):
     min_dur, max_dur = None, None
@@ -135,8 +186,7 @@ def _run_campaign_disposition_scan(
     """Pull full-day disposition CSV, compute reachability, persist. Non-fatal on any error."""
     try:
         import csv as _csv, io as _io
-        from datetime import date as _date, datetime as _dt
-        from automation.readymode_http import ReadyModeHTTPClient
+        from datetime import datetime as _dt
         from lib.campaign_audit_detector import summarize_reachability
         from lib.dashboard_manager import dashboard_manager
 
@@ -208,8 +258,6 @@ def _run_agent_call_length_scan(
     try:
         import csv as _csv, io as _io
         import pandas as pd
-        from datetime import date as _date
-        from automation.readymode_http import ReadyModeHTTPClient
         from lib.agent_call_length_detector import flag_long_calls
 
         def _fmt(d: str) -> str:
@@ -316,9 +364,10 @@ async def download_readymode_calls(
         dialer_url = request.dialer_url or "https://resva.readymode.com/"
         max_calls = request.max_calls or daily_limit
 
-        from datetime import date as _date
         start_date = _date.fromisoformat(request.start_date) if request.start_date else _date.today()
         end_date   = _date.fromisoformat(request.end_date)   if request.end_date   else _date.today()
+        run_id = str(uuid.uuid4())
+        claim_recordings, release_recordings = _recording_registry_callbacks(current_user["username"])
 
         import asyncio, functools
         loop = asyncio.get_event_loop()
@@ -340,10 +389,14 @@ async def download_readymode_calls(
                 username=current_user["username"],
                 readymode_user=readymode_user,
                 readymode_pass=readymode_pass,
+                registry_run_id=run_id,
+                force_reaudit=request.force_reaudit,
+                claim_recordings_callback=claim_recordings,
+                release_recordings_callback=release_recordings,
             ),
         )
 
-        downloaded_count, analyzed_count, download_path = _count_and_analyze(
+        downloaded_count, analyzed_count, _, skipped_count = _count_and_analyze(
             download_result, request, current_user, audit_type
         )
 
@@ -351,7 +404,11 @@ async def download_readymode_calls(
             status="completed",
             downloaded_count=downloaded_count,
             analyzed_count=analyzed_count,
-            message=f"Downloaded {downloaded_count} calls and analyzed {analyzed_count} rows",
+            skipped_count=skipped_count,
+            message=(
+                f"Downloaded {downloaded_count} calls and analyzed {analyzed_count} rows; "
+                f"skipped {skipped_count} previously processed or in-progress calls"
+            ),
         )
 
     except ReadyModeLoginError as e:
@@ -361,7 +418,6 @@ async def download_readymode_calls(
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
         logger.error(f"ReadyMode download error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
 
@@ -395,9 +451,10 @@ async def stream_readymode_audit(
     dialer_url = request.dialer_url or "https://resva.readymode.com/"
     max_calls  = request.max_calls or daily_limit
 
-    from datetime import date as _date
     start_date = _date.fromisoformat(request.start_date) if request.start_date else _date.today()
     end_date   = _date.fromisoformat(request.end_date)   if request.end_date   else _date.today()
+    run_id = str(uuid.uuid4())
+    claim_recordings, release_recordings = _recording_registry_callbacks(current_user["username"])
 
     username = current_user["username"]
     dialer_urls = [dialer_url] + ([request.dialer_url_2] if request.dialer_url_2 else [])
@@ -449,17 +506,23 @@ async def stream_readymode_audit(
                 readymode_pass=readymode_pass,
                 cancellation_callback=check_cancel,
                 update_callback=on_progress,
+                registry_run_id=run_id,
+                force_reaudit=request.force_reaudit,
+                claim_recordings_callback=claim_recordings,
+                release_recordings_callback=release_recordings,
             )
 
             if cancel_event.is_set():
+                _release_manifest_recordings(download_result, username)
                 result_box["cancelled"] = True
                 return
 
-            downloaded_count, analyzed_count, _ = _count_and_analyze(
+            downloaded_count, analyzed_count, _, skipped_count = _count_and_analyze(
                 download_result, request, current_user, audit_type
             )
             result_box["downloaded"] = downloaded_count
             result_box["analyzed"]   = analyzed_count
+            result_box["skipped"] = skipped_count
 
         except KeyboardInterrupt:
             result_box["cancelled"] = True
@@ -468,6 +531,8 @@ async def stream_readymode_audit(
         except ReadyModeNoCallsError as e:
             result_box["no_calls"] = str(e)
         except Exception as e:
+            if "download_result" in locals():
+                _release_manifest_recordings(download_result, username)
             result_box["error"] = str(e)
         finally:
             _release_dialer_locks(readymode_user, dialer_urls)
@@ -509,14 +574,20 @@ async def stream_readymode_audit(
                 yield _sse("error", result_box["error"])
             elif "no_calls" in result_box:
                 yield _sse("done", json.dumps({"downloaded": 0, "analyzed": 0,
+                                               "skipped": 0,
                                                "message": result_box["no_calls"]}))
             else:
                 dl = result_box.get("downloaded", 0)
                 an = result_box.get("analyzed", 0)
+                skipped = result_box.get("skipped", 0)
                 yield _sse("done", json.dumps({
                     "downloaded": dl,
                     "analyzed": an,
-                    "message": f"Downloaded {dl} calls, analyzed {an} rows",
+                    "skipped": skipped,
+                    "message": (
+                        f"Downloaded {dl} calls, analyzed {an} rows; "
+                        f"skipped {skipped} previously processed or in-progress calls"
+                    ),
                 }))
         except asyncio.CancelledError:
             cancel_event.set()
@@ -737,6 +808,10 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                 if item.is_file() and item.suffix.lower() in audio_exts
             )
 
+    manifest = _read_readymode_manifest(download_path)
+    skipped_count = int(manifest.get("skipped_count") or 0)
+    run_id = manifest.get("run_id")
+
     if download_path and download_path.exists() and downloaded_count > 0:
         try:
             from backend.services.user_service import get_user_settings
@@ -764,12 +839,16 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                     username=current_user["username"],
                     user_api_key=user_api_key,
                 )
+                df = _attach_recording_identity(df, manifest)
                 if not df.empty:
                     df["Audit Type"] = "Lite Audit"
                 if is_campaign:
                     if not df.empty:
                         dashboard_manager.save_campaign_audit_results(
                             df, request.campaign_name.strip(), current_user["username"]
+                        )
+                        _mark_recordings_audited(
+                            current_user["username"], _recording_rows_from_dataframe(df), run_id
                         )
                         try:
                             from config import get_user_readymode_credentials as _get_creds
@@ -806,12 +885,16 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                                 df = extra_df if df.empty else pd.concat([df, extra_df], ignore_index=True)
                     except Exception as _scan_err:
                         logger.error(f"Long VM/dead scan failed (non-fatal): {_scan_err}", exc_info=True)
+                    df = _attach_recording_identity(df, manifest)
                     if not df.empty:
                         # Merging CSV-only VM/Dead rows with audio rows leaves NaN in the columns
                         # each source lacks; NaN breaks save's json.dumps(allow_nan=False). Use
                         # where() (not fillna) so float columns don't coerce None back to NaN.
                         df = df.where(pd.notna(df), "")
                         dashboard_manager.save_lite_audit_results(df, current_user["username"])
+                        _mark_recordings_audited(
+                            current_user["username"], _recording_rows_from_dataframe(df), run_id
+                        )
             else:
                 df = batch_analyze_folder_fast(
                     str(download_path),
@@ -821,6 +904,7 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                     username=current_user["username"],
                     user_api_key=user_api_key,
                 )
+                df = _attach_recording_identity(df, manifest)
                 if not df.empty:
                     df["Audit Type"] = "Heavy Audit"
                     # Same fix as the lite-audit branch above: blank detection cells are NaN,
@@ -831,14 +915,22 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
                         dashboard_manager.save_campaign_audit_results(
                             df, request.campaign_name.strip(), current_user["username"]
                         )
+                        _mark_recordings_audited(
+                            current_user["username"], _recording_rows_from_dataframe(df), run_id
+                        )
                     else:
                         dashboard_manager.save_agent_audit_results(df, current_user["username"])
+                        _mark_recordings_audited(
+                            current_user["username"], _recording_rows_from_dataframe(df), run_id
+                        )
 
             analyzed_count = int(len(df)) if df is not None else 0
             if downloaded_count > 0:
                 dashboard_manager.increment_daily_download_count(current_user["username"], downloaded_count)
         except Exception as process_error:
+            _release_manifest_recordings(download_path, current_user["username"])
             logger.error(f"Post-download analysis failed: {process_error}", exc_info=True)
             raise
 
-    return downloaded_count, analyzed_count, download_path
+    _release_manifest_recordings(download_path, current_user["username"])
+    return downloaded_count, analyzed_count, download_path, skipped_count

@@ -31,6 +31,7 @@ from automation.readymode_http import (
     ReadyModeHTTPClient,
     ReadyModeLoginError,
     resolve_folder_listing_id,
+    dialer_name_from_url,
 )
 
 # 0 = "never logged in at all during the lookback window" — no shift, no logged hours.
@@ -109,7 +110,7 @@ def _scan_dialer_full(
     def log(msg: str):
         (log_callback or print)(msg)
 
-    dialer_name = dialer_url.rstrip("/").split("//")[-1].split(".")[0]
+    dialer_name = dialer_name_from_url(dialer_url)
     client = ReadyModeHTTPClient(dialer_url)
 
     try:
@@ -198,7 +199,7 @@ def find_inactive_users_multi_dialer(
         }
         for future in as_completed(futures):
             url = futures[future]
-            dialer_name = url.rstrip("/").split("//")[-1].split(".")[0]
+            dialer_name = dialer_name_from_url(url)
             try:
                 raw_results.append(future.result())
             except Exception as e:

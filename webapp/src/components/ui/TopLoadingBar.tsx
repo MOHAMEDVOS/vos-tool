@@ -19,9 +19,6 @@ export function TopLoadingBar() {
     let timeout: ReturnType<typeof setTimeout>
 
     if (isActive) {
-      setVisible(true)
-      setProgress(0)
-
       /* race toward 82% — slows as it approaches */
       let current = 0
       function tick() {
@@ -31,10 +28,13 @@ export function TopLoadingBar() {
         setProgress(current)
         if (current < 82) raf = requestAnimationFrame(tick)
       }
-      raf = requestAnimationFrame(tick)
+      raf = requestAnimationFrame(() => {
+        setVisible(true)
+        setProgress(0)
+        tick()
+      })
     } else {
       /* snap to 100% then fade out */
-      setProgress(100)
       timeout = setTimeout(() => {
         setVisible(false)
         setProgress(0)
@@ -66,7 +66,7 @@ export function TopLoadingBar() {
           <motion.div
             className="absolute left-0 top-0 h-full rounded-r-full"
             style={{
-              width: `${progress}%`,
+              width: `${isActive ? progress : 100}%`,
               background: 'linear-gradient(90deg, rgba(120,80,255,0.9), rgba(80,160,255,0.95), rgba(0,210,210,0.85))',
               boxShadow: '0 0 10px rgba(120,80,255,0.6), 0 0 20px rgba(80,160,255,0.3)',
             }}

@@ -124,7 +124,6 @@ def score(results: list[dict], labels_path: Path) -> None:
     kept = sum(1 for r in controls if r["replay_verdict"] == "Yes")
     print(f"'Yes' control retention: {kept}/{len(controls)}")
 
-    resolved_by_llm = [c for c, l in still_flagged if False]  # placeholder, see match_type below
     llm_recoveries = [r for r in results if r["replay_match_type"] == "llm_evaluation"]
     gate_recoveries = [r for r in results if r["replay_match_type"] == "objection_gate"]
     print(f"resolved via LLM stage: {len(llm_recoveries)}   via objection gate: {len(gate_recoveries)}")

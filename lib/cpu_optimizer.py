@@ -5,15 +5,12 @@ Optimizes pipeline performance for hybrid P-core/E-core architecture with 16GB R
 """
 
 import os
-import sys
 import psutil
 import platform
 import multiprocessing
-import threading
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
-import time
 
 logger = logging.getLogger(__name__)
 

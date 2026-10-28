@@ -11,6 +11,8 @@ export function SuccessFlash({ show, label = 'Done' }: Props) {
 
   useEffect(() => {
     if (show) {
+      // Start the short visual timer when the mutation's success flag changes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setVisible(true)
       const t = setTimeout(() => setVisible(false), 2200)
       return () => clearTimeout(t)

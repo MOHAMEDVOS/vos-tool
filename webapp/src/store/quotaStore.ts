@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { userApi } from '@/api/user'
 import type { UsageInfo } from '@/types/api'
+import { getErrorMessage } from '@/utils/errors'
 
 interface QuotaState {
   usage: UsageInfo | null
@@ -19,8 +20,8 @@ export const useQuotaStore = create<QuotaState>((set) => ({
     try {
       const resp = await userApi.getEverything()
       set({ usage: resp.quota_and_usage.daily_usage, isLoading: false })
-    } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch usage data', isLoading: false })
+    } catch (error: unknown) {
+      set({ error: getErrorMessage(error, 'Failed to fetch usage data'), isLoading: false })
     }
   },
 }))

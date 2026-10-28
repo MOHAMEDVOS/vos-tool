@@ -3,7 +3,6 @@ Shared path utilities for consistent directory resolution across the application
 """
 from pathlib import Path
 import os
-from typing import Optional
 
 
 def get_recordings_root() -> Path:

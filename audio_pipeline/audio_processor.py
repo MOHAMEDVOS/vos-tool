@@ -10,9 +10,8 @@ import time
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
-import numpy as np
 from pydub import AudioSegment
 
 from audio_pipeline.detections import debug_audio_analysis, late_hello_detection, releasing_detection
@@ -133,8 +132,6 @@ class AudioProcessor:
         return audio
 
     def classify_call(self, agent_audio: AudioSegment, full_audio: AudioSegment, file_name: str = "", file_path: str = "", user_api_key: Optional[str] = None) -> Dict[str, Any]:
-        logger = logging.getLogger(__name__)
-
         logger.debug(f"Starting classification for file: {file_name}")
         start_time = time.time()
 
@@ -317,7 +314,6 @@ class AudioProcessor:
         return result
 
     def process_single_file(self, file_path: Path, additional_metadata: Optional[dict] = None, include_debug: bool = False, username: Optional[str] = None, user_api_key: Optional[str] = None) -> Dict:
-        logger = logging.getLogger(__name__)
         start_time = time.time()
 
         logger.debug(f"Starting processing of file: {file_path}")

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { readymodeApi, type DownloadRequest } from '@/api/readymode'
 import { type LogLine, type LogStage, type StreamStatus, type DoneResult, type ProgressState, type AnalysisProgress } from '@/hooks/useAuditStream'
 import { useAuthStore } from './authStore'
+import { getErrorMessage, isAbortError } from '@/utils/errors'
 
 interface AuditState {
   status: StreamStatus
@@ -116,11 +117,11 @@ export const useAuditStore = create<AuditState>((set, get) => ({
       if (get().status === 'running') {
         set({ error: 'Connection lost before audit completed. The download may still be running on the server — check back in a few minutes.', status: 'error' })
       }
-    } catch (e: any) {
-      if (e?.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
         set({ status: 'cancelled' })
       } else {
-        set({ error: e?.message ?? 'Unknown error', status: 'error' })
+        set({ error: getErrorMessage(error, 'Unknown error'), status: 'error' })
       }
     }
   },

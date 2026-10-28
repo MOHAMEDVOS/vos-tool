@@ -4,9 +4,7 @@ FastAPI dependencies for authentication and authorization.
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from typing import Optional
 from backend.core.security import decode_access_token
-from backend.core.database import get_db
 import sys
 from pathlib import Path
 

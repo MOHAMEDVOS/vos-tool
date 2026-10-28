@@ -5,14 +5,15 @@ Provides clean interface for batch processing with proper channel separation.
 
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Optional, Callable, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, List, Optional, Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 import os
 import logging
 import asyncio
 import threading
 import time
 import multiprocessing
+import re
 
 from audio_pipeline.audio_processor import AudioProcessor, RESULT_KEYS
 
@@ -112,10 +113,6 @@ class BatchProcessor:
         Returns:
             List of processing results
         """
-        from concurrent.futures import TimeoutError
-        
-        logger = logging.getLogger(__name__)
-        
         # Auto-fetch AssemblyAI key if not provided but username is
         if not user_api_key and username:
             try:
@@ -174,7 +171,6 @@ class BatchProcessor:
             
             batch_files = audio_files[i:i + batch_size]
             batch_num += 1
-            total_batches = (total_files + batch_size - 1) // batch_size
             
             logger.info(f"Processing batch {batch_num} (adaptive size: {len(batch_files)} files)")
             
@@ -194,7 +190,6 @@ class BatchProcessor:
                 
                 # Collect results with timeout protection (per-file only)
                 start_time = time.time()
-                completed_count = 0
 
                 for future in as_completed(futures.keys()):
                     try:
@@ -207,7 +202,6 @@ class BatchProcessor:
                         batch_sizer.update_processing_time(file_processing_time)
                         
                         results.append(result)
-                        completed_count += 1
                         completed_global += 1
 
                         # MEMORY OPTIMIZATION: Save results incrementally every 100 files
@@ -246,7 +240,6 @@ class BatchProcessor:
                             'error': f"Processing timeout after {timeout_per_file}s",
                             'classification_success': False
                         })
-                        completed_count += 1
                         completed_global += 1
 
                         # Update overall progress for UI after each file
@@ -270,7 +263,6 @@ class BatchProcessor:
                             'error': f"Processing error: {str(e)}",
                             'classification_success': False
                         })
-                        completed_count += 1
                         completed_global += 1
             
             batch_time = time.time() - start_time
@@ -318,8 +310,6 @@ class BatchProcessor:
         Returns:
             List of processing results
         """
-        from concurrent.futures import TimeoutError
-        
         logger.info("Starting ASYNC batch processing (Phase 2 optimization)")
         
         # Auto-fetch AssemblyAI key if not provided but username is
@@ -753,10 +743,6 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
     return pd.DataFrame(formatted_results)
 
 
-import re
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
-
 def format_agent_name_with_spaces(agent_name: str) -> str:
     """
     Convert agent names from formats like 'AbdelrahmanAhmedIbrahimHassan' 
@@ -781,6 +767,48 @@ def format_timestamp_for_display(timestamp: str) -> str:
     time_pattern = r'(\d{1,2})_(\d{2})(AM|PM)'
     formatted = re.sub(time_pattern, r'\1:\2\3', timestamp)
     return formatted
+
+
+def _extract_lite_file_metadata(file_path: Path) -> Dict[str, str]:
+    """Extract the filename fields shared by lite processing result rows."""
+    stem = file_path.stem
+    parts = stem.split(" _ ")
+    if len(parts) == 4:
+        agent_name, timestamp, phone_number, disposition = parts
+    elif len(parts) == 2:
+        agent_name, phone_number = parts
+        timestamp = ""
+        disposition = ""
+    else:
+        agent_name = stem
+        phone_number = ""
+        timestamp = ""
+        disposition = ""
+
+    agent_name = agent_name.replace("-", "").replace(".", "")
+    return {
+        "Agent Name": format_agent_name_with_spaces(agent_name),
+        "Phone Number": phone_number,
+        "Timestamp": format_timestamp_for_display(timestamp),
+        "Disposition": disposition,
+    }
+
+
+def _build_lite_error_result(file_path: Path, status: str) -> Dict[str, str]:
+    """Create the standard row returned when lite processing fails for a file."""
+    return {
+        **_extract_lite_file_metadata(file_path),
+        "Releasing Detection": "Error",
+        "Late Hello Detection": "Error",
+        "Rebuttal Detection": "N/A",
+        "Transcription": "N/A",
+        "Agent Intro": "N/A",
+        "Owner Name": "N/A",
+        "Reason for Calling": "N/A",
+        "Intro Score": "N/A",
+        "Status": status,
+    }
+
 
 def extract_dialer_name_from_path(file_path: Path) -> str:
     """
@@ -842,9 +870,7 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
     # ProcessPoolExecutor gives TRUE parallelism — each worker gets its own Python interpreter,
     # bypassing the GIL. This lets all 20 cores run FFT/numpy detection simultaneously.
     # ThreadPoolExecutor was blocked by the GIL: only one thread could run Python at a time.
-    from concurrent.futures import ProcessPoolExecutor, as_completed, TimeoutError
-
-    logger = logging.getLogger(__name__)
+    from concurrent.futures import ProcessPoolExecutor
 
     folder = Path(folder_path)
     if not folder.exists():
@@ -942,39 +968,10 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
                         file_path = futures[future]
                         logger.error(f"Lite processing timeout for file: {file_path}")
                         print(f"Warning: Lite timeout processing: {file_path.name}")
-                        # Try to extract structured info even for timeout errors
-                        stem = file_path.stem
-                        parts = stem.split(" _ ")
-                        if len(parts) == 4:
-                            agent_name_raw, timestamp, phone_number, disposition = parts
-                        elif len(parts) == 2:
-                            agent_name_raw, phone_number = parts
-                            timestamp = ""
-                            disposition = ""
-                        else:
-                            agent_name_raw = stem
-                            phone_number = ""
-                            timestamp = ""
-                            disposition = ""
-                        agent_name_raw = agent_name_raw.replace("-", "").replace(".", "")
-                        agent_name = format_agent_name_with_spaces(agent_name_raw)
-                        timestamp = format_timestamp_for_display(timestamp)
-                        
-                        results.append({
-                            "Agent Name": agent_name,
-                            "Phone Number": phone_number,
-                            "Timestamp": timestamp,
-                            "Disposition": disposition,
-                            "Releasing Detection": "Error",
-                            "Late Hello Detection": "Error",
-                            "Rebuttal Detection": "N/A",
-                            "Transcription": "N/A",
-                            "Agent Intro": "N/A",
-                            "Owner Name": "N/A",
-                            "Reason for Calling": "N/A",
-                            "Intro Score": "N/A",
-                            "Status": f"Error: Processing timeout after {timeout_per_file}s"
-                        })
+                        results.append(_build_lite_error_result(
+                            file_path,
+                            f"Error: Processing timeout after {timeout_per_file}s",
+                        ))
                         completed_count += 1
                         completed_global += 1
 
@@ -982,39 +979,7 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
                         file_path = futures[future]
                         logger.error(f"Lite processing failed for {file_path}: {e}", exc_info=True)
                         print(f"Error: Lite error processing: {file_path.name}")
-                        # Try to extract structured info even for general errors
-                        stem = file_path.stem
-                        parts = stem.split(" _ ")
-                        if len(parts) == 4:
-                            agent_name_raw, timestamp, phone_number, disposition = parts
-                        elif len(parts) == 2:
-                            agent_name_raw, phone_number = parts
-                            timestamp = ""
-                            disposition = ""
-                        else:
-                            agent_name_raw = stem
-                            phone_number = ""
-                            timestamp = ""
-                            disposition = ""
-                        agent_name_raw = agent_name_raw.replace("-", "").replace(".", "")
-                        agent_name = format_agent_name_with_spaces(agent_name_raw)
-                        timestamp = format_timestamp_for_display(timestamp)
-                        
-                        results.append({
-                            "Agent Name": agent_name,
-                            "Phone Number": phone_number,
-                            "Timestamp": timestamp,
-                            "Disposition": disposition,
-                            "Releasing Detection": "Error",
-                            "Late Hello Detection": "Error",
-                            "Rebuttal Detection": "N/A",
-                            "Transcription": "N/A",
-                            "Agent Intro": "N/A",
-                            "Owner Name": "N/A",
-                            "Reason for Calling": "N/A",
-                            "Intro Score": "N/A",
-                            "Status": f"Error: {str(e)}"
-                        })
+                        results.append(_build_lite_error_result(file_path, f"Error: {str(e)}"))
                         completed_count += 1
                         completed_global += 1
 
@@ -1051,38 +1016,10 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
                         pass
                     
                     # Add error result for stuck file
-                        stem = file_path.stem
-                        parts = stem.split(" _ ")
-                        if len(parts) == 4:
-                            agent_name_raw, timestamp, phone_number, disposition = parts
-                        elif len(parts) == 2:
-                            agent_name_raw, phone_number = parts
-                            timestamp = ""
-                            disposition = ""
-                        else:
-                            agent_name_raw = stem
-                            phone_number = ""
-                            timestamp = ""
-                            disposition = ""
-                        agent_name_raw = agent_name_raw.replace("-", "").replace(".", "")
-                        agent_name = format_agent_name_with_spaces(agent_name_raw)
-                        timestamp = format_timestamp_for_display(timestamp)
-                        
-                        results.append({
-                            "Agent Name": agent_name,
-                            "Phone Number": phone_number,
-                            "Timestamp": timestamp,
-                            "Disposition": disposition,
-                            "Releasing Detection": "Error",
-                            "Late Hello Detection": "Error",
-                            "Rebuttal Detection": "N/A",
-                            "Transcription": "N/A",
-                            "Agent Intro": "N/A",
-                            "Owner Name": "N/A",
-                            "Reason for Calling": "N/A",
-                            "Intro Score": "N/A",
-                        "Status": "Error: File processing stuck/timeout"
-                    })
+                    results.append(_build_lite_error_result(
+                        file_path,
+                        "Error: File processing stuck/timeout",
+                    ))
                     completed_count += 1
                     completed_global += 1
                     print(f"Error: Marked stuck file as failed: {file_path.name}")
@@ -1243,7 +1180,6 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             "Agent Intro": "N/A",
             "Owner Name": "N/A",
             "Reason for Calling": "N/A",
-            "Reason for Calling": "N/A",
             "Intro Score": "N/A",
             "Feedback": "N/A",
             "Status": status,
@@ -1262,34 +1198,11 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
         return result
 
     except Exception as e:
-        # Even on error, try to extract filename info for structured columns
-        stem = file_path.stem
-        parts = stem.split(" _ ")
-        
-        if len(parts) == 4:
-            agent_name_raw, timestamp, phone_number, disposition = parts
-        elif len(parts) == 2:
-            agent_name_raw, phone_number = parts
-            timestamp = ""
-            disposition = ""
-        else:
-            agent_name_raw = stem
-            phone_number = ""
-            timestamp = ""
-            disposition = ""
-        
-        agent_name_raw = agent_name_raw.replace("-", "").replace(".", "")
-        agent_name = format_agent_name_with_spaces(agent_name_raw)
-        timestamp = format_timestamp_for_display(timestamp)
-        
         # Extract dialer name from file path even on error
         dialer_name = extract_dialer_name_from_path(file_path)
 
         return {
-            "Agent Name": agent_name,
-            "Phone Number": phone_number,
-            "Timestamp": timestamp,
-            "Disposition": disposition,
+            **_extract_lite_file_metadata(file_path),
             "Releasing Detection": "Error",
             "Late Hello Detection": "Error",
             "Rebuttal Detection": "N/A",
@@ -1297,7 +1210,6 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             "Dialer Name": dialer_name,  # Extract from folder path
             "Agent Intro": "N/A",
             "Owner Name": "N/A",
-            "Reason for Calling": "N/A",
             "Reason for Calling": "N/A",
             "Intro Score": "N/A",
             "Feedback": "N/A",
@@ -1388,7 +1300,6 @@ def batch_analyze_folder_fast(folder_path: str, progress_callback: Optional[Call
         if loop and loop.is_running():
             # If an event loop is already running (e.g., inside FastAPI async routes), 
             # asyncio.run() will fail. We execute the coroutine in a new thread.
-            import threading
             result_container = {}
             
             def run_in_thread(c, container):

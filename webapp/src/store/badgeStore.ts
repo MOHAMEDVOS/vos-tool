@@ -13,7 +13,7 @@ interface BadgeState {
 
 export const useBadgeStore = create<BadgeState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       flaggedCount: 0,
       seenByUser: {},
       currentUser: '',

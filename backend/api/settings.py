@@ -3,7 +3,6 @@ Settings API endpoints.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends
-from typing import Optional, List
 import sys
 from pathlib import Path
 

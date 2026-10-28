@@ -5,7 +5,6 @@ Prevents XSS (Cross-Site Scripting) attacks by sanitizing user input before rend
 
 import bleach
 from html import escape
-from typing import Optional
 
 # Allowed HTML tags for safe rendering (minimal set)
 ALLOWED_TAGS = [

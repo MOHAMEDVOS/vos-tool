@@ -138,12 +138,14 @@ class ReadyModeDownloadRequest(BaseModel):
     custom_duration_seconds: Optional[int] = None  # Legacy campaign custom duration
     minimum_call_duration_seconds: int = Field(20, ge=1, description="Minimum recording duration for agent heavy audits")
     audit_type: Optional[str] = "heavy"  # "heavy" | "lite"
+    force_reaudit: bool = False
 
 
 class ReadyModeStatus(BaseModel):
     status: str
     downloaded_count: Optional[int] = None
     analyzed_count: Optional[int] = None
+    skipped_count: Optional[int] = None
     message: Optional[str] = None
 
 

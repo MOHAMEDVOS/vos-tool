@@ -9,7 +9,6 @@ import logging
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 

@@ -22,6 +22,7 @@ from automation.readymode_http import (
     resolve_agent_id,
     lookup_date_range,
     resolve_folder_listing_id,
+    dialer_name_from_url,
 )
 
 
@@ -77,7 +78,7 @@ def delete_users_on_dialer(
         else:
             print(msg)
 
-    dialer_name = dialer_url.rstrip("/").split("//")[-1].split(".")[0]
+    dialer_name = dialer_name_from_url(dialer_url)
     results: list[dict] = []
 
     client = ReadyModeHTTPClient(dialer_url)
@@ -184,7 +185,7 @@ def delete_users_multi_dialer(
                 all_results.extend(future.result())
             except Exception as e:
                 url = futures[future]
-                name = url.rstrip("/").split("//")[-1].split(".")[0]
+                name = dialer_name_from_url(url)
                 if log_callback:
                     log_callback(f"ERROR Unexpected error on {name}: {e}")
                 else:

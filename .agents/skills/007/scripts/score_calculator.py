@@ -30,12 +30,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import (  # noqa: E402
-    BASE_DIR,
-    DATA_DIR,
     SCORING_WEIGHTS,
     SCORING_LABELS,
     SCORE_HISTORY_PATH,
-    SEVERITY,
     SCANNABLE_EXTENSIONS,
     SKIP_DIRECTORIES,
     LIMITS,

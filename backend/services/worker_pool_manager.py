@@ -6,7 +6,7 @@ Manages per-user worker allocation to prevent resource exhaustion.
 import os
 import logging
 import threading
-from typing import Dict, Optional
+from typing import Any, Dict
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ class WorkerPoolManager:
                 self._active_users.discard(username)
                 logger.info(f"Released {released} workers from user {username} (total used: {sum(self._user_workers.values())}/{self._max_total_workers})")
     
-    def get_pool_stats(self) -> Dict[str, any]:
+    def get_pool_stats(self) -> Dict[str, Any]:
         """Get current pool statistics."""
         with self._lock:
             return {

@@ -10,8 +10,8 @@ PHASE 2 REFACTOR: Database-only implementation (NO JSON files)
 - Clear error handling
 """
 
-from datetime import datetime, date
-from typing import Dict, List, Optional, Tuple
+from datetime import date
+from typing import Dict, List, Tuple
 import logging
 
 # Import database manager
@@ -263,53 +263,6 @@ class QuotaManager:
         except Exception as e:
             logger.error(f"Failed to load usage data from database: {e}")
             raise DatabaseOperationError(f"Cannot load usage data: {e}")
-    
-    def _save_usage_data(self, data: Dict):
-        """Save daily usage tracking data to PostgreSQL database ONLY.
-        
-        Args:
-            data: Dict with 'admin_usage' containing usage by admin and user
-            
-        Raises:
-            DatabaseOperationError: If database save fails
-        """
-        if not self._db_manager:
-            raise DatabaseUnavailableError("Cannot save usage data: Database manager not initialized")
-        
-        try:
-            today = str(date.today())
-            
-            # Save admin usage
-            if "admin_usage" in data:
-                for admin_username, admin_data in data["admin_usage"].items():
-                    total_used = admin_data.get("total_used", 0)
-                    
-                    query = """
-                        INSERT INTO admin_usage (admin_username, date, total_used)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (admin_username, date) DO UPDATE SET
-                            total_used = EXCLUDED.total_used,
-                            updated_at = NOW()
-                    """
-                    self._db_manager.execute_query(query, (admin_username, today, total_used))
-                    
-                    # Save user usage under this admin
-                    if "users_usage" in admin_data:
-                        for user_username, usage_count in admin_data["users_usage"].items():
-                            user_query = """
-                                INSERT INTO user_usage (user_username, admin_username, date, usage_count)
-                                VALUES (%s, %s, %s, %s)
-                                ON CONFLICT (admin_username, user_username, date) DO UPDATE SET
-                                    usage_count = EXCLUDED.usage_count,
-                                    updated_at = NOW()
-                            """
-                            self._db_manager.execute_query(user_query, (user_username, admin_username, today, usage_count))
-            
-            logger.debug("Saved usage data to database")
-            
-        except Exception as e:
-            logger.error(f"Failed to save usage data to database: {e}")
-            raise DatabaseOperationError(f"Cannot save usage data: {e}")
     
     def _reset_daily_usage(self):
         """Reset daily usage counters in database."""
@@ -938,7 +891,7 @@ class QuotaManager:
             health["user_count"] = len(quota_data.get("user_assignments", {}))
             
             # Test loading usage data
-            usage_data = self._load_usage_data()
+            self._load_usage_data()
             health["can_load_usage"] = True
             
         except Exception as e:

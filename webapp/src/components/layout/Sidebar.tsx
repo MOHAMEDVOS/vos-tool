@@ -5,7 +5,7 @@ import { useUnreadCount } from '@/store/badgeStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, Mic, Flag, PlayCircle, BookOpen, Settings, LogOut, ClipboardCheck,
-  ChevronLeft, ChevronRight, Sun, Moon, UserPlus, ClipboardList,
+  ChevronRight, Sun, Moon, UserPlus, ClipboardList,
 } from 'lucide-react'
 import { UsageCard } from './UsageCard'
 import { useAuditStore } from '@/store/auditStore'
@@ -33,7 +33,7 @@ const navContainer = {
 }
 const navItemVariant = {
   hidden: { opacity: 0, x: -6 },
-  show:   { opacity: 1, x: 0, transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] as any } },
+  show:   { opacity: 1, x: 0, transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] as const } },
 }
 
 export function Sidebar() {
@@ -298,7 +298,7 @@ export function Sidebar() {
                     whileHover={{ scale: 1.18, rotate: isActive ? 0 : 8 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 18 }}
                   >
-                    {React.cloneElement(item.icon as any, { size: 15 })}
+                    {item.icon}
                   </motion.span>
 
                   {!sidebarCollapsed && (

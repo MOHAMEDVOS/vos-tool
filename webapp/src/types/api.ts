@@ -35,14 +35,14 @@ export interface UsageInfo {
 export interface EverythingPayload {
   user: UserInfo
   quota_and_usage: {
-    quota_status: Record<string, any>
+    quota_status: Record<string, unknown>
     daily_usage: UsageInfo
   }
-  dashboard_sharing: Record<string, any>
-  audits: Record<string, any>
-  phrase_stats: Record<string, any>
-  learned_rebuttals: Record<string, any>
-  subscriptions: Record<string, any>
+  dashboard_sharing: Record<string, unknown>
+  audits: Record<string, unknown>
+  phrase_stats: Record<string, unknown>
+  learned_rebuttals: Record<string, unknown>
+  subscriptions: Record<string, unknown>
 }
 
 // ─── Audit / Dashboard ───────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ export interface AuditRecord {
   campaign?: string
   transcript?: string
   rebuttals?: Record<string, unknown>[]
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 export interface DashboardData {
@@ -98,7 +98,8 @@ export interface AgentAuditRow {
   audit_type?: string
   'File Name'?: string
   'File Path'?: string
-  [key: string]: any
+  metadata?: Record<string, unknown>
+  [key: string]: unknown
 }
 
 export interface FlaggedCall extends AgentAuditRow {
@@ -210,6 +211,7 @@ export interface ReadyModeStatus {
   status: string
   downloaded_count?: number
   analyzed_count?: number
+  skipped_count?: number
   message?: string
 }
 
@@ -224,11 +226,42 @@ export interface QuotaStatus {
   used?: number
   limit?: number
   remaining?: number
+  current_count?: number
+  daily_limit?: number
   [key: string]: unknown
 }
 
+export interface AdminQuotaLimit {
+  max_users: number
+  total_daily_quota: number
+  users_created: number
+  remaining_slots: number
+  current_usage: number
+}
+
+export interface RedistributionUser {
+  username: string
+  current_quota?: number
+  current_usage: number
+  remaining: number
+  usage_percentage: number
+  daily_quota?: number
+  percentage_used?: number
+}
+
+export interface RedistributionResponse {
+  users?: RedistributionUser[]
+  [key: string]: unknown
+}
+
+export interface SharingGroup {
+  members: string[]
+  created_by?: string
+  created_date?: string
+}
+
 export interface SharingConfig {
-  sharing_groups?: Record<string, unknown>
+  sharing_groups?: Record<string, SharingGroup>
   user_dashboard_mode?: Record<string, string>
   [key: string]: unknown
 }

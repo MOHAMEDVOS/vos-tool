@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { readymodeApi, type DownloadRequest } from '@/api/readymode'
 import { useAuthStore } from '@/store/authStore'
+import { getErrorMessage, isAbortError } from '@/utils/errors'
 
 export type LogStage = 'WAIT' | 'SUCCESS' | 'DATE' | 'SEARCH' | 'DOWNLOAD' | 'PAGE' | 'NEXT' | 'CANCELLED' | 'FAILED' | 'INFO'
 
@@ -15,6 +16,7 @@ export type StreamStatus = 'idle' | 'running' | 'done' | 'cancelled' | 'error'
 export interface DoneResult {
   downloaded: number
   analyzed: number
+  skipped?: number
   message: string
 }
 
@@ -125,11 +127,11 @@ export function useAuditStream() {
         },
         abortRef.current.signal,
       )
-    } catch (e: any) {
-      if (e?.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
         setStatus('cancelled')
       } else {
-        setError(e?.message ?? 'Unknown error')
+        setError(getErrorMessage(error, 'Unknown error'))
         setStatus('error')
       }
     }

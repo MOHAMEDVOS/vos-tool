@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { useFlaggedCalls, useAgentAudits, useLiteAudits } from '@/hooks/useDashboard'
 import { Spinner } from '@/components/ui/Spinner'
 import { Badge } from '@/components/ui/Badge'
 import type { FlaggedCall, WordTimestamp } from '@/types/api'
 import { apiUrl, authHeaders, api } from '@/api/client'
-import { RefreshCw, Play, Pause, Volume2, MoreVertical, Search, Download } from 'lucide-react'
+import { Play, Pause, Volume2, MoreVertical, Search, Download } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/Select'
 import { KaraokeTranscript } from '@/components/KaraokeTranscript'
 import { AgentDeductionsTable, type AgentDeductionRow } from '@/pages/ActionsPage'
@@ -24,26 +24,23 @@ function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted, downloa
   const [isPlaying, setIsPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
-  const requestRef = useRef<number>(0)
 
   const showRedAlert = isLateHello && currentTime >= 5
   const barColor = showRedAlert ? '#ef4444' : 'var(--t-primary)'
 
-  const animate = () => {
-    if (audioRef.current) {
-      setCurrentTime(audioRef.current.currentTime)
-      requestRef.current = requestAnimationFrame(animate)
-    }
-  }
-
   useEffect(() => {
+    let frame = 0
     if (isPlaying) {
-      requestRef.current = requestAnimationFrame(animate)
-    } else {
-      cancelAnimationFrame(requestRef.current)
+      const animate = () => {
+        const audio = audioRef.current
+        if (!audio) return
+        setCurrentTime(audio.currentTime)
+        frame = requestAnimationFrame(animate)
+      }
+      frame = requestAnimationFrame(animate)
     }
-    return () => cancelAnimationFrame(requestRef.current)
-  }, [isPlaying])
+    return () => cancelAnimationFrame(frame)
+  }, [audioRef, isPlaying])
 
   const togglePlay = () => {
     if (!audioRef.current) return

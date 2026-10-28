@@ -1,8 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react'
 import type { AgentAuditRow } from '@/types/api'
-import { Badge } from '@/components/ui/Badge'
 
-import { AGENT_AUDIT_COLUMN_ORDER, HIDDEN_COLUMNS, normalizeRow, DETECTION_COLS, detectionVariant } from '@/utils/audit'
+import { AGENT_AUDIT_COLUMN_ORDER, normalizeRow, DETECTION_COLS, detectionVariant } from '@/utils/audit'
 import { ArrowUp, ArrowDown, Copy, Check, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
@@ -18,9 +17,8 @@ interface Props {
 export function AuditTable({ rows, leftActions, excludeColumns = [] }: Props) {
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
-  const [search, setSearch] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
-  const [expandedCell, setExpandedCell] = useState<{ val: any; col: string } | null>(null)
+  const [expandedCell, setExpandedCell] = useState<{ val: unknown; col: string } | null>(null)
   const [isTableCopied, setIsTableCopied] = useState(false)
 
   useEffect(() => {
@@ -36,12 +34,6 @@ export function AuditTable({ rows, leftActions, excludeColumns = [] }: Props) {
     const normalized = rows.map(normalizeRow)
 
     let filtered = normalized
-    if (search) {
-      const q = search.toLowerCase()
-      filtered = filtered.filter((r) => 
-        Object.values(r).some((v) => String(v).toLowerCase().includes(q))
-      )
-    }
 
     if (sortCol) {
       filtered = [...filtered].sort((a, b) => {
@@ -52,7 +44,7 @@ export function AuditTable({ rows, leftActions, excludeColumns = [] }: Props) {
     }
 
     return { columns, rowData: filtered }
-  }, [rows, search, sortCol, sortDir])
+  }, [rows, excludeColumns, sortCol, sortDir])
 
   const handleSort = (col: string) => {
     if (sortCol === col) {

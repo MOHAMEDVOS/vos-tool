@@ -4,9 +4,7 @@ Quota Redistribution System
 Allows Admins to reallocate quota between their created users
 """
 
-import json
-from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
@@ -185,14 +183,11 @@ class QuotaRedistribution:
             total_quota = options["admin_total_quota"]
             
             # Calculate usage-based suggestions
-            total_usage = sum(user["current_usage"] for user in users)
             suggestions = {}
             
             for user in users:
                 username = user["username"]
                 current_usage = user["current_usage"]
-                usage_ratio = current_usage / total_usage if total_usage > 0 else 1/len(users)
-                
                 # Suggest quota based on usage + 50% buffer
                 suggested_quota = max(100, int(current_usage * 1.5))
                 suggestions[username] = suggested_quota

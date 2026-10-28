@@ -1,12 +1,11 @@
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
-import os
 import uuid
 from datetime import datetime
 import logging
 
 from backend.core.dependencies import get_current_user
-from backend.services.job_store import create_job, get_job, update_job
+from backend.services.job_store import create_job, update_job
 from backend.job_tasks.tasks import process_audio_batch_task
 from backend.core.database import get_db
 

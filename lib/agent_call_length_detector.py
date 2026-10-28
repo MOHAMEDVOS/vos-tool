@@ -86,6 +86,11 @@ def flag_long_calls(
 
 def summarize_long_calls(flagged: list[dict[str, Any]]) -> dict[str, int]:
     """Small count summary for metrics: {'voicemail': n, 'dead_call': n, 'total': n}."""
-    vm = sum(1 for f in flagged if f["disposition"].strip().lower() == "voicemail")
-    dc = sum(1 for f in flagged if f["disposition"].strip().lower() == "dead call")
-    return {"voicemail": vm, "dead_call": dc, "total": len(flagged)}
+    counts = {"voicemail": 0, "dead_call": 0, "total": len(flagged)}
+    for call in flagged:
+        disposition = call["disposition"].strip().lower()
+        if disposition == "voicemail":
+            counts["voicemail"] += 1
+        elif disposition == "dead call":
+            counts["dead_call"] += 1
+    return counts

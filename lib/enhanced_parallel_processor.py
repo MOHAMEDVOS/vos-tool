@@ -7,13 +7,11 @@ Optimized for 12th Gen Intel i7-1255U with hybrid P-core/E-core architecture.
 import time
 import logging
 import threading
-import multiprocessing
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any
 from pathlib import Path
 import sys
 import os
-import psutil
 
 # Add paths for imports
 parent_dir = str(Path(__file__).parent.parent)
@@ -47,7 +45,6 @@ class EnhancedParallelProcessor:
     def _set_thread_priority(self, task_type: str):
         """Set thread priority and CPU affinity based on task type."""
         try:
-            current_thread = threading.current_thread()
             
             if task_type == 'transcription':
                 # High priority for transcription (CPU intensive)
@@ -157,12 +154,6 @@ class EnhancedParallelProcessor:
             
             # Create detector with CPU optimizations
             detector = AgentOnlyRebuttalDetector()
-            
-            # Apply Whisper optimizations
-            if hasattr(detector.transcription_engine.local_engine, 'model') and detector.transcription_engine.local_engine.model:
-                # Apply CPU-specific Whisper settings
-                whisper_model = detector.transcription_engine.local_engine.model
-                # Note: Some settings may need to be applied at model creation time
             
             # Run detection on optimized audio
             result = detector.detect_rebuttals_in_audio(optimized_file)

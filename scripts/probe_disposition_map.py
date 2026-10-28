@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from automation.readymode_http import (
     ReadyModeHTTPClient, disposition_type_ids,
-    DISPOSITION_TYPE_IDS, BASE_TYPE,
+    DISPOSITION_TYPE_IDS,
 )
 
 CREATE_USER = "UserCreation"

@@ -4,7 +4,6 @@ Uses the existing database manager from lib.
 """
 
 import sys
-import os
 from pathlib import Path
 from typing import List
 
@@ -46,6 +45,7 @@ def init_db():
         
         # Create tables if they don't exist
         create_tables_if_needed(db)
+        run_database_migrations()
         _db_initialized = True
         
     except Exception as e:
@@ -53,6 +53,17 @@ def init_db():
         raise
     finally:
         _db_init_in_progress = False
+
+
+def run_database_migrations() -> None:
+    """Apply versioned database migrations after the connection is available."""
+    from alembic import command
+    from alembic.config import Config
+
+    project_root = Path(__file__).resolve().parents[2]
+    alembic_config = Config(str(project_root / "alembic.ini"))
+    alembic_config.set_main_option("script_location", str(project_root / "migrations"))
+    command.upgrade(alembic_config, "head")
 
 
 def _split_sql_statements(sql: str) -> List[str]:

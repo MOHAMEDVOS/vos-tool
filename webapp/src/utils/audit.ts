@@ -61,8 +61,9 @@ export function normalizeRow(row: AgentAuditRow): AgentAuditRow {
   }
   
   // Explicitly map Time from metadata or root if it exists
-  if (!out['Time'] && (out as any).metadata?.Time) {
-    out['Time'] = (out as any).metadata.Time
+  const metadataTime = row.metadata?.['Time']
+  if (!out['Time'] && typeof metadataTime === 'string') {
+    out['Time'] = metadataTime
   }
   
   return out

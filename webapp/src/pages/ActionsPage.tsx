@@ -6,7 +6,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import type { FlaggedCall } from '@/types/api'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
-import { RefreshCw, Search, ChevronDown, Check, Copy, ArrowUp, ArrowDown, Trash2 } from 'lucide-react'
+import { RefreshCw, Search, Check, Copy, ArrowUp, ArrowDown, Trash2 } from 'lucide-react'
 import { CustomSelect } from '@/components/ui/Select'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CountUp, Metric } from '@/components/ui/Metric'
@@ -325,13 +325,13 @@ export function ActionsPage() {
       noRebuttal: all.filter((r) => r['Rebuttal Detection'] === 'No').length }
   }, [dedupedCalls])
 
+  const activeAgent = selectedAgent ?? agentDeductions[0]?.agentName ?? null
   const selectedAgentCalls = useMemo<FlaggedCall[]>(() => {
-    if (!selectedAgent) return []
-    return dedupedCalls.filter((c) => (c['Agent Name'] || 'Unknown').trim() === selectedAgent)
-  }, [dedupedCalls, selectedAgent])
+    if (!activeAgent) return []
+    return dedupedCalls.filter((c) => (c['Agent Name'] || 'Unknown').trim() === activeAgent)
+  }, [dedupedCalls, activeAgent])
 
   useEffect(() => { if (!flaggedLoading) markAsSeen() }, [markAsSeen, flaggedCalls, flaggedLoading])
-  useEffect(() => { if (!selectedAgent && agentDeductions.length > 0) setSelectedAgent(agentDeductions[0].agentName) }, [agentDeductions, selectedAgent])
 
   const clearData = useMutation({
     mutationFn: async () => {
@@ -421,20 +421,20 @@ export function ActionsPage() {
         <label className="text-[10px] font-black uppercase tracking-widest text-vos-500 ml-1">Select agent to view detailed flagged calls</label>
         <CustomSelect 
           options={agentDeductions.map(row => row.agentName)}
-          value={selectedAgent || ''}
+          value={activeAgent || ''}
           onChange={(v) => setSelectedAgent(v)}
           placeholder="Select an agent..."
           className="max-w-sm"
         />
       </div>
 
-      {selectedAgent && (
+      {activeAgent && (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8">
           {/* Detailed Flagged Calls */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3 ml-1">
               <div className="w-1 h-4 bg-ship-red rounded-full" />
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Detailed flagged calls — {selectedAgent}</h3>
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Detailed flagged calls — {activeAgent}</h3>
             </div>
             
             <div className="rounded-2xl bg-surface-card border border-b-strong shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl">

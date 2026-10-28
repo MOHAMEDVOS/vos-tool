@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { readymodeApi, DISPOSITIONS, DURATION_FILTERS, type DownloadRequest, type CampaignDialerCountsResponse, type AgentDialerCountsResponse } from '@/api/readymode'
-import { Info, Link2, Copy, Check, X } from 'lucide-react'
+import { Info, Link2, X } from 'lucide-react'
 import { LiveCountUp } from '@/components/ui/LiveCountUp'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuthStore } from '@/store/authStore'
@@ -96,7 +96,6 @@ function MultiSelectDropdown({
 
   useEffect(() => {
     if (open) {
-      setSearch('')
       setTimeout(() => inputRef.current?.focus(), 100)
       if (triggerRef.current) {
         const rect = triggerRef.current.getBoundingClientRect()
@@ -127,7 +126,10 @@ function MultiSelectDropdown({
         whileTap={{ scale: 0.995 }}
         type="button"
         disabled={disabled}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) setSearch('')
+          setOpen((current) => !current)
+        }}
         style={{ backgroundColor: 'var(--c-base)', borderColor: 'var(--b-subtle)' }}
         className="flex w-full min-h-[38px] items-center justify-between rounded-md border px-3 py-1.5 text-sm shadow-inner outline-none transition-all disabled:opacity-50"
       >
@@ -265,10 +267,9 @@ function NumberStepper({
   max?: number
   disabled?: boolean
 }) {
-  const [raw, setRaw] = React.useState(String(value))
-
-  // Keep raw in sync when value changes externally (e.g. stepper buttons)
-  React.useEffect(() => { setRaw(String(value)) }, [value])
+  const [rawState, setRawState] = React.useState({ sourceValue: value, value: String(value) })
+  const raw = rawState.sourceValue === value ? rawState.value : String(value)
+  const setRaw = (nextValue: string) => setRawState({ sourceValue: value, value: nextValue })
 
   const commit = (str: string) => {
     const n = parseInt(str, 10)
@@ -436,6 +437,8 @@ function useRotatingMessage(phase: keyof typeof PHASE_MESSAGES, isRunning: boole
       const j = Math.floor(Math.random() * (i + 1));
       [msgs[i], msgs[j]] = [msgs[j], msgs[i]]
     }
+    // Shuffle once per phase so progress messages don't repeat in a fixed order.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setShuffled(msgs)
     setIndex(0)
   }, [phase])
@@ -565,6 +568,7 @@ function AuditProgressBar({
           {isDone && result && !progress && (
             <span className="text-xs font-bold" style={{ color: accentColor }}>
               {result.downloaded} downloaded آ· {result.analyzed} analyzed
+              {result.skipped ? ` · ${result.skipped} skipped` : ''}
             </span>
           )}
         </div>
@@ -673,6 +677,13 @@ function AuditProgressBar({
                 <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#60a5fa' }} />
                 <span className="text-xs font-bold" style={{ color: '#60a5fa' }}>{result.analyzed} analyzed</span>
               </div>
+              {!!result.skipped && <>
+                <div className="h-3 w-px" style={{ backgroundColor: 'var(--b-divider)' }} />
+                <div className="flex items-center gap-1.5">
+                  <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: 'var(--t-muted)' }} />
+                  <span className="text-xs font-bold" style={{ color: 'var(--t-muted)' }}>{result.skipped} skipped</span>
+                </div>
+              </>}
             </motion.div>
           )}
         </AnimatePresence>
@@ -683,7 +694,6 @@ function AuditProgressBar({
 
 /* ────────────────────────────────────────────────────────────────────────────── */
 function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
-  const token = useAuthStore((s) => s.token)
   const [dialerUrl, setDialerUrl] = useState('https://resva.readymode.com/')
   const [dialerUrl2, setDialerUrl2] = useState('')
   const [identifier, setIdentifier] = useState(mode === 'agent' ? 'All users' : '')
@@ -699,6 +709,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const [durationFilter, setDurationFilter] = useState('all')
   const [customDuration, setCustomDuration] = useState(60)
   const [minimumCallDuration, setMinimumCallDuration] = useState('20')
+  const [forceReaudit, setForceReaudit] = useState(false)
   const [dialerCheck, setDialerCheck] = useState<{
     status: 'idle' | 'loading' | 'done' | 'error'
     data?: CampaignDialerCountsResponse
@@ -789,6 +800,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
         : undefined,
       dispositions,
       audit_type: auditType,
+      force_reaudit: forceReaudit,
     }
     if (isCampaign) {
       body.duration_filter = durationFilter
@@ -798,7 +810,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
       body.minimum_call_duration_seconds = Math.max(1, Number.parseInt(minimumCallDuration, 10) || 20)
     }
     return body
-  }, [dialerUrl, dialerUrl2, isCampaign, identifier, maxCalls, startDate, endDate, useStartTime, startTimeHour, startTimeMinute, startTimeAmPm, dispositions, durationFilter, customDuration, minimumCallDuration])
+  }, [dialerUrl, dialerUrl2, isCampaign, identifier, maxCalls, startDate, endDate, useStartTime, startTimeHour, startTimeMinute, startTimeAmPm, dispositions, durationFilter, customDuration, minimumCallDuration, forceReaudit])
 
   const notConfigured = rmStatus?.status === 'not_configured'
   const needsCustomDuration = durationFilter === 'gt_custom' || durationFilter === 'lt_custom'
@@ -1169,6 +1181,21 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                   </div>
                   <NumberStepper value={maxCalls} onChange={setMaxCalls} min={1} max={2000} disabled={isRunning} />
                 </div>
+                <label className="flex items-start gap-2 text-sm cursor-pointer" style={{ color: 'var(--t-label)' }}>
+                  <input
+                    type="checkbox"
+                    checked={forceReaudit}
+                    onChange={(event) => setForceReaudit(event.target.checked)}
+                    disabled={isRunning}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Re-audit previously processed calls
+                    <span className="block text-xs" style={{ color: 'var(--t-muted)' }}>
+                      This downloads and analyzes those recordings again.
+                    </span>
+                  </span>
+                </label>
                 <div className="flex items-center justify-between w-full mt-2 gap-3 flex-wrap">
                   <Button
                     variant="action"

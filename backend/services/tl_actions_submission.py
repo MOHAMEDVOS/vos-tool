@@ -106,7 +106,7 @@ def _action_fields(details: str) -> dict[str, str]:
 
 
 def _submission_payload(
-    *, row_number: int, action_date: date, details: str, user_email: str,
+    *, action_date: date, details: str, user_email: str,
 ) -> dict[str, Any]:
     fields = _action_fields(details)
     required = ("Team Leader", "Agent Name")
@@ -242,7 +242,6 @@ def prepare_missing_action(*, row_number: int, action_date: date, expected_detai
         raise ValueError("This sheet row changed after reconciliation. Find missing actions again before sending it.")
 
     payload = _submission_payload(
-        row_number=row_number,
         action_date=action_date,
         details=source["details"],
         user_email=user_email,

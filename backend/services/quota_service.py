@@ -7,7 +7,7 @@ lib.dashboard_manager.user_manager.set_admin_limits_as_owner().
 
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))

@@ -4,9 +4,8 @@ Tracks connection pool metrics, query performance, and system health.
 """
 
 import logging
-import time
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import deque
 from dataclasses import dataclass, asdict
 import threading

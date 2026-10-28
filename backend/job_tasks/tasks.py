@@ -1,10 +1,9 @@
 import logging
-import time
 from typing import Dict, Any, Optional
 from datetime import datetime
 
 from backend.celery_app import celery_app
-from backend.services.job_store import update_job, set_job_result, get_job
+from backend.services.job_store import update_job, set_job_result
 from processing.batch_engine import batch_analyze_folder_fast
 
 logger = logging.getLogger(__name__)

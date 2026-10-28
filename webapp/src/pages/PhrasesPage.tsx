@@ -180,6 +180,8 @@ function LearningSettings() {
 
   useEffect(() => {
     if (!data) return
+    // Populate editable controls when the server settings arrive.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setConfidence(String(data.confidence_threshold ?? 0.7))
     setFrequency(String(data.frequency_threshold ?? 3))
     setAutoApprove(String(data.auto_approve_threshold ?? 0.9))

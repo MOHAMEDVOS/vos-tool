@@ -6,7 +6,6 @@ import { AppShell } from '@/components/layout/AppShell'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { useUiStore } from '@/store/uiStore'
 import { useFlaggedBadge } from '@/hooks/useDashboard'
-import { useBadgeStore } from '@/store/badgeStore'
 
 import { TopLoadingBar } from '@/components/ui/TopLoadingBar'
 import { LoginPage }      from '@/pages/LoginPage'

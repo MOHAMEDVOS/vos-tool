@@ -41,10 +41,14 @@ export function CustomSelect({
 
   useEffect(() => {
     if (open) {
-      setSearch('')
       setTimeout(() => inputRef.current?.focus(), 100)
     }
   }, [open])
+
+  const toggleOpen = () => {
+    if (!open) setSearch('')
+    setOpen((current) => !current)
+  }
 
   const normalizedOptions = options.map(opt =>
     typeof opt === 'string' ? { label: opt, value: opt } : opt
@@ -70,7 +74,7 @@ export function CustomSelect({
         whileTap={{ scale: 0.995 }}
         type="button"
         disabled={disabled}
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
         style={{ backgroundColor: 'var(--c-base)', color: 'var(--t-primary)' }}
         className="flex h-[38px] w-full items-center justify-between rounded-md border border-b-subtle px-3 py-1.5 text-sm shadow-inner outline-none transition-all focus:border-b-strong disabled:opacity-50"
       >

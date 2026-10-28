@@ -119,6 +119,8 @@ COPY cloud-migration/init.sql /app/cloud-migration/init.sql
 COPY cloud-migration/migration_schema.sql /app/cloud-migration/migration_schema.sql
 COPY config.py /app/
 COPY backend/entrypoint.sh /app/entrypoint.sh
+COPY alembic.ini /app/alembic.ini
+COPY migrations/ /app/migrations/
 
 # Make entrypoint script executable
 RUN chmod +x /app/entrypoint.sh

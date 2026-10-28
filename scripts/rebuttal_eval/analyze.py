@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 import argparse, json
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
 WRONG = {"wrong_agent_did_rebut", "wrong_no_objection", "unusable"}
@@ -29,7 +29,7 @@ def main():
 
     labels = {r["id"]: r for r in load(a.labels)}
     sample = {r["id"]: r for r in load(a.sample)}
-    replay = {r["id"]: r for r in load(a.replay)}
+    _ = load(a.replay)  # Keep validating the replay path accepted by this CLI.
     total = len(labels)
     wrong = [c for c, r in labels.items() if r["verdict"] in WRONG]
     counts = Counter(r["verdict"] for r in labels.values())
@@ -115,7 +115,6 @@ def main():
     # --- ceiling analysis ---
     w("## What the fixes can actually achieve")
     w()
-    fair = total - len(wrong)
     det_only = len([c for c in wrong if labels[c]["verdict"] == "wrong_agent_did_rebut"])
     rest = len(wrong) - det_only
     w(f"- Perfect detection (never miss a rebuttal) removes **{det_only}** wrong flags. "

@@ -3,14 +3,12 @@ FastAPI Backend Application for VOS (Voice Observation System)
 Main entry point for the REST API backend service.
 """
 
-import os
 import sys
 from pathlib import Path
 
 # Add parent directory to path to access lib modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -62,7 +60,7 @@ async def lifespan(app: FastAPI):
             
         try:
             from lib.phrase_learning import PhraseLearningManager
-            phrase_manager = PhraseLearningManager()
+            _phrase_manager = PhraseLearningManager()
             logger.info("✅ [STARTUP] Phrase learning manager initialized")
         except Exception as e:
             logger.error(f"❌ [STARTUP] Failed to initialize PhraseLearningManager: {e}")

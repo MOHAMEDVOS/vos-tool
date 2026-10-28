@@ -7,7 +7,6 @@ import os
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-import json
 from urllib.parse import urlparse, parse_qs, unquote
 
 # Load environment variables from .env file
@@ -208,7 +207,7 @@ class DatabaseManager:
                 sslmode = 'require' if 'supabase.co' in host else 'prefer'
 
             def _create_pool(resolved_host: str):
-                return psycopg2.pool.ThreadedConnectionPool(
+                return pool.ThreadedConnectionPool(
                     minconn=min_connections,
                     maxconn=max_connections,
                     host=resolved_host,
@@ -283,7 +282,7 @@ class DatabaseManager:
                     if conn:
                         logger.debug(f"Connection acquired from pool after {time.time() - start_wait:.2f}s wait")
                         return conn
-                except psycopg2.pool.PoolError:
+                except pool.PoolError:
                     # Pool is full, wait and retry
                     time.sleep(0.5)
                 except Exception as e:
@@ -292,7 +291,7 @@ class DatabaseManager:
             
             # If we get here, we timed out
             logger.error(f"CRITICAL: Connection pool exhausted for {wait_timeout}s")
-            raise psycopg2.pool.PoolError("connection pool exhausted after timeout")
+            raise pool.PoolError("connection pool exhausted after timeout")
         else:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
@@ -356,7 +355,7 @@ class DatabaseManager:
                         continue
                 
                 if not conn:
-                    raise psycopg2.pool.PoolError("Could not obtain a valid database connection after multiple attempts")
+                    raise pool.PoolError("Could not obtain a valid database connection after multiple attempts")
 
                 if self.db_type == 'postgresql':
                     cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -405,7 +404,7 @@ class DatabaseManager:
                     conn.commit()
                     return cursor.rowcount
                 
-            except psycopg2.pool.PoolError as e:
+            except pool.PoolError as e:
                 # Handle connection pool exhaustion with retry
                 if "connection pool exhausted" in str(e).lower() or "pool" in str(e).lower():
                     if retry_count < max_retries - 1:

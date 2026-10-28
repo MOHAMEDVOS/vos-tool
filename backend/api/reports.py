@@ -9,7 +9,7 @@ from datetime import date
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from backend.core.dependencies import get_current_user
 from backend.services.campaign_report_export import generate_campaign_report

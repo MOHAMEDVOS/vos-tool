@@ -6,21 +6,14 @@ import { Spinner } from '@/components/ui/Spinner'
 import { useAuthStore } from '@/store/authStore'
 import { tlActionsApi, type TlActionsReconciliation, type TlActionResult } from '@/api/tlActions'
 
-interface LeaderCount {
-  name: string
-  count: number
-}
-
-const FIELD_NAMES = [
-  'Team Leader',
-  'Agent Name',
-  'Type of Issue',
-  'Details about incident',
-  'Reported by TL',
-  'Action Given',
-] as const
-
-type ActionFields = Partial<Record<(typeof FIELD_NAMES)[number], string>>
+type ActionFieldName =
+  | 'Team Leader'
+  | 'Agent Name'
+  | 'Type of Issue'
+  | 'Details about incident'
+  | 'Reported by TL'
+  | 'Action Given'
+type ActionFields = Partial<Record<ActionFieldName, string>>
 
 function localDate(date: Date): string {
   const year = date.getFullYear()
@@ -34,7 +27,7 @@ function parseActionDetails(details: string): ActionFields {
   const matches = [...details.matchAll(pattern)]
   const fields: ActionFields = {}
   matches.forEach((match, index) => {
-    const label = match[1] as (typeof FIELD_NAMES)[number]
+    const label = match[1] as ActionFieldName
     const start = (match.index ?? 0) + match[0].length
     const end = matches[index + 1]?.index ?? details.length
     fields[label] = details.slice(start, end)

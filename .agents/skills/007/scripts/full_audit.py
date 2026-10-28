@@ -33,15 +33,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import (  # noqa: E402
-    BASE_DIR,
-    DATA_DIR,
     REPORTS_DIR,
-    SCANNABLE_EXTENSIONS,
     SKIP_DIRECTORIES,
     SCORING_WEIGHTS,
     SCORING_LABELS,
-    SEVERITY,
-    LIMITS,
     ensure_directories,
     get_verdict,
     get_timestamp,

@@ -3,12 +3,10 @@ Audio processing service.
 Handles audio upload, transcription, and analysis.
 """
 
-import os
 import uuid
 import asyncio
 from pathlib import Path
 from typing import Dict, Any, Optional
-from datetime import datetime
 import logging
 import sys
 
@@ -105,25 +103,17 @@ async def _process_audio_background(
         except Exception as e:
             logger.error(f"Error getting user settings for {username}: {e}")
         
-        # Import processing functions
-        from processing import batch_analyze_folder, batch_analyze_folder_lite
-        from audio_pipeline.audio_processor import AudioProcessor
+        # Import only the processors used for single-file work.
         from audio_pipeline.fast_audio_processor import FastAudioProcessor
         from audio_pipeline.semantic_audio_processor import SemanticAudioProcessor
-        from lib.egyptian_accent_correction import EgyptianAccentCorrection
         
         # Process based on audit type - SINGLE FILE ONLY
         job_metadata = {"API Key Source": api_key_source, "Processing Mode": "single_file"}
 
-        # Get timeout from config
-        try:
-            from backend.core.config import settings
-            if audit_type == "lite":
-                timeout = settings.PROCESSING_TIMEOUT_LITE_FILE
-            else:
-                timeout = settings.PROCESSING_TIMEOUT_SINGLE_FILE
-        except ImportError:
-            timeout = 600  # 10 minutes default for heavy, 60s for lite
+        if audit_type == "lite":
+            timeout = settings.PROCESSING_TIMEOUT_LITE_FILE
+        else:
+            timeout = settings.PROCESSING_TIMEOUT_SINGLE_FILE
 
         if audit_type == "lite":
             # Lite audit processing - FAST single file only
@@ -177,8 +167,6 @@ async def _process_audio_background(
         
         # Also save to dashboard for immediate visibility
         try:
-            from lib.dashboard_manager import dashboard_manager
-            
             # Convert result to DataFrame for dashboard storage
             import pandas as pd
             if isinstance(result_payload, list) and result_payload:

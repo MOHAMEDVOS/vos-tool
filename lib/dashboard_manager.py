@@ -9,6 +9,7 @@ from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any, Tuple, Callable
 import json
 import logging
+import re
 # Streamlit import - optional, only used for getting request info
 try:
     import streamlit as st
@@ -17,30 +18,11 @@ except ImportError:
     STREAMLIT_AVAILABLE = False
     st = None
 import os
-import tempfile
 import time
-import contextlib
-
-# File locking imports (cross-platform)
-try:
-    if os.name == 'posix':  # Unix/Linux/Mac
-        import fcntl
-        HAS_FCNTL = True
-    else:
-        HAS_FCNTL = False
-    
-    if os.name == 'nt':  # Windows
-        import msvcrt
-        HAS_MSVCRT = True
-    else:
-        HAS_MSVCRT = False
-except ImportError:
-    HAS_FCNTL = False
-    HAS_MSVCRT = False
 
 # Import security utilities for password hashing
 try:
-    from lib.security_utils import security_manager, encrypt_credentials, decrypt_credentials
+    from lib.security_utils import security_manager
     SECURITY_AVAILABLE = True
 except ImportError as e:
     SECURITY_AVAILABLE = False
@@ -67,6 +49,123 @@ except ImportError as e:
     logging.warning(f"Quota management system not available. Error: {e}")
 
 logger = logging.getLogger(__name__)
+
+
+def _rating_from_ratio(ratio: float) -> str:
+    if ratio < 0.3:
+        return "Low"
+    if ratio < 0.5:
+        return "Medium"
+    return "High"
+
+
+def _performance_issue_note(feedback: str, kind: str) -> str:
+    if feedback != "Yes":
+        return "N/A"
+    if kind == "effort":
+        return (
+            "Coach agents to keep steady energy and focus during calls. "
+            "Review a small sample of long or low-energy calls each week."
+        )
+    if kind == "rebuttal":
+        return (
+            "Train agents to always try at least one clear rebuttal before ending the call. "
+            "Provide simple scripts for the most common objections."
+        )
+    if kind == "releasing":
+        return (
+            "Review calls that end early to understand why. Check scripts, tools, and lead quality, "
+            "and add a closing checklist if needed."
+        )
+    if kind == "coaching":
+        return (
+            "Schedule focused coaching sessions for agents whose calls show repeated issues in rebuttals, "
+            "releasing, or list quality."
+        )
+    if kind == "allocation":
+        return (
+            "Review how calls are distributed between agents. Move some calls from very busy agents "
+            "to others so workload and opportunities are more balanced."
+        )
+    if kind == "campaign_list":
+        return (
+            "Clean the campaign list by removing wrong or unknown numbers and updating stale records. "
+            "Consider improving the data source for future lists."
+        )
+    return "N/A"
+
+
+def _performance_issue(label: str, feedback: str, rating: str, kind: str) -> dict[str, str]:
+    return {
+        "label": label,
+        "feedback": feedback,
+        "rating": rating,
+        "notes": _performance_issue_note(feedback, kind),
+    }
+
+
+def _parse_lite_filename_metadata(file_name: str) -> Tuple[str, str, str]:
+    """Extract timestamp, phone number, and disposition from a lite-audit filename."""
+    phone_number = ''
+    timestamp = ''
+    disposition = ''
+
+    if file_name:
+        try:
+            stem = Path(file_name).stem
+            parts = stem.split(" _ ")
+
+            if len(parts) == 4:
+                _, timestamp, phone_number, disposition = parts
+            elif len(parts) == 2:
+                _, phone_number = parts
+            else:
+                timestamp = stem
+
+            if timestamp:
+                timestamp = re.sub(
+                    r'(\d{1,2})_(\d{2})(AM|PM)',
+                    r'\1:\2\3',
+                    timestamp,
+                    flags=re.IGNORECASE,
+                )
+        except Exception as e:
+            logger.debug(f"Error parsing file_name for metadata: {e}")
+            phone_number = ''
+            timestamp = ''
+            disposition = ''
+
+    return phone_number, timestamp, disposition
+
+
+def _dialer_name_from_file_path(file_path_str: str) -> str:
+    """Read the dialer suffix from the parent folder name when present."""
+    if not file_path_str:
+        return ''
+
+    try:
+        parent_dir = Path(file_path_str).parent.name
+        if ' ' not in parent_dir:
+            return ''
+        parts = parent_dir.rsplit(' ', 1)
+        if len(parts) == 2:
+            return parts[1].strip().rstrip('/\\')
+    except Exception as e:
+        logger.debug(f"Error extracting dialer name from file path: {e}")
+
+    return ''
+
+
+def _extract_time_from_filename(file_name: str) -> str:
+    """Extract a clock time from the filename when its timestamp includes one."""
+    if not file_name:
+        return ''
+
+    stem = Path(file_name).stem
+    match = re.search(r'(\d{1,2})[_\:](\d{2})\s*(AM|PM)', stem, re.IGNORECASE)
+    if not match:
+        return ''
+    return f"{int(match.group(1))}:{match.group(2)} {match.group(3).upper()}"
 
 
 def convert_detection_to_boolean(value: Any, default: bool = False) -> bool:
@@ -358,8 +457,6 @@ class SessionManager:
             True if session is valid and active, or if we can't verify (benefit of doubt)
             False only if we definitively know the session is invalid
         """
-        import time
-        
         max_retries = 2
         retry_delay = 0.5  # seconds
         
@@ -699,7 +796,6 @@ class UserManager:
             # Import default users from config
             try:
                 from config import USER_CREDENTIALS as default_users
-                import os
 
                 # Optional: single initial password for all default users on fresh deployments
                 # This value should be provided via environment variable (e.g. on RunPod)
@@ -1818,7 +1914,7 @@ class DashboardManager:
                     result = self._db_manager.execute_query(query, fetchone=True)
                     if result:
                         sharing_groups = result.get('sharing_groups', '{}')
-                        dashboard_mode = result.get('dashboard_mode', 'isolated')
+                        _ = result.get('dashboard_mode', 'isolated')
                         if isinstance(sharing_groups, str):
                             sharing_groups = json.loads(sharing_groups)
                         return {
@@ -2118,7 +2214,6 @@ class DashboardManager:
             return ""
             
         # 1. First, try to match the specific '7_28PM' or '12_45 AM' format common in filenames
-        import re
         # This matches things like 7_28PM, 7_28 PM, 07_28PM, 12:45PM, 4:00AM, etc.
         match = re.search(r'(\d{1,2})[_\:](\d{2})\s*(AM|PM)', ts_str, re.IGNORECASE)
         if match:
@@ -2128,16 +2223,14 @@ class DashboardManager:
         try:
             # 2. Handle 13-digit JS timestamps (milliseconds)
             if ts_str.isdigit() and len(ts_str) == 13:
-                import datetime
-                dt_obj = datetime.datetime.fromtimestamp(int(ts_str) / 1000.0)
+                dt_obj = datetime.fromtimestamp(int(ts_str) / 1000.0)
                 return dt_obj.strftime("%I:%M %p")
                 
             # 3. Handle standard date/time strings
             from dateutil import parser
             # CRITICAL: We use a very specific default to detect if the time portion is actually present
             # If the parser doesn't find a time, it will return the time from our default (04:19:28)
-            import datetime
-            magic_default = datetime.datetime(1900, 1, 1, 4, 19, 28)
+            magic_default = datetime(1900, 1, 1, 4, 19, 28)
             dt_obj = parser.parse(ts_str, default=magic_default)
             
             # If the time is our magic default, it means the input string HAD NO TIME
@@ -2367,15 +2460,7 @@ class DashboardManager:
                     db_timestamp = row.get('timestamp', '')
                     
                     # Try extraction from filename first to 'repair' any bad DB data
-                    extracted_time = ""
-                    if file_name:
-                        import re
-                        from pathlib import Path
-                        stem = Path(file_name).stem
-                        # Match 7_28PM or 4:00AM or May 5, 4:00AM
-                        match = re.search(r'(\d{1,2})[_\:](\d{2})\s*(AM|PM)', stem, re.IGNORECASE)
-                        if match:
-                            extracted_time = f"{int(match.group(1))}:{match.group(2)} {match.group(3).upper()}"
+                    extracted_time = _extract_time_from_filename(file_name)
                     
                     record = {
                         'id': row.get('id'),
@@ -2419,8 +2504,7 @@ class DashboardManager:
                         fp = record.get('File Path') or row.get('file_path') or ''
                         if fp:
                             try:
-                                from pathlib import Path as _Path
-                                parent = _Path(fp).parent.name
+                                parent = Path(fp).parent.name
                                 if ' ' in parent:
                                     record['Dialer Name'] = parent.rsplit(' ', 1)[-1].strip().rstrip('/\\')
                             except Exception:
@@ -2586,6 +2670,8 @@ class DashboardManager:
                         'timestamp': record.get('Timestamp', ''),  # CRITICAL: Save call timestamp from filename
                         'phone_number': record.get('Phone Number', ''),  # Save phone number
                         'disposition': record.get('Disposition', ''),  # Save disposition
+                        'readymode_recording_id': record.get('ReadyMode Recording ID', ''),
+                        'readymode_dialer_host': record.get('ReadyMode Dialer Host', ''),
                         'audit_timestamp': audit_timestamp
                     }
                     
@@ -2734,42 +2820,7 @@ class DashboardManager:
                         # Extract Phone Number, Timestamp, Disposition from file_name
                         # Use same logic as process_single_file_lite
                         file_name = row.get('file_name', '')
-                        phone_number = ''
-                        timestamp = ''
-                        disposition = ''
-                        
-                        if file_name:
-                            try:
-                                from pathlib import Path
-                                import re
-                                stem = Path(file_name).stem
-                                # Try to extract with pattern first
-                                parts = stem.split(" _ ")
-                                
-                                if len(parts) == 4:
-                                    # New format: AgentName _ Timestamp _ Phone _ Disposition.mp3
-                                    agent_name_raw, timestamp_raw, phone_number, disposition = parts
-                                    timestamp = timestamp_raw
-                                elif len(parts) == 2:
-                                    # Old format: AgentName _ Phone.mp3
-                                    agent_name_raw, phone_number = parts
-                                    timestamp = ""
-                                else:
-                                    # No pattern found (e.g., "May 5, 4:00AM")
-                                    # Treat the whole stem as the timestamp/metadata source
-                                    timestamp = stem
-                                    phone_number = ""
-                                    disposition = ""
-
-                                # Cleanup timestamp formatting if it contains underscores (ReadyMode specific)
-                                if timestamp:
-                                    # Replace _ with : (e.g. 7_28PM -> 7:28PM)
-                                    timestamp = re.sub(r'(\d{1,2})_(\d{2})(AM|PM)', r'\1:\2\3', timestamp, flags=re.IGNORECASE)
-                            except Exception as e:
-                                logger.debug(f"Error parsing file_name for metadata: {e}")
-                                phone_number = ''
-                                timestamp = ''
-                                disposition = ''
+                        phone_number, timestamp, disposition = _parse_lite_filename_metadata(file_name)
                         
                         # Override with detection_results if they exist (more reliable)
                         if detection_results.get('phone_number'):
@@ -2784,15 +2835,7 @@ class DashboardManager:
                         #           2. Fallback to stored timestamp
                         
                         # Try extraction from filename first to 'repair' any bad DB data
-                        extracted_time = ""
-                        if file_name:
-                            import re
-                            from pathlib import Path
-                            stem = Path(file_name).stem
-                            # Match 7_28PM or 4:00AM or May 5, 4:00AM
-                            match = re.search(r'(\d{1,2})[_\:](\d{2})\s*(AM|PM)', stem, re.IGNORECASE)
-                            if match:
-                                extracted_time = f"{int(match.group(1))}:{match.group(2)} {match.group(3).upper()}"
+                        extracted_time = _extract_time_from_filename(file_name)
                                 
                         record['Timestamp'] = timestamp
                         record['Time'] = extracted_time or self._format_time(timestamp)
@@ -2802,19 +2845,7 @@ class DashboardManager:
                         dialer_name = detection_results.get('dialer_name', '')
                         if not dialer_name:
                             # Try to extract from file path if not in detection_results
-                            file_path_str = row.get('file_path', '')
-                            if file_path_str:
-                                try:
-                                    from pathlib import Path
-                                    file_path = Path(file_path_str)
-                                    parent_dir = file_path.parent.name
-                                    if ' ' in parent_dir:
-                                        # Split on last space to get dialer name (handles "users-2025-12-12_005 resva3" -> "resva3")
-                                        parts = parent_dir.rsplit(' ', 1)
-                                        if len(parts) == 2:
-                                            dialer_name = parts[1].strip().rstrip('/\\')
-                                except Exception as e:
-                                    logger.debug(f"Error extracting dialer name from file path: {e}")
+                            dialer_name = _dialer_name_from_file_path(row.get('file_path', ''))
                         
                         # Add standard lite audit columns with defaults (matching Agent Audit Dashboard)
                         record['Agent Intro'] = 'N/A'
@@ -2992,7 +3023,6 @@ class DashboardManager:
                 # Continue with legacy system if quota system fails
         
         today = datetime.now().date()
-        today_str = today.isoformat()
         if self._db_manager:
             try:
                 # Check if record exists
@@ -3698,26 +3728,9 @@ class DashboardManager:
                 'flag_rate': 0.0
             }
         
-        # Count flagged samples per agent for warning system
-        flagged_counts = {}
-        if 'Agent Name' in df.columns and ('Releasing Detection' in df.columns or 'Late Hello Detection' in df.columns or 'Rebuttal Detection' in df.columns):
-            for _, row in df.iterrows():
-                agent_name = row.get('Agent Name', 'Unknown')
-                # Count as flagged if releasing, late hello, or rebuttal not used
-                releasing_flagged = row.get('Releasing Detection', 'No') == 'Yes'
-                late_hello_flagged = row.get('Late Hello Detection', 'No') == 'Yes'
-                rebuttal_not_used = row.get('Rebuttal Detection', 'No') == 'No'  # "No" means rebuttal not detected
-                
-                is_flagged = releasing_flagged or late_hello_flagged or rebuttal_not_used
-                if is_flagged:
-                    flagged_counts[agent_name] = flagged_counts.get(agent_name, 0) + 1
-        
         # Get metrics using the new method
         # Calculate basic audit metrics directly
         total_calls = len(df)
-        flagged_calls = 0
-        releasing_calls = 0
-        late_hello_calls = 0
         
         # Find the correct column names (they might vary slightly)
         releasing_col = None
@@ -3795,19 +3808,6 @@ class DashboardManager:
 
         late_hello_yes = len(df[df.get('Late Hello Detection') == 'Yes']) if 'Late Hello Detection' in df.columns else 0
         late_hello_no = len(df[df.get('Late Hello Detection') == 'No']) if 'Late Hello Detection' in df.columns else 0
-
-        # Disposition interpretation mapping (kept for future use)
-        disposition_mapping = {
-            'Unknown': {'meaning': 'Owner hung up too early', 'category': 'Short or early hang-up'},
-            'Sold': {'meaning': 'Property already sold', 'category': 'No opportunity'},
-            'DNC – Decision Maker': {'meaning': 'Owner asked to be removed (confirmed)', 'category': 'Hard DNC'},
-            'DNC – Unknown': {'meaning': 'Unknown person asked to be removed', 'category': 'Soft DNC'},
-            'Decision Maker – NYI': {'meaning': 'Owner reached but not interested', 'category': 'Lead reached, not convinced'},
-            'Wrong Number': {'meaning': 'Reached non-owner', 'category': 'Lead quality issue'},
-            'Dead Call': {'meaning': 'No response or call dropped', 'category': 'Could be agent release or bad line'},
-            'Listed Property': {'meaning': 'Property already listed', 'category': 'Duplicate lead or outdated data'},
-            'Voicemail': {'meaning': 'Call went to voicemail', 'category': 'Timing/list issue'}
-        }
 
         # Calculate percentages
         disposition_percentages: Dict[str, float] = {}
@@ -3915,13 +3915,11 @@ class DashboardManager:
 
         # Generate AI-powered observations using patterns
         ai_observations = self._generate_ai_insights(
-            df,
             disposition_counts,
             {
                 'rebuttal_ratio': 1 - (rebuttal_no / max(rebuttal_yes + rebuttal_no, 1)),  # attempt ratio
                 'late_hello_rate': late_hello_rate,
                 'releasing_rate': releasing_yes / max(total_calls, 1),
-                'nyi_rate': nyi_pct / 100.0,
             },
         )
 
@@ -3941,13 +3939,6 @@ class DashboardManager:
         skipped_ratio = behavioral_metrics['rebuttal_not_attempted_ratio']
         releasing_rate_total = releasing_yes / total_calls_safe
         late_hello_rate_total = late_hello_yes / total_calls_safe
-
-        def _rating_from_ratio(ratio: float) -> str:
-            if ratio < 0.3:
-                return "Low"
-            if ratio < 0.5:
-                return "Medium"
-            return "High"
 
         effort_ratio = max(skipped_ratio, late_hello_rate_total, releasing_rate_total)
         effort_feedback = "Yes" if effort_ratio >= 0.3 else "No"
@@ -4007,113 +3998,28 @@ class DashboardManager:
                 allocation_feedback = "N/A"
                 allocation_rating = "N/A"
 
-        def _note(feedback: str, rating: str, kind: str) -> str:
-            if feedback != "Yes":
-                return "N/A"
-            if kind == "effort":
-                return (
-                    "Coach agents to keep steady energy and focus during calls. "
-                    "Review a small sample of long or low-energy calls each week."
-                )
-            if kind == "rebuttal":
-                return (
-                    "Train agents to always try at least one clear rebuttal before ending the call. "
-                    "Provide simple scripts for the most common objections."
-                )
-            if kind == "releasing":
-                return (
-                    "Review calls that end early to understand why. Check scripts, tools, and lead quality, "
-                    "and add a closing checklist if needed."
-                )
-            if kind == "tonality":
-                return "N/A"
-            if kind == "coaching":
-                return (
-                    "Schedule focused coaching sessions for agents whose calls show repeated issues in rebuttals, "
-                    "releasing, or list quality."
-                )
-            if kind == "allocation":
-                return (
-                    "Review how calls are distributed between agents. Move some calls from very busy agents "
-                    "to others so workload and opportunities are more balanced."
-                )
-            if kind == "campaign_list":
-                return (
-                    "Clean the campaign list by removing wrong or unknown numbers and updating stale records. "
-                    "Consider improving the data source for future lists."
-                )
-            return "N/A"
-
         issue_table = {
-            'effort_issue': {
-                'label': 'Effort Issue from Agents',
-                'feedback': effort_feedback,
-                'rating': effort_rating,
-                'notes': _note(effort_feedback, effort_rating, 'effort'),
-            },
-            'rebuttal_issue': {
-                'label': 'Rebuttals issue',
-                'feedback': rebuttal_feedback,
-                'rating': rebuttal_rating,
-                'notes': _note(rebuttal_feedback, rebuttal_rating, 'rebuttal'),
-            },
-            'releasing_issue': {
-                'label': 'Releasing issue',
-                'feedback': releasing_feedback,
-                'rating': releasing_rating,
-                'notes': _note(releasing_feedback, releasing_rating, 'releasing'),
-            },
-            'tonality_issue': {
-                'label': 'Active Tonality issue',
-                'feedback': tonality_feedback,
-                'rating': tonality_rating,
-                'notes': _note(tonality_feedback, tonality_rating, 'tonality'),
-            },
-            'agents_coaching': {
-                'label': 'Agents needs Coaching',
-                'feedback': needs_coaching_feedback,
-                'rating': needs_coaching_rating,
-                'notes': _note(needs_coaching_feedback, needs_coaching_rating, 'coaching'),
-            },
-            'agents_allocation': {
-                'label': 'Agents allocation issue',
-                'feedback': allocation_feedback,
-                'rating': allocation_rating,
-                'notes': _note(allocation_feedback, allocation_rating, 'allocation'),
-            },
-            'campaign_list': {
-                'label': 'Campaign List Issue',
-                'feedback': campaign_list_feedback,
-                'rating': campaign_list_rating,
-                'notes': _note(campaign_list_feedback, campaign_list_rating, 'campaign_list'),
-            },
-        }
-
-        # Build compact campaign metrics payload for the AI helpers
-        campaign_name = None
-        date_range_label = None
-        try:
-            session_state = getattr(st, "session_state", None)
-            if session_state is not None:
-                campaign_name = session_state.get("campaign_select")
-                start_date_val = session_state.get("campaign_start_date")
-                end_date_val = session_state.get("campaign_end_date")
-                if start_date_val and end_date_val:
-                    date_range_label = f"{start_date_val} - {end_date_val}"
-        except Exception:
-            campaign_name = None
-            date_range_label = None
-
-        campaign_metrics = {
-            "total_calls": total_calls,
-            "agents_audited": unique_agents,
-            "behavioral_metrics": behavioral_metrics,
-            "disposition_breakdown": disposition_counts,
-            "disposition_percentages": disposition_percentages,
-            "observations": observations,
-            "recommendations": recommendations,
-            "campaign_name": campaign_name,
-            "date_range": date_range_label,
+            'effort_issue': _performance_issue(
+                'Effort Issue from Agents', effort_feedback, effort_rating, 'effort'
+            ),
+            'rebuttal_issue': _performance_issue(
+                'Rebuttals issue', rebuttal_feedback, rebuttal_rating, 'rebuttal'
+            ),
+            'releasing_issue': _performance_issue(
+                'Releasing issue', releasing_feedback, releasing_rating, 'releasing'
+            ),
+            'tonality_issue': _performance_issue(
+                'Active Tonality issue', tonality_feedback, tonality_rating, 'tonality'
+            ),
+            'agents_coaching': _performance_issue(
+                'Agents needs Coaching', needs_coaching_feedback, needs_coaching_rating, 'coaching'
+            ),
+            'agents_allocation': _performance_issue(
+                'Agents allocation issue', allocation_feedback, allocation_rating, 'allocation'
+            ),
+            'campaign_list': _performance_issue(
+                'Campaign List Issue', campaign_list_feedback, campaign_list_rating, 'campaign_list'
+            ),
         }
 
         return {
@@ -4127,11 +4033,10 @@ class DashboardManager:
             'issue_table': issue_table,
         }
 
-    def _generate_ai_insights(self, df: pd.DataFrame, disposition_counts: dict, behavioral_ratios: dict) -> list:
+    def _generate_ai_insights(self, disposition_counts: dict, behavioral_ratios: dict) -> list:
         """Generate AI-powered observations based on data patterns.
 
         Args:
-            df: Audit data
             disposition_counts: Disposition frequency counts
             behavioral_ratios: Key behavioral metrics
 
@@ -4144,7 +4049,6 @@ class DashboardManager:
         rebuttal_ratio = behavioral_ratios['rebuttal_ratio']
         late_hello_rate = behavioral_ratios['late_hello_rate']
         releasing_rate = behavioral_ratios['releasing_rate']
-        nyi_rate = behavioral_ratios['nyi_rate']
 
         # Engagement analysis - expanded
         if rebuttal_ratio > 0.8:
@@ -4153,19 +4057,13 @@ class DashboardManager:
             observations.append("Good objection handling performance.")
         elif rebuttal_ratio < 0.4:
             observations.append("Objection handling needs improvement.")
-        elif rebuttal_ratio < 0.2:
-            observations.append("Urgent objection training required.")
 
         # Quality analysis - expanded
         if late_hello_rate > 0.15:
             observations.append("Call initiation timing requires attention.")
-        elif late_hello_rate > 0.25:
-            observations.append("Severe delays in call initiation.")
 
         if releasing_rate > 0.08:
             observations.append("Call termination patterns require review.")
-        elif releasing_rate > 0.12:
-            observations.append("Excessive call abandonment requires immediate action.")
 
         # Disposition analysis - expanded
         total_calls = sum(disposition_counts.values())
@@ -4174,8 +4072,6 @@ class DashboardManager:
 
         if voicemail_rate + unknown_rate > 0.4:
             observations.append("High volume of unanswered calls.")
-        elif voicemail_rate + unknown_rate > 0.6:
-            observations.append("Excessive unanswered call volume.")
 
         # Additional disposition insights
         sold_rate = disposition_counts.get('Sold', 0) / max(total_calls, 1)
@@ -4229,7 +4125,6 @@ class DashboardManager:
         if self._db_manager:
             try:
                 shared_users = self.get_shared_users(username)
-                placeholders = ','.join(['%s'] * len(shared_users))
                 if campaign_name:
                     # Clear specific campaign for all shared users
                     query = f"DELETE FROM campaign_audit_results WHERE LOWER(username) IN ({','.join(['LOWER(%s)'] * len(shared_users))}) AND LOWER(campaign_name) = LOWER(%s)"

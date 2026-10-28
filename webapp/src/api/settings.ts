@@ -2,7 +2,6 @@ import { api } from './client'
 import type {
   AppConfigCategory,
   CreateUserRequest,
-  GenericActionResponse,
   UpdateUserRequest,
   UserInfo,
   UserListResponse,

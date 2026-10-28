@@ -16,6 +16,7 @@ import os
 import re
 import logging
 import threading
+import json
 from pathlib import Path
 from urllib.parse import quote
 from datetime import datetime
@@ -33,6 +34,8 @@ try:  # support both "automation.download_readymode_calls" and bare "download_re
         disposition_type_ids,
         all_type_ids,
         is_blocked_disposition,
+        canonical_dialer_host,
+        normalize_recording_id,
         DISPOSITION_TYPE_IDS,
     )
 except ImportError:  # pragma: no cover
@@ -45,6 +48,8 @@ except ImportError:  # pragma: no cover
         disposition_type_ids,
         all_type_ids,
         is_blocked_disposition,
+        canonical_dialer_host,
+        normalize_recording_id,
         DISPOSITION_TYPE_IDS,
     )
 
@@ -66,11 +71,6 @@ try:
     MAX_CONCURRENT_DOWNLOADS = int(_max_downloads_env)
 except ValueError:
     MAX_CONCURRENT_DOWNLOADS = 15
-
-
-def _sanitize_path_component(value: str) -> str:
-    """Sanitize strings for safe filesystem usage."""
-    return re.sub(r"[^A-Za-z0-9_-]", "_", value)
 
 
 def get_next_run_counter(agent_name: str, username: str, subfolder: str) -> int:
@@ -215,10 +215,13 @@ def _collect_tasks_for_dialer(
     max_samples, download_dir,
     cancellation_callback=None,
     task_offset=0,
+    registry_run_id=None,
+    force_reaudit=False,
+    claim_recordings_callback=None,
 ):
     """Login to one dialer and paginate up to max_samples tasks.
 
-    Returns (tasks, cookies_dict) where tasks = [(href, filepath, filename), ...].
+    Returns (tasks, cookies_dict, skipped_count). Tasks include recording identity metadata.
     task_offset is used to keep 'unknown_N' phone placeholders unique across dialers.
     Raises ReadyModeLoginError / ReadyModeNoCallsError on hard failures.
     """
@@ -265,8 +268,11 @@ def _collect_tasks_for_dialer(
     total_pages = None
     skipped_vm = 0
     collected = task_offset  # used only for unique placeholder filenames
+    selected_count = 0
+    skipped_existing = 0
+    dialer_host = canonical_dialer_host(dialer_url)
 
-    while len(tasks) < max_samples and page < 2000:
+    while selected_count < max_samples and page < 2000:
         if cancellation_callback and cancellation_callback():
             raise KeyboardInterrupt("Download cancelled by user")
 
@@ -287,9 +293,9 @@ def _collect_tasks_for_dialer(
         if not results:
             break
 
-        new_links = 0
+        candidates = []
         for row in results.values():
-            if len(tasks) >= max_samples:
+            if selected_count >= max_samples:
                 break
             rec = row.get("RecId")
             if not rec:
@@ -297,7 +303,9 @@ def _collect_tasks_for_dialer(
 
             href = f"{client.dialer}{quote(rec, safe='/')}"
             href = href + ("&force_dl=1" if "?" in href else "?force_dl=1")
-            if href in seen_links:
+            recording_id = normalize_recording_id(rec)
+            identity_key = recording_id or href
+            if identity_key in seen_links:
                 continue
 
             agent_text = (row.get("User") or "").strip() or "Unknown_Agent"
@@ -310,6 +318,27 @@ def _collect_tasks_for_dialer(
                 skipped_vm += 1
                 continue
 
+            seen_links.add(identity_key)
+            selected_count += 1
+            candidates.append((row, href, recording_id))
+
+        claimed_ids = set()
+        if claim_recordings_callback and registry_run_id:
+            recording_ids = [recording_id for _, _, recording_id in candidates if recording_id]
+            if recording_ids:
+                claimed_ids = claim_recordings_callback(
+                    dialer_host, recording_ids, registry_run_id, force_reaudit
+                )
+
+        new_links = 0
+        for row, href, recording_id in candidates:
+            if recording_id and claim_recordings_callback and registry_run_id and recording_id not in claimed_ids:
+                skipped_existing += 1
+                continue
+
+            agent_text = (row.get("User") or "").strip() or "Unknown_Agent"
+            time_text  = (row.get("Time") or "").strip() or "Unknown_Time"
+            type_text  = (row.get("Type") or "").strip() or "Unknown_Type"
             file_text  = row.get("File") or ""
             phone_match = re.search(r"\(\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}", file_text)
             phone_number = phone_match.group(0) if phone_match else f"unknown_{collected + 1}"
@@ -318,12 +347,15 @@ def _collect_tasks_for_dialer(
             filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
             filepath = os.path.join(download_dir, filename)
 
-            seen_links.add(href)
-            tasks.append((href, filepath, filename))
+            identity = {"dialer_host": dialer_host, "recording_id": recording_id} if recording_id else None
+            tasks.append((href, filepath, filename, identity))
             new_links += 1
             collected += 1
 
-        print(f"SEARCH {client.dialer} page {page + 1}: +{new_links} (collected {len(tasks)}/{max_samples})")
+        print(
+            f"SEARCH {client.dialer} page {page + 1}: +{new_links} queued "
+            f"({selected_count}/{max_samples} selected)"
+        )
         page += 1
         if total_pages and page >= total_pages:
             break
@@ -331,7 +363,7 @@ def _collect_tasks_for_dialer(
     if skipped_vm:
         print(f"INFO {client.dialer}: skipped {skipped_vm} voicemail row(s) — never downloaded")
 
-    return tasks, client.cookies
+    return tasks, client.cookies, skipped_existing
 
 
 def download_all_call_recordings(dialer_url, agent, update_callback=None,
@@ -343,7 +375,10 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                  username=None, keep_browser_open=False,
                                  readymode_user=None, readymode_pass=None,
                                  cancellation_callback=None, driver_storage=None,
-                                 disposition=None, dialer_url_2=None):
+                                 disposition=None, dialer_url_2=None,
+                                 registry_run_id=None, force_reaudit=False,
+                                 claim_recordings_callback=None,
+                                 release_recordings_callback=None):
     """Download call recordings from ReadyMode via pure HTTP (no browser).
 
     Signature, output folders, filename format, progress prints, duration filtering and
@@ -403,6 +438,42 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
         print(f"DEBUG DOWNLOAD_DIR: {DOWNLOAD_DIR}")
         RESULT_DIR = DOWNLOAD_DIR
 
+    claimed_recordings = {}
+    claims_lock = threading.Lock()
+    completed_download = False
+
+    def claim_records(dialer_host, recording_ids, run_id, re_audit):
+        if not claim_recordings_callback:
+            return set(recording_ids)
+        claimed = set(claim_recordings_callback(dialer_host, recording_ids, run_id, re_audit))
+        with claims_lock:
+            for recording_id in claimed:
+                claimed_recordings[(dialer_host, recording_id)] = {
+                    "dialer_host": dialer_host,
+                    "recording_id": recording_id,
+                }
+        return claimed
+
+    def release_records(recordings):
+        records = [
+            {"dialer_host": host, "recording_id": recording_id}
+            for host, recording_id in {(item["dialer_host"], item["recording_id"]) for item in recordings}
+        ]
+        if not records or not release_recordings_callback or not registry_run_id:
+            return
+        try:
+            release_recordings_callback(records, registry_run_id)
+        except Exception as release_error:
+            logger.exception("Failed to release ReadyMode recording claims: %s", release_error)
+        with claims_lock:
+            for item in records:
+                claimed_recordings.pop((item["dialer_host"], item["recording_id"]), None)
+
+    def release_all_claims():
+        with claims_lock:
+            records = list(claimed_recordings.values())
+        release_records(records)
+
     try:
         login_username = readymode_user or USERNAME
         login_password = readymode_pass or PASSWORD
@@ -428,13 +499,17 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             agent=agent, campaign_name=campaign_name, disposition=disposition,
             max_samples=max_samples,
             cancellation_callback=cancellation_callback,
+            registry_run_id=registry_run_id,
+            force_reaudit=force_reaudit,
+            claim_recordings_callback=claim_records if claim_recordings_callback else None,
         )
 
-        # tagged tasks = [(href, filepath, filename, cookies_dict), ...]
+        # tagged tasks = [(href, filepath, filename, cookies_dict, identity), ...]
         tagged_tasks = []
+        skipped_count = 0
 
         if dialer_url_2:
-            from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
+            from concurrent.futures import ThreadPoolExecutor as _TPE
             futures_map = {}
             with _TPE(max_workers=2) as col_exec:
                 f1 = col_exec.submit(_collect_tasks_for_dialer, dialer_url,  **shared_args, download_dir=DOWNLOAD_DIR, task_offset=0)
@@ -445,10 +520,11 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
             for fut in (f1, f2):
                 durl = futures_map[fut]
                 try:
-                    tasks, cookies = fut.result()
-                    for href, filepath, filename in tasks:
-                        tagged_tasks.append((href, filepath, filename, cookies))
-                    print(f"INFO {durl}: {len(tasks)} tasks collected")
+                    tasks, cookies, dialer_skipped = fut.result()
+                    skipped_count += dialer_skipped
+                    for href, filepath, filename, identity in tasks:
+                        tagged_tasks.append((href, filepath, filename, cookies, identity))
+                    print(f"INFO {durl}: {len(tasks)} tasks collected; {dialer_skipped} skipped")
                 except (ReadyModeLoginError, ReadyModeNoCallsError) as e:
                     if durl == dialer_url:
                         raise  # primary dialer failure is fatal
@@ -456,14 +532,40 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                 except KeyboardInterrupt:
                     raise
         else:
-            tasks, cookies = _collect_tasks_for_dialer(dialer_url, **shared_args, download_dir=DOWNLOAD_DIR, task_offset=0)
-            for href, filepath, filename in tasks:
-                tagged_tasks.append((href, filepath, filename, cookies))
+            tasks, cookies, skipped_count = _collect_tasks_for_dialer(
+                dialer_url, **shared_args, download_dir=DOWNLOAD_DIR, task_offset=0
+            )
+            for href, filepath, filename, identity in tasks:
+                tagged_tasks.append((href, filepath, filename, cookies, identity))
+
+        selected_identity_keys = {
+            (identity["dialer_host"], identity["recording_id"])
+            for _, _, _, _, identity in tagged_tasks if identity
+        }
+        with claims_lock:
+            orphaned_claims = [
+                value for key, value in claimed_recordings.items()
+                if key not in selected_identity_keys
+            ]
+        release_records(orphaned_claims)
 
         if not tagged_tasks:
-            raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
+            if not skipped_count:
+                raise ReadyModeNoCallsError("No call recordings found for the specified criteria")
+            manifest = {
+                "run_id": registry_run_id,
+                "skipped_count": skipped_count,
+                "records": [],
+            }
+            Path(RESULT_DIR, ".readymode_manifest.json").write_text(
+                json.dumps(manifest), encoding="utf-8"
+            )
+            completed_download = True
+            print(f"INFO Skipped {skipped_count} previously processed or in-progress recording(s)")
+            print(f"DOWNLOAD_COMPLETE: 0 files downloaded to {RESULT_DIR}")
+            return RESULT_DIR
 
-        print(f"SEARCH Collected {len(tagged_tasks)} total links")
+        print(f"SEARCH Collected {len(tagged_tasks)} total links; skipped {skipped_count} existing")
         if update_callback:
             update_callback(len(tagged_tasks), len(tagged_tasks))
 
@@ -480,45 +582,70 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
 
         lock = threading.Lock()
         downloaded_count = 0
-        skipped_count = 0
         total_count = len(tagged_tasks)
+        downloaded_records = []
 
         with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_DOWNLOADS) as executor:
-            futures = [
+            futures = {
                 executor.submit(
                     download_single_file,
                     dl_session, task_cookies, headers, href, filepath,
                     min_duration, max_duration, lock,
-                )
-                for href, filepath, filename, task_cookies in tagged_tasks
-            ]
+                ): (filepath, identity)
+                for href, filepath, filename, task_cookies, identity in tagged_tasks
+            }
 
             for future in as_completed(futures):
                 if cancellation_callback and cancellation_callback():
                     print("CANCELLED Download cancelled by user")
                     raise KeyboardInterrupt("Download cancelled by user")
 
-                success, fp, duration = future.result()
+                success, _, _ = future.result()
                 if success:
                     downloaded_count += 1
-                else:
-                    skipped_count += 1
+                    filepath, identity = futures[future]
+                    if identity:
+                        downloaded_records.append({"file_path": filepath, **identity})
 
                 if update_callback:
                     update_callback(downloaded_count, total_count)
 
+        successful_identity_keys = {
+            (item["dialer_host"], item["recording_id"]) for item in downloaded_records
+        }
+        with claims_lock:
+            failed_claims = [
+                value for key, value in claimed_recordings.items()
+                if key not in successful_identity_keys
+            ]
+        release_records(failed_claims)
+
+        manifest = {
+            "run_id": registry_run_id,
+            "skipped_count": skipped_count,
+            "records": downloaded_records,
+        }
+        Path(RESULT_DIR, ".readymode_manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+
         if update_callback:
             update_callback(total_count, total_count)
 
+        completed_download = True
         print(f"DOWNLOAD_COMPLETE: {downloaded_count} files downloaded to {RESULT_DIR}")
         return RESULT_DIR
 
     except KeyboardInterrupt:
+        release_all_claims()
         print("Download cancelled by user")
         raise
     except (ReadyModeLoginError, ReadyModeNoCallsError):
+        release_all_claims()
         raise
     except Exception as e:
+        if not completed_download:
+            release_all_claims()
         print(f"Download failed: {e}")
         import traceback
         traceback.print_exc()

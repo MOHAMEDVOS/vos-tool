@@ -1,7 +1,12 @@
 import React, { forwardRef, useState } from 'react'
 import { motion, useAnimationControls } from 'framer-motion'
 
-interface Props extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+type NativeButtonProps = Omit<
+  React.ButtonHTMLAttributes<HTMLButtonElement>,
+  'onDrag' | 'onDragStart' | 'onDragEnd' | 'onAnimationStart' | 'onAnimationEnd'
+>
+
+interface Props extends NativeButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'action' | 'destroy'
   size?: 'sm' | 'md'
 }
@@ -77,7 +82,7 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
         transition={{ type: 'spring', stiffness: 500, damping: 22 }}
         disabled={disabled}
         className={[...base, variants[variant], sizes[size], currentTextSize, className].join(' ')}
-        {...(rest as any)}
+        {...rest}
       >
         {children}
       </motion.button>
@@ -87,7 +92,7 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
 Button.displayName = 'Button'
 
 /* Animated delete button — shakes on hover, explodes on click */
-interface DestroyButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface DestroyButtonProps extends NativeButtonProps {
   size?: 'sm' | 'md'
 }
 
@@ -135,7 +140,7 @@ export function DestroyButton({ children, onClick, disabled, size = 'md', classN
         sizeClass,
         className,
       ].join(' ')}
-      {...(rest as any)}
+      {...rest}
     >
       {children}
     </motion.button>

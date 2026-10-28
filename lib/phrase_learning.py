@@ -6,13 +6,10 @@ PHASE 4: PostgreSQL-Only Implementation
 
 import logging
 import os
-import time
 from decimal import Decimal
 from contextlib import contextmanager
-from typing import List, Dict, Any, Optional, Tuple, Set, Union
-from datetime import datetime, timedelta
-import re
-from pathlib import Path
+from typing import List, Dict, Any, Union
+from datetime import datetime
 
 # Import database manager
 try:
@@ -193,10 +190,10 @@ class PhraseLearningManager:
                     WHERE confidence >= %s 
                     AND status = 'pending'
                 """, (min_confidence,))
-                phrases = [(row[0], row[1], row[2], row[3], 'auto_approved') for row in cursor.fetchall()]
+                phrases = [(row[0], row[1], row[3]) for row in cursor.fetchall()]
                 
                 # Process each phrase
-                for phrase_id, phrase_text, confidence, category, source in phrases:
+                for phrase_id, phrase_text, category in phrases:
                     try:
                         # Add to repository (will skip if already exists, but that's OK)
                         success = self._add_to_repository(
@@ -241,7 +238,7 @@ class PhraseLearningManager:
                 'stats': stats
             }
     
-    def _get_db_connection(self, timeout: int = 30, retries: int = 3):
+    def _get_db_connection(self):
         """Get database connection from pool."""
         if self.db_manager:
             try:
@@ -263,10 +260,10 @@ class PhraseLearningManager:
             logger.error(f"Error returning connection to pool: {e}")
 
     @contextmanager
-    def _db_connection(self, timeout: int = 30, retries: int = 3):
+    def _db_connection(self):
         conn = None
         try:
-            conn = self._get_db_connection(timeout=timeout, retries=retries)
+            conn = self._get_db_connection()
             yield conn
         except Exception:
             if conn and self.use_postgresql:
@@ -488,7 +485,7 @@ class PhraseLearningManager:
                 
                 if existing:
                     # Merge into existing entry (auto-prevent duplicate)
-                    phrase_id, count, existing_conf, existing_ctx, existing_cat = existing
+                    phrase_id, count, existing_conf, existing_ctx, _ = existing
 
                     try:
                         if isinstance(count, Decimal):
@@ -610,7 +607,7 @@ class PhraseLearningManager:
         # Then remove single-word fillers (only if standalone, not part of phrase)
         words = text.split()
         canonical = []
-        for i, word in enumerate(words):
+        for word in words:
             # Remove punctuation for comparison
             clean_word = word.strip('.,!?;:')
             # Only skip if it's a filler word
@@ -651,18 +648,12 @@ class PhraseLearningManager:
 
         # psycopg2 returns DECIMAL/NUMERIC as Decimal; normalize to python numeric types
         try:
-            if isinstance(confidence, Decimal):
-                confidence = float(confidence)
-            else:
-                confidence = float(confidence)
+            confidence = float(confidence)
         except Exception:
             confidence = 0.0
 
         try:
-            if isinstance(detection_count, Decimal):
-                detection_count = int(detection_count)
-            else:
-                detection_count = int(detection_count)
+            detection_count = int(detection_count)
         except Exception:
             detection_count = 1
         
@@ -1092,7 +1083,7 @@ class PhraseLearningManager:
             with conn: # Transaction context
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, phrase, category, confidence, detection_count, sample_contexts, similar_to
+                    SELECT id, phrase, confidence, detection_count, sample_contexts
                     FROM pending_phrases 
                     WHERE status = 'pending'
                     ORDER BY detection_count DESC
@@ -1110,11 +1101,9 @@ class PhraseLearningManager:
                     phrase_groups[norm_phrase].append({
                         'id': row[0],
                         'phrase': row[1],
-                        'category': row[2],
-                        'confidence': row[3],
-                        'detection_count': row[4],
-                        'contexts': row[5],
-                        'similar_to': row[6]
+                        'confidence': row[2],
+                        'detection_count': row[3],
+                        'contexts': row[4]
                     })
                 
                 # Find duplicates
@@ -1340,7 +1329,7 @@ class PhraseLearningManager:
                         'stats': stats
                     }
                 
-                for phrase_id, phrase_text, category, quality_score in phrases:
+                for phrase_id, phrase_text, category, _ in phrases:
                     try:
                         # Add to repository (will skip if already exists)
                         success = self._add_to_repository(
@@ -1405,7 +1394,7 @@ class PhraseLearningManager:
                 """, (category, min_quality_score))
                 phrases = cursor.fetchall()
                 
-                for phrase_id, phrase_text, cat, quality_score in phrases:
+                for phrase_id, phrase_text, cat, _ in phrases:
                     try:
                         success = self._add_to_repository(phrase_text, cat, source='auto_approved')
                         
@@ -1562,7 +1551,7 @@ class PhraseLearningManager:
                 # Get all pending phrases
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, phrase, category, confidence, detection_count, sample_contexts, similar_to
+                    SELECT id, phrase, confidence, detection_count, sample_contexts
                     FROM pending_phrases 
                     WHERE status = 'pending'
                     ORDER BY confidence DESC, detection_count DESC
@@ -1580,7 +1569,7 @@ class PhraseLearningManager:
                 # Group by normalized phrase
                 phrase_groups = {}
                 for row in phrases:
-                    phrase_id, phrase, category, confidence, detection_count, contexts, similar_to = row
+                    phrase_id, phrase, confidence, detection_count, contexts = row
                     normalized_phrase = phrase.lower().strip() if phrase else ""
                     if normalized_phrase:
                         if normalized_phrase not in phrase_groups:
@@ -1588,18 +1577,16 @@ class PhraseLearningManager:
                         phrase_groups[normalized_phrase].append({
                             'id': phrase_id,
                             'phrase': phrase,
-                            'category': category,
                             'confidence': confidence,
                             'detection_count': detection_count,
-                            'contexts': contexts or "",
-                            'similar_to': similar_to or ""
+                            'contexts': contexts or ""
                         })
                 
                 # Process groups with duplicates
                 duplicates_to_remove = []
                 phrases_to_update = []
                 
-                for key, phrases in phrase_groups.items():
+                for _, phrases in phrase_groups.items():
                     if len(phrases) > 1:
                         # Sort by confidence (desc) then detection_count (desc)
                         phrases.sort(key=lambda x: (x['confidence'], x['detection_count']), reverse=True)

@@ -4,7 +4,6 @@ Dynamically calculates optimal batch size based on system resources and file cha
 """
 
 import logging
-import os
 import threading
 from pathlib import Path
 from typing import List, Optional, Dict

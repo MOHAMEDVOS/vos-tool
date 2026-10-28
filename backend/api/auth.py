@@ -5,14 +5,12 @@ Authentication API endpoints.
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPBearer
-from typing import Optional
 import sys
-import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from backend.models.schemas import LoginRequest, LoginResponse, UserInfo
+from backend.models.schemas import LoginResponse, UserInfo
 from backend.core.security import create_access_token, generate_session_id
 from backend.core.dependencies import get_current_user
 from lib.dashboard_manager import session_manager, user_manager

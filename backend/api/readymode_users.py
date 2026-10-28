@@ -7,7 +7,7 @@ import sys
 import json
 import threading
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))

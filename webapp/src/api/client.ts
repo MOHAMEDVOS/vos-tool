@@ -21,6 +21,15 @@ export function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+async function getErrorDetail(res: Response): Promise<string> {
+  try {
+    const json = await res.json()
+    return json.detail ?? `HTTP ${res.status}`
+  } catch {
+    return `HTTP ${res.status}`
+  }
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -41,12 +50,7 @@ async function request<T>(
   })
 
   if (!res.ok) {
-    let detail = `HTTP ${res.status}`
-    try {
-      const json = await res.json()
-      detail = json.detail ?? detail
-    } catch { /* ignore */ }
-    throw new ApiError(res.status, detail)
+    throw new ApiError(res.status, await getErrorDetail(res))
   }
 
   // 204 No Content
@@ -69,12 +73,7 @@ export async function uploadForm<T>(path: string, form: FormData): Promise<T> {
   })
 
   if (!res.ok) {
-    let detail = `HTTP ${res.status}`
-    try {
-      const json = await res.json()
-      detail = json.detail ?? detail
-    } catch { /* ignore */ }
-    throw new ApiError(res.status, detail)
+    throw new ApiError(res.status, await getErrorDetail(res))
   }
 
   return res.json() as Promise<T>

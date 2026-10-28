@@ -168,7 +168,6 @@ def create_spreadsheet(
     ).execute()
 
     # --- Formatting ---
-    num_rows = len(data)
     col_index = {c: i for i, c in enumerate(columns)}
 
     fmt_requests = []
@@ -577,24 +576,6 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
     # 2. Build the values: header + grouped data rows
     header = [["Agent Name", "Issue Type", "Total Samples with Issue"]]
     values = []
-    current_agent = None
-    for agent, label, count, total in summary_rows:
-        count_str = f"{count} out of {total}"
-        if agent != current_agent:
-            values.append([agent, label, count_str])
-            current_agent = agent
-        else:
-            values.append(["", label, count_str])
-
-    sheets.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id,
-        range="Agent Issues Summary!A1",
-        valueInputOption="RAW",
-        body={"values": header + values},
-    ).execute()
-
-    total_rows = len(values) + 1  # +1 for header
-
     fmt = []
 
     # Header row: dark green bg, white bold, frozen
@@ -620,8 +601,10 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
     # Data rows: colour agent-name cells mid-green + count column centre-aligned
     current_agent = None
     for row_i, (agent, label, count, total) in enumerate(summary_rows, start=1):
+        count_str = f"{count} out of {total}"
         if agent != current_agent:
             current_agent = agent
+            values.append([agent, label, count_str])
             fmt.append({
                 "repeatCell": {
                     "range": {"sheetId": summary_gid,
@@ -636,6 +619,8 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
                     "fields": "userEnteredFormat(backgroundColor,textFormat)",
                 }
             })
+        else:
+            values.append(["", label, count_str])
 
         # Count cell colour based on ratio (count / total)
         ratio = count / total if total else 0
@@ -672,6 +657,13 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
                            "startIndex": 0, "endIndex": 3}
         }
     })
+
+    sheets.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range="Agent Issues Summary!A1",
+        valueInputOption="RAW",
+        body={"values": header + values},
+    ).execute()
 
     sheets.spreadsheets().batchUpdate(
         spreadsheetId=spreadsheet_id,

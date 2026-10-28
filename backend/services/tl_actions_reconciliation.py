@@ -33,7 +33,7 @@ class _TextExtractor(HTMLParser):
     def handle_data(self, data: str) -> None:
         self.parts.append(data)
 
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
         if tag.lower() in {"br", "p", "div", "li", "tr"}:
             self.parts.append(" ")
 
@@ -100,7 +100,6 @@ def _date_value(value: Any) -> date | None:
         # Sheets serial date values, relative to 1899-12-30.
         number = float(text)
         if 20000 < number < 100000:
-            from datetime import timedelta
             return date(1899, 12, 30) + timedelta(days=int(number))
     except ValueError:
         pass

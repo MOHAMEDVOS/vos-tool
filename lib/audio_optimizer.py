@@ -4,12 +4,10 @@ Audio Preprocessing Optimizer
 Optimizes audio format and quality for faster, more accurate transcription.
 """
 
-import os
 import tempfile
 import logging
 from pathlib import Path
-from typing import Tuple, Optional
-import numpy as np
+from typing import Tuple
 from pydub import AudioSegment
 from pydub.effects import normalize, compress_dynamic_range
 import time

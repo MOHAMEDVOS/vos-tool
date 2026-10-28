@@ -12,7 +12,6 @@ import threading  # For thread-safe model initialization
 from typing import Dict, List, Any, Optional, Tuple
 from pydub import AudioSegment
 import numpy as np
-from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from models import (
@@ -110,7 +109,6 @@ class PreprocessingPipeline:
     def _apply_enhanced_preprocessing(self, audio_segment: AudioSegment) -> AudioSegment:
         """Apply enhanced preprocessing for better transcription quality."""
         from pydub.effects import normalize, compress_dynamic_range
-        import numpy as np
         
         enhanced = audio_segment
         
@@ -259,7 +257,6 @@ class TranscriptionEngine:
         
         try:
             import tempfile
-            import os
             
             # Export audio segment to temp file
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -307,7 +304,6 @@ class TranscriptionEngine:
 
         try:
             import tempfile
-            import os
 
             # Combine both channels into a single file for transcription with speaker diarization
             # AssemblyAI will identify speakers automatically
@@ -326,7 +322,6 @@ class TranscriptionEngine:
                 
                 # Process utterances to separate by speaker
                 utterances = result.get("utterances", [])
-                words = result.get("words", [])
                 
                 # For now, assign first speaker as agent, second as owner
                 # This can be enhanced with speaker identification logic
@@ -849,7 +844,6 @@ class PhoneticAdaptationLayer:
             "fit": "feet",
             "fiet": "feet",
             "feit": "feet",
-            "fiet": "feet",
             "ekerz": "acres",
             "acrez": "acres",
             "aykres": "acres",
@@ -1150,7 +1144,6 @@ class PhoneticAdaptationLayer:
             "haz": "has",
             "hez": "has",
             "hess": "has",
-            "haf": "have",
             "hev": "have",
             "heff": "have",
             "daz": "does",
@@ -1948,7 +1941,6 @@ class KeywordRepository:
             
             # Fallback to JSON file
             from pathlib import Path
-            import json
             
             # Path to the phrase learning repository JSON file
             repository_path = Path("dashboard_data") / "rebuttal_repository.json"
@@ -2270,36 +2262,12 @@ class SemanticDetectionEngine:
         - Remove common punctuation
         - Collapse multiple spaces
         """
-        import re
         text = text.lower()
         # Remove common punctuation characters
         text = re.sub(r"[.,!?;:\\-]", " ", text)
         # Collapse multiple whitespace into single spaces
         text = re.sub(r"\s+", " ", text).strip()
-        text = re.sub(r"\s+", " ", text).strip()
         return text
-
-    def _detect_regex_matches(self, transcript_lower: str) -> List[Dict[str, Any]]:
-        """Detect matches using regex patterns for flexible matching."""
-        import re
-        matches = []
-        
-        # Use existing normalize logic for consistency, but regexes are designed for lower case text
-        # We rely on the input being lower case, which it is from detect_rebuttal
-        
-        for category, patterns in self.keyword_repo.get_all_regex_patterns().items():
-            for pattern in patterns:
-                if re.search(pattern, transcript_lower):
-                    # Found a match using regex
-                    match_text = re.search(pattern, transcript_lower).group(0)
-                    matches.append({
-                        'phrase': f"REGEX: {pattern}", # Indicate it's a regex match
-                        'category': category,
-                        'confidence': 1.0, # High confidence for regex matches
-                        'match_type': 'regex',
-                        'matched_phrase': match_text
-                    })
-        return matches
 
     def _detect_exact_matches(self, transcript_lower: str) -> List[Dict[str, Any]]:
         """Detect exact phrase matches with punctuation-insensitive matching."""
@@ -2417,8 +2385,6 @@ class SemanticDetectionEngine:
         
         return matches
 
-        return matches
-
     def _extract_post_denial_agent_segments(self, transcript: str, dialogue: Optional[str] = None) -> List[str]:
         """
         Extract agent segments that occur after initial denial or rejection.
@@ -2462,7 +2428,7 @@ class SemanticDetectionEngine:
         
         compiled_denials = [re.compile(p, re.IGNORECASE) for p in denial_patterns]
 
-        for i, (speaker, text) in enumerate(matches):
+        for speaker, text in matches:
             text = text.strip()
             speaker = speaker.strip().capitalize()
             
@@ -2529,7 +2495,6 @@ class SemanticDetectionEngine:
     def _split_into_sentences(self, text: str) -> List[str]:
         """Split text into sentences for better semantic analysis, preserving rebuttal context."""
         # First, split on major punctuation
-        import re
         sentences = re.split(r'[.!?]+', text)
 
         # Also try to preserve question sequences that might be rebuttals
@@ -2864,7 +2829,6 @@ class RebuttalDetectionModule:
 
     def _assess_transcription_quality(self, transcript: str) -> Dict[str, Any]:
         """Assess transcription quality to identify potential false negatives."""
-        import re  # Explicit import to ensure availability in method scope
         issues = []
         quality_score = 1.0
 

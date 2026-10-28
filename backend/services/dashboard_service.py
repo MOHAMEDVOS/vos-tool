@@ -5,7 +5,7 @@ Dashboard service for managing audit data.
 import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from datetime import date, datetime
+from datetime import date
 import logging
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))

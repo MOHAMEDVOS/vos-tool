@@ -32,6 +32,8 @@ PostgreSQL / Redis / external AI services
 | `analyzer/` | Exact, semantic, and LLM rebuttal detection |
 | `automation/` | ReadyMode call download automation |
 
+ReadyMode audit runs use `readymode_recordings` to prevent downloading and auditing the same source recording twice for one VOS user. The ledger is keyed by dialer host and ReadyMode `RecId`; an explicit re-audit option can process a completed recording again. Backend startup applies the ledger migration through Alembic.
+
 ## Frontend
 
 The React app uses:

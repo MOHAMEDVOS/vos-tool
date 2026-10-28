@@ -46,6 +46,7 @@ export interface DownloadRequest {
   duration_filter?: string
   custom_duration_seconds?: number
   minimum_call_duration_seconds?: number
+  force_reaudit?: boolean
   audit_type: 'heavy' | 'lite'
 }
 

@@ -6,7 +6,6 @@ Pre-loads models before batch processing starts to avoid sequential loading.
 import logging
 import threading
 import time
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

@@ -6,13 +6,16 @@ Optimized semantic analysis with pre-loaded models and efficient processing.
 import logging
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 from pydub import AudioSegment
-from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import threading
 
 from audio_pipeline.detections import releasing_detection, late_hello_detection
+from audio_pipeline.audio_utils import (
+    extract_agent_audio,
+    extract_basic_file_metadata,
+)
 from lib.assemblyai_transcription import AssemblyAITranscriptionEngine
 from audio_pipeline.audio_processor import _shared_executor
 
@@ -44,7 +47,7 @@ class SemanticAudioProcessor:
             try:
                 # Use singleton model manager for shared model instance
                 from models.manager import get_semantic_model
-                model, embeddings = get_semantic_model()
+                model, _ = get_semantic_model()
                 
                 if model is None:
                     logger.warning("Semantic model not available from singleton, using exact matching only")
@@ -75,22 +78,9 @@ class SemanticAudioProcessor:
             self.transcription_engine = AssemblyAITranscriptionEngine(user_api_key=user_api_key)
         return self.transcription_engine
     
-    def _check_audio_duration(self, audio: AudioSegment, min_seconds: int = 3) -> bool:
-        """Check if audio meets minimum duration requirement."""
-        duration_ms = len(audio)
-        duration_seconds = duration_ms / 1000.0
-        return duration_seconds >= min_seconds
-    
     def _extract_agent_audio(self, audio: AudioSegment) -> AudioSegment:
         """Extract agent channel from stereo audio."""
-        if audio.channels == 1:
-            return audio
-        
-        if audio.channels == 2:
-            return audio.split_to_mono()[0]  # Left channel (agent)
-        
-        # Fallback: convert to mono
-        return audio.set_channels(1)
+        return extract_agent_audio(audio)
     
     def process_single_file_semantic(
         self, 
@@ -105,29 +95,10 @@ class SemanticAudioProcessor:
         AssemblyAI transcription + optimized semantic analysis.
         """
         start_time = time.time()
-        logger = logging.getLogger(__name__)
-        
         logger.info(f"Starting SEMANTIC processing of file: {file_path}")
         
-        # Extract metadata from filename
-        stem = file_path.stem
-        parts = stem.split(" _ ")
-        
-        if len(parts) == 4:
-            agent_name_raw, timestamp, phone_number, disposition = parts
-        elif len(parts) == 2:
-            agent_name_raw, phone_number = parts
-            timestamp = ""
-            disposition = ""
-        else:
-            agent_name_raw = stem
-            phone_number = ""
-            timestamp = ""
-            disposition = ""
-        
-        agent_name_raw = agent_name_raw.replace("-", "").replace(".", "")
-        agent_name = agent_name_raw.replace("([a-z])([A-Z])", r"\1 \2")
-        
+        agent_name, phone_number, timestamp, disposition = extract_basic_file_metadata(file_path)
+
         # Validate audio file
         if not self._is_valid_audio_file(file_path):
             logger.warning(f"Invalid audio file: {file_path}")

@@ -99,8 +99,6 @@ def get_semantic_model():
 
             logger.info(f"[SINGLETON] [TID={tid}] Precomputing phrase embeddings...")
             
-            repo_start_time = time.time()
-            
             # Strategy: Load hardcoded phrases immediately, then try to load learned phrases with timeout
             # This ensures we always have working embeddings, and learned phrases are included when available
             

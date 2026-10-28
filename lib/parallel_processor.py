@@ -8,7 +8,7 @@ import time
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Any, Callable, List, Tuple
+from typing import Dict, Any
 from pathlib import Path
 import sys
 import os
@@ -209,7 +209,6 @@ class ParallelDetectionProcessor:
         
         # Prepare tasks
         tasks = []
-        task_functions = []
         
         if run_releasing and audio is not None:
             tasks.append(('releasing', self.run_releasing_detection, audio))

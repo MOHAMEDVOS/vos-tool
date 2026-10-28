@@ -3,6 +3,7 @@ Pure computation helpers for campaign performance report generation.
 No external dependencies — all logic is deterministic and testable.
 """
 
+from collections import Counter
 from typing import Dict, List, Any, Literal
 
 
@@ -11,14 +12,21 @@ _LOW_ENGAGEMENT = {"dead call", "unknown", "voicemail"}
 _GOOD_ENGAGEMENT = {"decision maker – nyi", "dnc – decision maker", "dnc – unknown", "wrong number"}
 
 
-def calculate_issue_ratios(rows: List[Dict[str, Any]], total: int) -> Dict[str, float]:
+def calculate_issue_ratios(rows: List[Dict[str, Any]], total: int) -> Dict[str, float | int]:
     """Return per-issue percentages (0–100) based on detection flags."""
     if total == 0:
         return {"releasing_pct": 0.0, "late_hello_pct": 0.0, "no_rebuttal_pct": 0.0}
 
-    releasing = sum(1 for r in rows if str(r.get("Releasing Detection", "")).strip() == "Yes")
-    late_hello = sum(1 for r in rows if str(r.get("Late Hello Detection", "")).strip() == "Yes")
-    no_rebuttal = sum(1 for r in rows if str(r.get("Rebuttal Detection", "")).strip() == "No")
+    releasing = 0
+    late_hello = 0
+    no_rebuttal = 0
+    for row in rows:
+        if str(row.get("Releasing Detection", "")).strip() == "Yes":
+            releasing += 1
+        if str(row.get("Late Hello Detection", "")).strip() == "Yes":
+            late_hello += 1
+        if str(row.get("Rebuttal Detection", "")).strip() == "No":
+            no_rebuttal += 1
 
     return {
         "releasing_pct": round(releasing / total * 100, 1),
@@ -50,18 +58,16 @@ def categorize_engagement(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     Returns counts, a human-readable summary string, and a Yes/No flag.
     Low-engagement dominates (>50% of total) → campaign_list_issue = Yes.
     """
-    low: Dict[str, int] = {}
-    good: Dict[str, int] = {}
+    low: Counter[str] = Counter()
+    good: Counter[str] = Counter()
     total = len(rows)
 
     for r in rows:
         disp = str(r.get("Disposition", "")).strip().lower()
         if any(d in disp for d in _LOW_ENGAGEMENT):
-            bucket_key = disp.title()
-            low[bucket_key] = low.get(bucket_key, 0) + 1
+            low[disp.title()] += 1
         elif any(d in disp for d in _GOOD_ENGAGEMENT):
-            bucket_key = disp.title()
-            good[bucket_key] = good.get(bucket_key, 0) + 1
+            good[disp.title()] += 1
 
     low_total = sum(low.values())
     good_total = sum(good.values())
@@ -76,8 +82,8 @@ def categorize_engagement(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     return {
         "campaign_list_issue": campaign_list_issue,
-        "low_engagement": low,
-        "good_engagement": good,
+        "low_engagement": dict(low),
+        "good_engagement": dict(good),
         "low_total": low_total,
         "good_total": good_total,
         "summary": "\n".join(lines),

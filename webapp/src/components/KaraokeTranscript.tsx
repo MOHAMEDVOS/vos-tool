@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useCallback, useState } from 'react'
 import type { WordTimestamp } from '@/types/api'
 
 interface Props {
@@ -72,14 +72,20 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
   const rafRef = useRef<number>(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const wordRefs = useRef<(HTMLSpanElement | null)[]>([])
-  const segments = useRef<Segment[]>([])
+  const audioNodeRef = useRef<HTMLAudioElement | null>(null)
+  const segments = useMemo(() => buildSegments(words), [words])
   const lastScrolledIdx = useRef<number>(-1)
   const userScrollingUntil = useRef<number>(0)   // timestamp — pause auto-scroll when user scrolls
 
+  const setWordRef = useCallback((index: number, element: HTMLSpanElement | null) => {
+    wordRefs.current[index] = element
+  }, [])
+
   // Rebuild segments only when words change
   useEffect(() => {
-    segments.current = buildSegments(words)
     wordRefs.current = new Array(words.length).fill(null)
+    // Reset the highlighted word when the transcript changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveIdx(-1)
     lastScrolledIdx.current = -1
   }, [words])
@@ -93,74 +99,59 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
     return () => box.removeEventListener('scroll', onScroll)
   }, [])
 
-  const tick = useCallback(() => {
-    const audio = audioEl ?? audioRef.current
-    if (!audio) return
-    const t = audio.currentTime
-    const idx = findActiveIndex(words, t)
-    setActiveIdx(idx)
-
-    const box = containerRef.current
-    const wordEl = wordRefs.current[idx]
-    const userScrolling = Date.now() < userScrollingUntil.current
-
-    if (
-      idx >= 0 &&
-      idx !== lastScrolledIdx.current &&
-      wordEl &&
-      box &&
-      !userScrolling
-    ) {
-      // Use getBoundingClientRect for position relative to the viewport,
-      // then offset against the box rect — accurate regardless of DOM nesting.
-      const wordRect = wordEl.getBoundingClientRect()
-      const boxRect  = box.getBoundingClientRect()
-
-      const wordBottomRelative = wordRect.bottom - boxRect.top
-
-      // Only scroll when the active word goes below the visible bottom edge
-      if (wordBottomRelative > boxRect.height) {
-        const newScrollTop = box.scrollTop + (wordBottomRelative - boxRect.height) + 8
-        box.scrollTo({ top: newScrollTop, behavior: 'instant' })
-      }
-      lastScrolledIdx.current = idx
-    }
-
-    rafRef.current = requestAnimationFrame(tick)
-  }, [words, audioRef, audioEl])
-
   useEffect(() => {
     const audio = audioEl ?? audioRef.current
     if (!audio || !words.length) return
+    audioNodeRef.current = audio
+
+    const tick = () => {
+      const currentAudio = audioNodeRef.current
+      if (!currentAudio) return
+      const idx = findActiveIndex(words, currentAudio.currentTime)
+      setActiveIdx((current) => current === idx ? current : idx)
+
+      const box = containerRef.current
+      const word = wordRefs.current[idx]
+      const userScrolling = Date.now() < userScrollingUntil.current
+      if (idx >= 0 && idx !== lastScrolledIdx.current && word && box && !userScrolling) {
+        const wordRect = word.getBoundingClientRect()
+        const boxRect = box.getBoundingClientRect()
+        const wordBottomRelative = wordRect.bottom - boxRect.top
+        if (wordBottomRelative > boxRect.height) {
+          const newScrollTop = box.scrollTop + (wordBottomRelative - boxRect.height) + 8
+          box.scrollTo({ top: newScrollTop, behavior: 'instant' })
+        }
+        lastScrolledIdx.current = idx
+      }
+      rafRef.current = requestAnimationFrame(tick)
+    }
 
     const start = () => { rafRef.current = requestAnimationFrame(tick) }
     const stop  = () => cancelAnimationFrame(rafRef.current)
     const reset = () => { stop(); setActiveIdx(-1) }
+    const onSeeked = () => setActiveIdx(findActiveIndex(words, audio.currentTime))
 
     audio.addEventListener('play',   start)
     audio.addEventListener('pause',  stop)
     audio.addEventListener('ended',  reset)
-    audio.addEventListener('seeked', () => {
-      // After seek, immediately update the highlighted word
-      const t = audio.currentTime
-      setActiveIdx(findActiveIndex(words, t))
-    })
+    audio.addEventListener('seeked', onSeeked)
 
     return () => {
       stop()
       audio.removeEventListener('play',   start)
       audio.removeEventListener('pause',  stop)
       audio.removeEventListener('ended',  reset)
+      audio.removeEventListener('seeked', onSeeked)
     }
-  }, [words, audioRef, audioEl, tick])
+  }, [words, audioRef, audioEl])
 
   // Click a word → seek audio to its start time
-  const handleWordClick = useCallback((start: number) => {
-    const audio = audioEl ?? audioRef.current
+  const handleWordClick = (start: number) => {
+    const audio = audioNodeRef.current ?? audioRef.current
     if (!audio) return
     audio.currentTime = start
     if (audio.paused) audio.play()
-  }, [audioRef])
+  }
 
   // No word timestamps — fall back to plain text
   if (!words.length) {
@@ -192,7 +183,7 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
       >
         {hasSpeakers ? (
           // Speaker-segmented layout
-          segments.current.map((seg, si) => (
+          segments.map((seg, si) => (
             <div key={si}>
               <span className={`text-[9px] font-bold uppercase tracking-widest mr-1.5 ${speakerColor(seg.speaker)}`}>
                 {seg.speaker ?? '?'}:
@@ -206,7 +197,7 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
                     isActive={activeIdx === globalIdx}
                     isPast={activeIdx > globalIdx}
                     onClick={() => handleWordClick(w.start)}
-                    ref={el => { wordRefs.current[globalIdx] = el }}
+                    ref={el => setWordRef(globalIdx, el)}
                   />
                 )
               })}
@@ -222,7 +213,7 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
                 isActive={activeIdx === i}
                 isPast={activeIdx > i}
                 onClick={() => handleWordClick(w.start)}
-                ref={el => { wordRefs.current[i] = el }}
+                ref={el => setWordRef(i, el)}
               />
             ))}
           </p>

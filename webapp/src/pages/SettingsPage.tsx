@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { 
-  RefreshCw, Trash2, Shield, UserPlus, Users, Activity, 
-  Settings2, Minus, Plus, Search, Info, ChevronRight, ChevronDown,
-  LayoutDashboard, Database, Key, Home,
-  Lock, Share2, Server, Check, AlertCircle
+  RefreshCw, Trash2, Shield, Users, Activity,
+  Minus, Plus, ChevronDown,
+  Database, Share2, Server, Check, AlertCircle, Settings2
 } from 'lucide-react'
 import { quotaApi } from '@/api/quota'
 import { settingsApi } from '@/api/settings'
@@ -14,7 +13,6 @@ import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
-import { Metric } from '@/components/ui/Metric'
 import { Spinner } from '@/components/ui/Spinner'
 import { CustomSelect } from '@/components/ui/Select'
 import { SuccessFlash } from '@/components/ui/SuccessFlash'
@@ -22,7 +20,7 @@ import type { AppConfigCategory } from '@/types/api'
 import { motion, AnimatePresence } from 'framer-motion'
 
 type NavItem  = { id: string; label: string; forRoles?: string[] }
-type NavGroup = { id: string; label: string; icon: any; forRoles?: string[]; items: NavItem[] }
+type NavGroup = { id: string; label: string; icon: React.ElementType; forRoles?: string[]; items: NavItem[] }
 
 // forRoles: undefined = all roles with settings access; otherwise restrict to listed roles
 const SIDEBAR_NAV: NavGroup[] = [
@@ -239,7 +237,6 @@ function CreateUser() {
   const callerRole = useAuthStore((s) => s.role)
   const roleOptions = callerRole === 'Owner' ? ['Auditor', 'Admin'] : ['Auditor']
   const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
   const [rmUsername, setRmUsername] = useState('')
   const [rmPassword, setRmPassword] = useState('')
   const [newRole, setNewRole] = useState('Auditor')
@@ -299,7 +296,6 @@ function EditUser() {
   const { data: userData } = useQuery({ queryKey: ['settings-users'], queryFn: settingsApi.users })
   const [selectedUser, setSelectedUser] = useState('')
   const [newRole, setNewRole] = useState('Auditor')
-  const [appPassword, setAppPassword] = useState('')
   const [rmUsername, setRmUsername] = useState('')
   const [rmPassword, setRmPassword] = useState('')
   const [dailyLimit, setDailyLimit] = useState<string | number>(0)
@@ -309,6 +305,8 @@ function EditUser() {
 
   useEffect(() => {
     if (userToEdit) {
+      // Populate the edit form when the selected user's server data is available.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setNewRole(userToEdit.role)
       setDailyLimit(userToEdit.daily_limit ?? 0)
       setRmUsername(userToEdit.readymode_username ?? '')
@@ -329,9 +327,10 @@ function EditUser() {
   })
 
   // Clear success/error on user change
+  const resetUpdate = update.reset
   useEffect(() => {
-    update.reset()
-  }, [selectedUser])
+    resetUpdate()
+  }, [selectedUser, resetUpdate])
 
   return (
     <div className="flex flex-col gap-10 items-center">
@@ -533,7 +532,6 @@ function ManageUsers() {
 
 function QuotaSettings() {
   const qc = useQueryClient()
-  const role = useAuthStore((s) => s.role)
   const { data: adminLimits = {} } = useQuery({ queryKey: ['admin-limits'], queryFn: quotaApi.getAdminLimits })
   const { data: userData } = useQuery({ queryKey: ['settings-users'], queryFn: settingsApi.users })
   
@@ -556,6 +554,8 @@ function QuotaSettings() {
 
   useEffect(() => {
     if (adminUsername && adminLimits[adminUsername]) {
+      // Load the selected admin's limits into the editable form fields.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMaxUsers(adminLimits[adminUsername].max_users)
       setDailyQuota(adminLimits[adminUsername].total_daily_quota)
     }
@@ -606,7 +606,7 @@ function QuotaSettings() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-b-subtle">
-                    {Object.entries(adminLimits).map(([admin, limits]: [string, any]) => (
+                    {Object.entries(adminLimits).map(([admin, limits]) => (
                       <tr key={admin} className="hover:bg-c-raised/50 transition-all group">
                         <td className="px-8 py-5">
                           <div className="flex items-center gap-3">
@@ -780,7 +780,7 @@ function SharingOverview() {
 
   if (isLoading) return <Spinner />
 
-  const groups = data?.sharing_groups ? Object.entries(data.sharing_groups as Record<string, any>) : []
+  const groups = Object.entries(data?.sharing_groups ?? {})
   const userModes = data?.user_dashboard_mode ? Object.entries(data.user_dashboard_mode as Record<string, string>) : []
 
   return (
@@ -863,10 +863,10 @@ function SharingManage() {
   const [toAdd, setToAdd] = useState<string[]>([])
   const [toRemove, setToRemove] = useState<string[]>([])
 
-  const groups = data?.sharing_groups ? Object.entries(data.sharing_groups as Record<string, any>) : []
+  const groups = Object.entries(data?.sharing_groups ?? {})
   const groupNames = groups.map(([name]) => name)
   const currentGroup = groups.find(([name]) => name === selectedGroup)
-  const currentMembers: string[] = currentGroup ? (currentGroup[1].members || []) : []
+  const currentMembers = currentGroup?.[1].members ?? []
 
   const allUsers = (userData?.users ?? []).map(u => u.username)
 
@@ -1122,8 +1122,8 @@ function AdminQuotaDashboard() {
 
   if (isLoading) return <Spinner />
 
-  const quotaInfo = status as any
-  const users = redistData as any
+  const quotaInfo = status
+  const users = redistData
 
   return (
     <div className="flex flex-col gap-10 w-full max-w-4xl mx-auto">
@@ -1171,7 +1171,7 @@ function AdminQuotaDashboard() {
               <tbody className="divide-y divide-b-subtle">
                 {!users?.users || users.users.length === 0 ? (
                   <tr><td colSpan={5} className="px-6 py-12 text-center text-vos-600">No users created yet</td></tr>
-                ) : users.users.map((u: any) => (
+                ) : users.users.map((u) => (
                   <tr key={u.username} className="hover:bg-c-raised/30">
                     <td className="px-6 py-3 font-bold text-t-primary">{u.username}</td>
                     <td className="px-6 py-3 text-vos-400 font-mono">{u.daily_quota ?? '—'}</td>
@@ -1196,7 +1196,6 @@ function AdminQuotaDashboard() {
 // â”€â”€â”€ Admin: Manage Users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AdminManageUsers() {
   const qc = useQueryClient()
-  const myUsername = useAuthStore((s) => s.username)
   const { data: userData, isLoading } = useQuery({ queryKey: ['settings-users'], queryFn: settingsApi.users })
   const { data: redistData } = useQuery({ queryKey: ['quota-redistribution'], queryFn: quotaApi.redistribution })
 
@@ -1208,13 +1207,15 @@ function AdminManageUsers() {
 
   // Admin sees only Auditors (their created users)
   const myUsers = (userData?.users ?? []).filter(u => u.role === 'Auditor')
-  const redistUsers = (redistData as any)?.users ?? []
+  const redistUsers = redistData?.users ?? []
 
   const userToEdit = myUsers.find(u => u.username === selectedUser)
-  const redistUser = redistUsers.find((u: any) => u.username === selectedUser)
+  const redistUser = redistUsers.find((user) => user.username === selectedUser)
 
   useEffect(() => {
     if (userToEdit) {
+      // Load the selected auditor's account data into the editable form.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRmUsername(userToEdit.readymode_username ?? '')
       setNewQuota(redistUser?.daily_quota ?? userToEdit.daily_limit ?? 0)
     }
@@ -1267,7 +1268,7 @@ function AdminManageUsers() {
             {myUsers.length === 0 ? (
               <tr><td colSpan={5} className="px-6 py-12 text-center text-vos-600">You haven't created any users yet</td></tr>
             ) : myUsers.map(u => {
-              const ru = redistUsers.find((r: any) => r.username === u.username)
+              const ru = redistUsers.find((r) => r.username === u.username)
               return (
                 <tr key={u.username} className="hover:bg-c-raised/30">
                   <td className="px-6 py-3 font-bold text-t-primary">{u.username}</td>
@@ -1335,10 +1336,14 @@ function AppConfig() {
   const qc = useQueryClient()
   const [category, setCategory] = useState<AppConfigCategory>('audio')
   const { data, isLoading } = useQuery({ queryKey: ['app-config', category], queryFn: () => settingsApi.appConfig(category) })
-  const [config, setConfig] = useState<Record<string, any>>({})
+  const [config, setConfig] = useState<Record<string, unknown>>({})
 
   useEffect(() => {
-    if (data) setConfig(data)
+    if (data) {
+      // Refresh editable config controls after the selected category is fetched.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setConfig(data)
+    }
   }, [data])
 
   const save = useMutation({
@@ -1391,7 +1396,7 @@ function AppConfig() {
                 <div className="relative group">
                   <input
                     type="text"
-                    value={typeof value === 'string' ? value.replace(/^"(.*)"$/, '$1') : value}
+                    value={typeof value === 'string' ? value.replace(/^"(.*)"$/, '$1') : String(value ?? '')}
                     onChange={(e) => updateKey(key, e.target.value)}
                     className="w-full h-12 bg-surface-page border border-b-subtle rounded-xl px-5 text-xs font-bold text-t-primary outline-none focus:border-b-focus focus:bg-surface-card transition-all"
                     spellCheck={false}
@@ -1421,18 +1426,6 @@ function AppConfig() {
           </div>
         </div>
       </Card>
-    </div>
-  )
-}
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-40 opacity-20">
-      <div className="w-24 h-24 rounded-full border-2 border-vos-500 flex items-center justify-center mb-8">
-        <Settings2 size={40} className="text-vos-500" />
-      </div>
-      <h2 className="text-2xl font-black text-t-primary uppercase tracking-[0.5em]">{title}</h2>
-      <p className="text-vos-500 text-[10px] font-black uppercase tracking-widest mt-4">Module in high-security standby</p>
     </div>
   )
 }

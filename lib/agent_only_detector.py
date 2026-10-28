@@ -9,7 +9,7 @@ import sys
 import time
 import logging
 import threading
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
 # Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -17,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from pydub import AudioSegment
 
 # Import existing components
-from analyzer.rebuttal_detection import KeywordRepository, SemanticDetectionEngine, OutputFormatter, TranscriptionEngine
+from analyzer.rebuttal_detection import KeywordRepository, SemanticDetectionEngine, OutputFormatter
 from analyzer import objection_gate
 from lib.egyptian_accent_correction import EgyptianAccentCorrection
 
@@ -66,7 +66,6 @@ class LocalTranscriptionEngine:
         
         try:
             import tempfile
-            import os
             
             # Export audio segment to temp file
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -304,31 +303,6 @@ class AgentOnlyTranscriptionEngine:
             lambda: self.transcribe_agent_only(audio_file_path, audio_duration_seconds=audio_duration_seconds)
         )
 
-    def _validate_audio_quality(self, audio_segment: AudioSegment) -> Dict[str, Any]:
-        """Validate audio quality for agent channel."""
-        duration_ms = len(audio_segment)
-
-        # Skip extremely short clips
-        if duration_ms < 1000:
-            return {"audio_quality_ok": False, "skipped_reason": "too_short"}
-
-        # Check for very quiet audio
-        import numpy as np
-        audio_array = np.array(audio_segment.get_array_of_samples())
-        max_amplitude = np.max(np.abs(audio_array))
-
-        if max_amplitude < 500:  # Very quiet threshold
-            return {"audio_quality_ok": False, "skipped_reason": "too_quiet"}
-
-        # Calculate basic quality score
-        mean_amplitude = np.mean(np.abs(audio_array))
-        quality_score = min(1.0, max_amplitude / 32767.0) if mean_amplitude > 0 else 0.0
-
-        return {
-            "audio_quality_ok": True,
-            "audio_quality_score": quality_score
-        }
-
 class AgentOnlyRebuttalDetector:
     """Complete rebuttal detection system using AssemblyAI API for agent channel transcription."""
 
@@ -528,7 +502,6 @@ class AgentOnlyRebuttalDetector:
             
             # Get audio duration for timeout calculation and logging
             try:
-                from pydub import AudioSegment
                 audio = AudioSegment.from_file(audio_file_path)
                 audio_duration_seconds = len(audio) / 1000.0
                 logger.debug(f"Audio file duration: {audio_duration_seconds:.1f}s")
@@ -546,11 +519,8 @@ class AgentOnlyRebuttalDetector:
             logger.debug(f"Transcription step completed in {transcription_elapsed:.2f}s")
 
             if not transcription_result["transcript"]:
-                # Check if it's a timeout error - if so, return "No" instead of "Error"
                 error_msg = transcription_result.get("error", "No transcript generated")
-                is_timeout = 'ReadTimeout' in error_msg or 'timeout' in error_msg.lower() or 'timed out' in error_msg.lower()
-                
-                result_value = "No"  # Always return "No" for failed transcription (treat as no rebuttal detected)
+                result_value = "No"
                 logger.warning(f"Transcription failed for agent-only detection: {error_msg}. Returning '{result_value}'.")
                 
                 return self.formatter.format_result(

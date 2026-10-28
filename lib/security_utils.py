@@ -6,7 +6,6 @@ Provides encryption, password hashing, and secure credential management.
 
 import os
 import secrets
-import hashlib
 import base64
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes

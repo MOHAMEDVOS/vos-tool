@@ -11,7 +11,6 @@ import os
 import sys
 import asyncio
 from pathlib import Path
-import signal
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -377,7 +376,7 @@ class AssemblyAITranscriptionEngine:
             # Submit for transcription with local retry for connection issues
             transcript_submission = None
             submission_error = None
-            for attempt in range(3):
+            for _ in range(3):
                 try:
                     # Use the instance-specific transcriber
                     transcript_submission = transcriber.submit(audio_file_path, config=config)

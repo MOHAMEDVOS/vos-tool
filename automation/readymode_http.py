@@ -17,6 +17,7 @@ import re
 import json
 import requests
 from html import unescape
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
@@ -71,6 +72,33 @@ BLOCKED_DISPOSITION_SUBSTRINGS = ("voicemail",)
 # "vm" only as a standalone word, so "VM - No Answer" is blocked but a label that merely
 # contains those two letters is not.
 BLOCKED_DISPOSITION_TOKENS = ("vm",)
+
+
+def dialer_name_from_url(dialer_url: str) -> str:
+    """Return the first hostname label used in ReadyMode progress messages."""
+    return dialer_url.rstrip("/").split("//")[-1].split(".")[0]
+
+
+def canonical_dialer_host(dialer_url: str) -> str:
+    """Return the normalized host used to scope ReadyMode recording identities."""
+    parsed = urlsplit(dialer_url if "://" in (dialer_url or "") else f"https://{dialer_url or ''}")
+    return (parsed.netloc or parsed.path).lower().rstrip(".")
+
+
+def normalize_recording_id(recording_id: str) -> str:
+    """Remove download-only parameters while preserving the ReadyMode recording path."""
+    value = str(recording_id or "").strip()
+    if not value:
+        return ""
+
+    parsed = urlsplit(value)
+    query = sorted(
+        (key, val)
+        for key, val in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.lower() != "force_dl"
+    )
+    path = parsed.path or value.split("?", 1)[0]
+    return urlunsplit(("", "", path, urlencode(query, doseq=True), ""))
 
 
 def is_blocked_disposition(label) -> bool:
@@ -717,7 +745,7 @@ def group_duplicate_users(userlist: dict) -> list[dict]:
                     "label": f"{folder}|{label}" if folder else label,
                     "role": "keep" if i == 0 else "delete_candidate",
                 }
-                for i, (_uid_int, uid_str, folder, label) in enumerate(accounts)
+                for i, (_, uid_str, folder, label) in enumerate(accounts)
             ],
         })
     groups.sort(key=lambda g: g["name"].lower())

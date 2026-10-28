@@ -23,6 +23,27 @@ from lib.google_workspace import (
 logger = logging.getLogger(__name__)
 
 
+def _is_flagged(row: Dict[str, Any]) -> bool:
+    return any(
+        row.get(column) == expected
+        for column, expected in (
+            ('Releasing Detection', 'Yes'),
+            ('Late Hello Detection', 'Yes'),
+            ('Rebuttal Detection', 'No'),
+        )
+    )
+
+
+def _select_report_rows(raw_rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:
+    rows = []
+    for row in raw_rows:
+        audit_type = row.get('Audit Type') or row.get('audit_type')
+        is_heavy_audit = audit_type in ('Heavy Audit', 'Heavy', 'Agent Audit')
+        if is_heavy_audit or _is_flagged(row):
+            rows.append(row)
+    return rows
+
+
 def generate_campaign_report(
     username: str,
     campaign_name: str,
@@ -53,21 +74,7 @@ def generate_campaign_report(
 
     raw_rows = df.to_dict("records")
 
-    def is_flagged(r):
-        return (
-            r.get('Releasing Detection') == 'Yes' or
-            r.get('Late Hello Detection') == 'Yes' or
-            r.get('Rebuttal Detection') == 'No'
-        )
-
-    rows = []
-    for r in raw_rows:
-        audit_type = r.get('Audit Type') or r.get('audit_type')
-        if audit_type in ('Heavy Audit', 'Heavy', 'Agent Audit'):
-            rows.append(r)
-        else:
-            if is_flagged(r):
-                rows.append(r)
+    rows = _select_report_rows(raw_rows)
 
     if not rows:
         raise ValueError(f"No flagged audit data found for campaign '{campaign_name}'")
