@@ -144,13 +144,12 @@ def _google_sheet_values(spreadsheet_id: str, sheet_name: str, range_name: str) 
         ).execute().get("values", [])
 
 
-def _waiver_template_key(value: Any) -> str:
+def _action_match_key(value: Any) -> str:
+    """Normalize formatting-only differences when matching action records."""
     text = normalize_details(value).strip()
-    quote_pairs = (("\"", "\""), ("'", "'"), ("“", "”"), ("‘", "’"))
-    for opening, closing in quote_pairs:
-        if len(text) >= 2 and text.startswith(opening) and text.endswith(closing):
-            text = text[len(opening):-len(closing)].strip()
-            break
+    # Sheet exports can join a duration to the next word.
+    text = re.sub(r"(?<=\d[mM])(?=[a-z])", " ", text, flags=re.IGNORECASE)
+    text = text.strip("\"'“”‘’ ")
     return text.casefold()
 
 
@@ -174,7 +173,7 @@ def _waived_action_templates() -> set[str]:
     for row in values[header_index + 1:]:
         template = row[template_index] if template_index < len(row) else ""
         result = row[result_index] if result_index < len(row) else ""
-        normalized_template = _waiver_template_key(template)
+        normalized_template = _action_match_key(template)
         if normalized_template and str(result).strip().casefold() == "waived":
             waived.add(normalized_template)
     return waived
@@ -212,7 +211,7 @@ def _sheet_action_rows(start_date: date, end_date: date) -> list[dict[str, str]]
         if not normalize_details(details):
             continue
         is_verbal = _is_verbal_action(details)
-        is_waived = _waiver_template_key(details) in waived_templates
+        is_waived = _action_match_key(details) in waived_templates
         category = "verbal" if is_verbal else "waived" if is_waived else "hr_required"
         result.append({
             "sheet_row": row_number,
@@ -300,14 +299,14 @@ def reconcile_tl_actions(start_date: date, end_date: date) -> dict[str, Any]:
 
     payroll_by_details: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
     for item in payroll:
-        key = normalize_details(item.get("details", ""))
+        key = _action_match_key(item.get("details", ""))
         if key:
             payroll_by_details[key].append(item)
 
     missing = []
     matched_count = 0
     for source in sheet:
-        candidates = payroll_by_details[normalize_details(source["details"])]
+        candidates = payroll_by_details[_action_match_key(source["details"])]
         if candidates:
             candidates.popleft()
             matched_count += 1

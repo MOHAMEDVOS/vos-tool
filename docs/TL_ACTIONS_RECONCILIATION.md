@@ -16,12 +16,12 @@ The backend signs in with `POST /login`, retains the returned bearer token in a 
 
 ## Result rules
 
-The sheet is read from Google's public CSV export when its sharing setting permits link access; otherwise the backend can use its service account. The source sheet is filtered by its `Action Date` column. Payroll is filtered by its `Created Date Range`. The `Details` values are compared exactly after removing HTML markup/entities, normalizing Unicode compatibility forms, and collapsing whitespace. Text case, punctuation, numbers, and words remain significant. Duplicate details are matched one at a time.
+The sheet is read from Google's public CSV export when its sharing setting permits link access; otherwise the backend can use its service account. The source sheet is filtered by its `Action Date` column. Payroll is filtered by its `Created Date Range`. Duplicate details are matched one at a time.
 
-- Only sheet actions without a remaining exact Payroll match are returned to the page. Exact matches and Payroll-only rows are omitted.
+- Only sheet actions without a remaining Payroll match are returned to the page. Matching uses the same normalized action key as waiver filtering: it ignores HTML, Unicode compatibility, whitespace, case, outer quotation marks, and a missing space between a duration ending in `m` and the next word. Names, numbers, and incident content remain part of the match. Exact matches and Payroll-only rows are omitted.
 - Duplicate details are matched one at a time, so an extra repeated sheet action is still shown as missing.
 - Rows whose `Action Given` value is exactly `Verbal` are ignored before reconciliation, so they do not appear in results or the sheet action count. This does not filter values such as `Verbal warning`.
-- Actions whose full `Details` text matches an action template with `Result` set to `Waived` in the `Audit Reply` sheet are also ignored before reconciliation. Template matching ignores case, removes matching outer quotes, and normalizes HTML markup, Unicode compatibility forms, and whitespace. `Not Waived` remains eligible.
+- Actions whose full `Details` text matches an action template with `Result` set to `Waived` in the `Audit Reply` sheet are also ignored before reconciliation using the same normalized action key. `Not Waived` remains eligible.
 
 Reconciliation is read-only. **Send action** prepares the selected missing row in the Podio webform and Google Form for review; it never submits either form. VOS preselects the Podio Agent when its list has one exact name match. If it cannot, both forms still open and VOS asks you to select the Agent manually. Review the details and press Submit in both forms. See [TL_ACTIONS_SUBMISSION_SETUP.md](TL_ACTIONS_SUBMISSION_SETUP.md).
 
