@@ -2,14 +2,13 @@
 ReadyMode API endpoints — blocking download + SSE streaming variant.
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends, File, Form, UploadFile
+from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ValidationError
-from typing import Optional, List
+from pydantic import BaseModel
+from typing import Optional
 from datetime import date as _date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys, io, threading, queue, json, uuid
-import re
 
 # ── Thread-local stdout router ────────────────────────────────────────────────
 # Each worker thread registers its own QueueWriter here so concurrent audits
@@ -42,7 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from automation.download_readymode_calls import (
+from automation.download_readymode_calls_playwright import (
     download_all_call_recordings,
     ReadyModeLoginError,
     ReadyModeNoCallsError,
@@ -52,8 +51,6 @@ from automation.readymode_http import (
     ReadyModeHTTPClient,
     DISPOSITION_TYPE_IDS,
     all_type_ids,
-    is_blocked_disposition,
-    normalize_recording_id,
     resolve_agent_id,
     resolve_campaign_id,
 )
@@ -68,127 +65,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-@router.post("/browser-import", response_model=ReadyModeStatus)
-async def import_browser_recordings(
-    audit_request: str = Form(...),
-    manifest: str = Form(...),
-    files: List[UploadFile] = File(...),
-    current_user: dict = Depends(get_current_user),
-):
-    """Analyze recordings fetched by the user's signed-in Chrome ReadyMode session."""
-    try:
-        try:
-            request = ReadyModeDownloadRequest.model_validate_json(audit_request)
-            recording_rows = json.loads(manifest)
-        except (ValidationError, json.JSONDecodeError) as error:
-            raise HTTPException(status_code=400, detail="Audit request or recording list is invalid.") from error
-        if not isinstance(recording_rows, list) or len(recording_rows) != len(files):
-            raise HTTPException(status_code=400, detail="Recording list does not match uploaded files.")
-        if not files or len(files) > 200:
-            raise HTTPException(status_code=400, detail="Upload between 1 and 200 recordings.")
-        if request.campaign_name and current_user["role"] == "Auditor":
-            raise HTTPException(status_code=403, detail="Auditors can only run Agent audits")
-
-        allowed_hosts = {f"resva{i}.readymode.com" for i in range(2, 8)} | {"resva.readymode.com"}
-        for row in recording_rows:
-            if not isinstance(row, dict) or row.get("dialer_host") not in allowed_hosts:
-                raise HTTPException(status_code=400, detail="Recording came from an unsupported dialer.")
-            if is_blocked_disposition(row.get("type")):
-                raise HTTPException(status_code=400, detail="Voicemail recordings cannot be imported.")
-
-        from config import RECORDINGS_ROOT, get_user_daily_limit
-        max_calls = request.max_calls or get_user_daily_limit(current_user["username"])
-        if len(files) > max_calls * (2 if request.dialer_url_2 else 1):
-            raise HTTPException(status_code=400, detail="Upload exceeds the selected call limit.")
-
-        audit_type = (request.audit_type or "heavy").lower()
-        min_duration, max_duration = _resolve_duration(
-            request.duration_filter or "all", audit_type, request.custom_duration_seconds
-        )
-        if audit_type == "heavy" and not request.campaign_name:
-            min_duration = request.minimum_call_duration_seconds
-
-        run_id = str(uuid.uuid4())
-        label = request.campaign_name or request.agent_name or "ReadyMode"
-        safe_label = re.sub(r'[^A-Za-z0-9_-]+', '', label.replace(' ', ''))[:80] or "ReadyMode"
-        run_dir = Path(RECORDINGS_ROOT) / "BrowserImport" / current_user["username"] / f"{safe_label}-{run_id[:8]}"
-        run_dir.mkdir(parents=True, exist_ok=False)
-        from automation.download_readymode_calls import _probe_duration_seconds
-        claim_recordings, _ = _recording_registry_callbacks(current_user["username"])
-
-        saved_records = []
-        skipped_count = 0
-        max_file_size = 50 * 1024 * 1024
-        total_size = 0
-        try:
-            for index, (upload, row) in enumerate(zip(files, recording_rows)):
-                extension = Path(upload.filename or "").suffix.lower()
-                if extension not in {".mp3", ".wav", ".m4a", ".ogg", ".flac"}:
-                    raise HTTPException(status_code=400, detail="Only audio recordings can be imported.")
-                contents = await upload.read(max_file_size + 1)
-                total_size += len(contents)
-                if len(contents) > max_file_size or total_size > 90 * 1024 * 1024:
-                    raise HTTPException(status_code=413, detail="Recording upload is too large.")
-                recording_id = normalize_recording_id(row.get("recording_id", ""))
-                host = row["dialer_host"]
-                safe_name = re.sub(r'[^A-Za-z0-9_.-]+', '_', Path(upload.filename or "recording.mp3").name)[:160]
-                path = run_dir / f"{index:04d}_{safe_name}"
-                path.write_bytes(contents)
-                try:
-                    duration = _probe_duration_seconds(str(path))
-                except Exception as error:
-                    path.unlink(missing_ok=True)
-                    raise HTTPException(status_code=400, detail=f"Could not read recording duration: {error}")
-                if duration < (min_duration or 0) or (max_duration is not None and duration > max_duration):
-                    path.unlink(missing_ok=True)
-                    skipped_count += 1
-                    continue
-                saved_records.append({
-                    "file_path": str(path), "dialer_host": host, "recording_id": recording_id,
-                })
-
-            grouped = {}
-            for row in saved_records:
-                if row["recording_id"]:
-                    grouped.setdefault(row["dialer_host"], []).append(row["recording_id"])
-            claimed = set()
-            for host, ids in grouped.items():
-                claimed.update((host, rid) for rid in claim_recordings(
-                    host, ids, run_id, request.force_reaudit
-                ))
-
-            kept_records = []
-            for row in saved_records:
-                key = (row["dialer_host"], row["recording_id"])
-                if row["recording_id"] and key not in claimed:
-                    Path(row["file_path"]).unlink(missing_ok=True)
-                    skipped_count += 1
-                else:
-                    kept_records.append(row)
-            Path(run_dir, ".readymode_manifest.json").write_text(json.dumps({
-                "run_id": run_id, "skipped_count": skipped_count, "records": kept_records,
-            }), encoding="utf-8")
-            import asyncio, functools
-            loop = asyncio.get_running_loop()
-            downloaded_count, analyzed_count, _, skipped_count = await loop.run_in_executor(
-                None,
-                functools.partial(_count_and_analyze, str(run_dir), request, current_user, audit_type),
-            )
-            return ReadyModeStatus(
-                status="completed", downloaded_count=downloaded_count,
-                analyzed_count=analyzed_count, skipped_count=skipped_count,
-                message=f"Downloaded {downloaded_count} calls and analyzed {analyzed_count} rows.",
-            )
-        except Exception:
-            _release_manifest_recordings(run_dir, current_user["username"])
-            raise
-    except HTTPException:
-        raise
-    except Exception as error:
-        logger.error("Browser ReadyMode import failed: %s", error, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Browser ReadyMode import failed: {error}")
 
 # ── Active-run tracking ────────────────────────────────────────────────────
 # Each /stream call gets its OWN cancel Event (never shared/reused across calls —

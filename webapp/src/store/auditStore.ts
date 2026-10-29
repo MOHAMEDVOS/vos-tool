@@ -3,7 +3,6 @@ import { readymodeApi, type DownloadRequest } from '@/api/readymode'
 import { type LogLine, type LogStage, type StreamStatus, type DoneResult, type ProgressState, type AnalysisProgress } from '@/hooks/useAuditStream'
 import { useAuthStore } from './authStore'
 import { getErrorMessage, isAbortError } from '@/utils/errors'
-import { BrowserConnectorUnavailableError, runReadymodeAuditFromBrowser } from '@/api/readymode-browser'
 
 interface AuditState {
   status: StreamStatus
@@ -73,69 +72,50 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     })
 
     try {
-      let usedBrowser = false
-      try {
-        const browserResult = await runReadymodeAuditFromBrowser(body, token, newController.signal)
-        usedBrowser = true
-        set({
-          logs: [{ id: _idCounter++, stage: 'SUCCESS', text: 'Imported recordings through the signed-in Chrome session.' }],
-          result: {
-            downloaded: browserResult.downloaded_count || 0,
-            analyzed: browserResult.analyzed_count || 0,
-            skipped: browserResult.skipped_count || 0,
-            message: browserResult.message || 'ReadyMode audit completed.',
-          },
-          status: 'done',
-        })
-      } catch (error) {
-        if (!(error instanceof BrowserConnectorUnavailableError)) throw error
-      }
+      await readymodeApi.streamFetch(
+        body,
+        token,
+        (event, data) => {
+          if (event === 'log') {
+            const { stage, text } = parseStage(data)
+            set((state) => ({
+              logs: [...state.logs, { id: _idCounter++, stage, text }]
+            }))
 
-      if (!usedBrowser) {
-        await readymodeApi.streamFetch(
-          body,
-          token,
-          (event, data) => {
-            if (event === 'log') {
-              const { stage, text } = parseStage(data)
-              set((state) => ({
-                logs: [...state.logs, { id: _idCounter++, stage, text }]
-              }))
-
-              const analysisMatch = text.match(/(?:Async|Lite) Progress: (\d+)\/(\d+)/)
-              if (analysisMatch) {
-                set({
-                  analysisProgress: {
-                    completed: parseInt(analysisMatch[1], 10),
-                    total: parseInt(analysisMatch[2], 10)
-                  }
-                })
-              }
-            } else if (event === 'progress') {
-              try {
-                const p = JSON.parse(data)
-                set({ progress: { downloaded: p.downloaded, total: p.total } })
-              } catch { /* ignore */ }
-            } else if (event === 'done') {
-              try {
-                const parsed: DoneResult = JSON.parse(data)
-                set({ result: parsed })
-              } catch {
-                set({ result: { downloaded: 0, analyzed: 0, message: data } })
-              }
-              set({ status: 'done' })
-            } else if (event === 'cancelled') {
-              set({ status: 'cancelled' })
-            } else if (event === 'error') {
-              set({ error: data, status: 'error' })
+            const analysisMatch = text.match(/(?:Async|Lite) Progress: (\d+)\/(\d+)/)
+            if (analysisMatch) {
+              set({
+                analysisProgress: {
+                  completed: parseInt(analysisMatch[1], 10),
+                  total: parseInt(analysisMatch[2], 10)
+                }
+              })
             }
-          },
-          newController.signal,
-        )
-        // Stream closed normally but may not have sent a done/error event (e.g. proxy disconnect).
-        if (get().status === 'running') {
-          set({ error: 'Connection lost before audit completed. The download may still be running on the server — check back in a few minutes.', status: 'error' })
-        }
+          } else if (event === 'progress') {
+            try {
+              const p = JSON.parse(data)
+              set({ progress: { downloaded: p.downloaded, total: p.total } })
+            } catch { /* ignore */ }
+          } else if (event === 'done') {
+            try {
+              const parsed: DoneResult = JSON.parse(data)
+              set({ result: parsed })
+            } catch {
+              set({ result: { downloaded: 0, analyzed: 0, message: data } })
+            }
+            set({ status: 'done' })
+          } else if (event === 'cancelled') {
+            set({ status: 'cancelled' })
+          } else if (event === 'error') {
+            set({ error: data, status: 'error' })
+          }
+        },
+        newController.signal,
+      )
+      // Stream closed normally but may not have sent a done/error event (e.g. proxy disconnect).
+      // If status is still 'running', the audit didn't complete — surface it as an error.
+      if (get().status === 'running') {
+        set({ error: 'Connection lost before audit completed. The download may still be running on the server — check back in a few minutes.', status: 'error' })
       }
     } catch (error: unknown) {
       if (isAbortError(error)) {

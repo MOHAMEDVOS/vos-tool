@@ -34,8 +34,6 @@ At 15:31, `OPTIONS /api/auth/google` returned 400. A Google login completed succ
 
 Considered (1) change code immediately, (2) inspect deployment configuration, and (3) document the findings and identify the missing evidence. Chose option 3 because the pasted log contains no explicit fix request, and the CORS and timestamp issues cannot be safely corrected without the missing request/value details. No runtime code or deployment settings were changed.
 
-## Follow-up: ReadyMode access path
+## Follow-up: Current ReadyMode path
 
-I made unauthenticated GET requests from the development machine to `resva`, `resva2`, and `resva3` using the current client's headers. Each returned HTTP 200 but served Cloudflare challenge HTML. The already signed-in Chrome tab can open the RES VA 3 CRM, so browser access works with its existing session; this does not mean the server-side login flow works. The probe used no credentials and did not submit a login form.
-
-Changing request headers or automating the challenge is not an appropriate fix. Readymode publicly advertises API capabilities, but its public docs do not provide a self-serve API specification for call-log reporting; they direct customers to the Integrations team. No support request was made. Railway supports static outbound IPs on Pro plans, but enabling one without an allowlist on the ReadyMode side is unlikely to resolve this challenge. A no-support route would require a local browser-connected worker that uses the user's existing signed-in session and sends only the needed report results to VOS; that is a larger architecture change and needs a secure connector design.
+The Chrome extension connector was removed on 2026-10-29 at the user's request. Agent and Campaign audit downloads now use the historical server-side Playwright implementation from before commit `7f489b1`; the auxiliary busiest-dialer checks continue to use the pure-HTTP client. The Cloudflare challenges documented above may still affect those HTTP checks.

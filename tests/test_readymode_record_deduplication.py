@@ -69,6 +69,9 @@ def test_recording_identity_removes_download_query_parameter():
     assert normalize_recording_id("/recording/one.mp3?token=x&force_dl=1&region=ny") == (
         "/recording/one.mp3?region=ny&token=x"
     )
+    raw_rec_id = "/File types/data/callrec/db/70/57/24/7245770.mp3"
+    encoded_href = "https://resva.readymode.com/File%20types/data/callrec/db/70/57/24/7245770.mp3"
+    assert normalize_recording_id(raw_rec_id) == normalize_recording_id(encoded_href)
 
 
 def test_audit_rows_keep_record_identity_and_retry_error_rows():

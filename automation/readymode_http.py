@@ -1,9 +1,10 @@
-"""Pure-HTTP ReadyMode client — replaces the former Playwright/Chromium automation.
+"""Pure-HTTP ReadyMode client for report lookups and background call-log jobs.
+
+Agent and Campaign recording audits use the Playwright downloader; scoring and auxiliary
+report lookups continue to use this HTTP client.
 
 Reverse-engineered from a live recon capture; the full contract is documented in
-`scratch/readymode-recon/HTTP_SPEC.md`. One authenticated ``requests`` session drives
-everything: login -> GET ``/CCS Reports/call_log/update`` (JSON) -> rows -> mp3 download.
-No browser, no DOM, no Chromium.
+`docs/READYMODE_HTTP_SPEC.md`.
 
 Key facts (see spec for detail):
   * Login = single POST to ``/login_new/?then=/`` with ``logout_other_sessions=on`` and
@@ -17,7 +18,7 @@ import re
 import json
 import requests
 from html import unescape
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
@@ -97,7 +98,7 @@ def normalize_recording_id(recording_id: str) -> str:
         for key, val in parse_qsl(parsed.query, keep_blank_values=True)
         if key.lower() != "force_dl"
     )
-    path = parsed.path or value.split("?", 1)[0]
+    path = unquote(parsed.path or value.split("?", 1)[0])
     return urlunsplit(("", "", path, urlencode(query, doseq=True), ""))
 
 

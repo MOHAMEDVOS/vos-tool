@@ -1,8 +1,9 @@
-"""ReadyMode Call Recording Downloader — pure HTTP (no Playwright/Chromium).
+"""ReadyMode Call Recording Downloader — pure HTTP path for the scoring sampler.
 
-Replaces the former Playwright browser automation with direct HTTP requests against
-ReadyMode's JSON report endpoint. See ``automation/readymode_http.py`` for the client
-and ``scratch/readymode-recon/HTTP_SPEC.md`` for the reverse-engineered API contract.
+Agent and Campaign audit downloads use the separate Playwright implementation. This
+module uses direct HTTP requests against ReadyMode's JSON report endpoint for scoring.
+See ``automation/readymode_http.py`` for the client and the ReadyMode HTTP spec for
+the report contract.
 
 The public contract is unchanged so the FastAPI layer (``backend/api/readymode.py``) and
 the SSE stream keep working without edits:
