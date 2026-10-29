@@ -1,7 +1,6 @@
-"""Pure-HTTP ReadyMode client for report lookups and background call-log jobs.
+"""Pure-HTTP ReadyMode client for call-log and report jobs.
 
-Agent and Campaign recording audits use the Playwright downloader; scoring and auxiliary
-report lookups continue to use this HTTP client.
+Agent audits, Campaign audits, scoring, and auxiliary report lookups use this client.
 
 Reverse-engineered from a live recon capture; the full contract is documented in
 `docs/READYMODE_HTTP_SPEC.md`.

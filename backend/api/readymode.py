@@ -41,7 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from automation.download_readymode_calls_playwright import (
+from automation.download_readymode_calls import (
     download_all_call_recordings,
     ReadyModeLoginError,
     ReadyModeNoCallsError,

@@ -46,9 +46,6 @@ COPY --from=builder /root/.local /root/.local
 # Make sure scripts in .local are usable early
 ENV PATH=/root/.local/bin:$PATH
 
-# Install the Chromium browser used by the ReadyMode Playwright downloader.
-RUN python -m playwright install --with-deps chromium
-
 # Clean up unnecessary files to reduce image size
 RUN find /root/.local -type d -name "tests" -exec rm -r {} + 2>/dev/null || true && \
     find /root/.local -type d -name "test" -exec rm -r {} + 2>/dev/null || true && \

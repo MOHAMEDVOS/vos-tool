@@ -1,7 +1,7 @@
-"""ReadyMode Call Recording Downloader — pure HTTP path for the scoring sampler.
+"""ReadyMode call downloader using authenticated pure HTTP requests.
 
-Agent and Campaign audit downloads use the separate Playwright implementation. This
-module uses direct HTTP requests against ReadyMode's JSON report endpoint for scoring.
+Agent audits, Campaign audits, and the scoring sampler use this module to query
+ReadyMode's JSON report endpoint and download recordings without a browser.
 See ``automation/readymode_http.py`` for the client and the ReadyMode HTTP spec for
 the report contract.
 
