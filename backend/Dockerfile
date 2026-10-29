@@ -36,6 +36,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
+    xvfb \
+    xauth \
     tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && ln -snf /usr/share/zoneinfo/America/New_York /etc/localtime && echo America/New_York > /etc/timezone
@@ -67,6 +69,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     TZ=America/New_York \
+    READYMODE_HEADLESS=false \
     # HuggingFace cache directories (Railway persistence)
     # Using /app/.cache for persistence across restarts
     HF_HOME=/app/.cache/huggingface \
