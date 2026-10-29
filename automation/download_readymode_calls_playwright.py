@@ -12,6 +12,7 @@ import logging
 import json
 import shutil
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 try:
     from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
@@ -128,10 +129,54 @@ def extract_dialer_name_from_url(dialer_url: str) -> str:
 
 def login_to_readymode(page, dialer_url, readymode_user=None, readymode_pass=None, cancellation_callback=None):
     """Login to ReadyMode using Playwright."""
-    page.goto(dialer_url, wait_until="domcontentloaded")
+    response = page.goto(dialer_url, wait_until="domcontentloaded")
 
     # Wait for login form
-    page.wait_for_selector("input[name='login_account']", timeout=30000)
+    login_selector = "input[name='login_account']"
+    try:
+        page.wait_for_selector(login_selector, timeout=30000)
+    except PlaywrightTimeout as error:
+        final_url = urlsplit(page.url)._replace(query="", fragment="").geturl()
+        try:
+            title = page.title()
+        except Exception:
+            title = ""
+        try:
+            status = response.status if response else None
+            content_type = response.headers.get("content-type", "") if response else ""
+        except Exception:
+            status = None
+            content_type = ""
+
+        selector_count = 0
+        selector_visible = False
+        try:
+            selector = page.locator(login_selector)
+            selector_count = selector.count()
+            selector_visible = selector.first.is_visible() if selector_count else False
+        except Exception:
+            pass
+
+        page_markers = []
+        try:
+            body_text = page.locator("body").inner_text(timeout=1000).lower()
+            for label, phrases in {
+                "cloudflare_challenge": ("just a moment", "verify you are human", "checking your browser"),
+                "access_denied": ("access denied", "forbidden", "not authorized"),
+                "not_found": ("404", "page not found"),
+            }.items():
+                if any(phrase in body_text for phrase in phrases):
+                    page_markers.append(label)
+        except Exception:
+            pass
+
+        details = (
+            f"url={final_url}, status={status}, content_type={content_type!r}, "
+            f"title={title!r}, selector_count={selector_count}, "
+            f"selector_visible={selector_visible}, page_markers={page_markers}"
+        )
+        logger.error("ReadyMode login form was not found: %s", details)
+        raise ReadyModeLoginError(f"ReadyMode login form was not found ({details})") from error
 
     login_username = readymode_user if readymode_user else USERNAME
     login_password = readymode_pass if readymode_pass else PASSWORD
