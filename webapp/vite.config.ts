@@ -9,6 +9,9 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    allowedHosts: process.env.CLOUDFLARE_TUNNEL_HOST
+      ? [process.env.CLOUDFLARE_TUNNEL_HOST]
+      : undefined,
     proxy: {
       '/api': { target: 'http://localhost:8000', changeOrigin: true },
     },

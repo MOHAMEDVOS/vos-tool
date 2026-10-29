@@ -98,6 +98,7 @@ function MissingActionCard({
   prepareWarning,
   podioConfirmed,
   submissionStarted,
+  podioCheckAttempted,
   onOpenForms,
 }: {
   row: TlActionResult
@@ -106,6 +107,7 @@ function MissingActionCard({
   prepareWarning?: string
   podioConfirmed: boolean
   submissionStarted: boolean
+  podioCheckAttempted: boolean
   onOpenForms: () => void
 }) {
   const fields = parseActionDetails(row.details)
@@ -117,7 +119,7 @@ function MissingActionCard({
         <div className="flex items-center gap-3">
           <span className="rounded-md bg-surface-page px-2.5 py-1 text-sm font-semibold text-t-primary">{displayDate(row.action_date)}</span>
           <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold ${podioConfirmed ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600' : submissionStarted ? 'border-amber-500/30 bg-amber-500/10 text-amber-600' : 'border-red-500/30 bg-red-500/10 text-red-500'}`}>
-            {podioConfirmed ? <><CheckCircle2 size={13} /> Confirmed in Podio</> : submissionStarted ? <><AlertTriangle size={13} /> Waiting for Podio</> : <><AlertTriangle size={13} /> Not confirmed in Podio</>}
+            {podioConfirmed ? <><CheckCircle2 size={13} /> Confirmed in Podio</> : submissionStarted && podioCheckAttempted ? <><AlertTriangle size={13} /> Not found in Podio yet</> : submissionStarted ? <><AlertTriangle size={13} /> Waiting for first check</> : <><AlertTriangle size={13} /> Not confirmed in Podio</>}
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -129,7 +131,7 @@ function MissingActionCard({
 
       <div className="px-5 py-4">
         <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-t-primary">{actionTemplate}</pre>
-        <p className="mt-3 text-xs text-t-secondary">{podioConfirmed ? 'VOS found this action in Podio. Submit the Google Form separately if it is not submitted yet.' : submissionStarted ? 'Submit the Podio form to finish. VOS is checking Podio automatically; submit the Google Form separately.' : 'Open both forms and submit them. VOS will confirm the Podio submission automatically.'}</p>
+        <p className="mt-3 text-xs text-t-secondary">{podioConfirmed ? 'VOS found this action in Podio. Submit the Google Form separately if it is not submitted yet.' : submissionStarted && podioCheckAttempted ? 'VOS has not found the action yet and will keep checking every 15 seconds. Submit the Google Form separately.' : submissionStarted ? 'VOS starts checking Podio 30 seconds after the forms open, then checks every 15 seconds. Submit the Google Form separately.' : 'Open both forms and submit them. VOS will confirm the Podio submission automatically.'}</p>
         {prepareWarning && <p role="alert" className="mt-3 flex items-start gap-2 text-sm font-medium text-amber-600"><AlertTriangle size={16} className="mt-0.5 shrink-0" />{prepareWarning}</p>}
         {prepareError && <p role="alert" className="mt-3 flex items-start gap-2 text-sm font-medium text-red-500"><AlertCircle size={16} className="mt-0.5 shrink-0" />{prepareError}</p>}
       </div>
@@ -177,6 +179,14 @@ export function TlActionsPage() {
       return saved && !Array.isArray(saved) && typeof saved === 'object' ? saved as Record<string, string> : {}
     } catch {
       return {}
+    }
+  })
+  const [podioCheckAttemptedKeys, setPodioCheckAttemptedKeys] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('vos-tl-actions-podio-checked-v1') || '[]')
+      return Array.isArray(saved) ? saved.filter((key): key is string => typeof key === 'string') : []
+    } catch {
+      return []
     }
   })
   const [podioStatus, setPodioStatus] = useState<{ configured: boolean; connected: boolean } | null>(null)
@@ -228,6 +238,7 @@ export function TlActionsPage() {
   useEffect(() => {
     if (!podioStatus?.connected || !result) return
     let cancelled = false
+    let retryTimer: number | undefined
     const checkStartedActions = async () => {
       if (podioCheckInFlight.current) return
       podioCheckInFlight.current = true
@@ -235,8 +246,20 @@ export function TlActionsPage() {
         for (const row of result.results) {
           const key = actionStatusKey(row)
           if (cancelled || !startedKeysRef.current.includes(key) || podioConfirmedKeysRef.current.includes(key)) continue
-          const match = await tlActionsApi.checkPodio(row, startedAtByKeyRef.current[key])
-          if (cancelled || !match.confirmed) continue
+          const startedAt = startedAtByKeyRef.current[key]
+          const firstCheckAt = Date.parse(startedAt ?? '') + 30_000
+          if (!Number.isFinite(firstCheckAt) || Date.now() < firstCheckAt) continue
+          const match = await tlActionsApi.checkPodio(row, startedAt)
+          if (cancelled) continue
+          if (!match.confirmed) {
+            setPodioCheckAttemptedKeys((current) => {
+              if (current.includes(key)) return current
+              const next = [...current, key]
+              try { localStorage.setItem('vos-tl-actions-podio-checked-v1', JSON.stringify(next)) } catch { /* status remains visible until refresh */ }
+              return next
+            })
+            continue
+          }
           setPodioConfirmedKeys((current) => {
             const next = [...new Set([...current, key])]
             podioConfirmedKeysRef.current = next
@@ -261,6 +284,11 @@ export function TlActionsPage() {
             try { localStorage.setItem('vos-tl-actions-started-at-v1', JSON.stringify(next)) } catch { /* confirmation is already saved above */ }
             return next
           })
+          setPodioCheckAttemptedKeys((current) => {
+            const next = current.filter((item) => item !== key)
+            try { localStorage.setItem('vos-tl-actions-podio-checked-v1', JSON.stringify(next)) } catch { /* confirmation is already saved above */ }
+            return next
+          })
         }
       } catch (err) {
         if (!cancelled) setPodioCheckNotice(err instanceof Error ? `Podio check will retry: ${err.message}` : 'Podio check will retry.')
@@ -268,10 +296,25 @@ export function TlActionsPage() {
         podioCheckInFlight.current = false
       }
     }
-    void checkStartedActions()
-    const timer = window.setInterval(() => { void checkStartedActions() }, 15000)
-    return () => { cancelled = true; window.clearInterval(timer) }
-  }, [podioStatus?.connected, result])
+    const pendingStartTimes = result.results
+      .filter((row) => {
+        const key = actionStatusKey(row)
+        return startedKeysRef.current.includes(key) && !podioConfirmedKeysRef.current.includes(key)
+      })
+      .map((row) => Date.parse(startedAtByKeyRef.current[actionStatusKey(row)] ?? ''))
+      .filter(Number.isFinite)
+    if (!pendingStartTimes.length) return
+    const firstCheckAt = Math.min(...pendingStartTimes) + 30_000
+    const initialTimer = window.setTimeout(() => {
+      void checkStartedActions()
+      retryTimer = window.setInterval(() => { void checkStartedActions() }, 15000)
+    }, Math.max(0, firstCheckAt - Date.now()))
+    return () => {
+      cancelled = true
+      window.clearTimeout(initialTimer)
+      if (retryTimer !== undefined) window.clearInterval(retryTimer)
+    }
+  }, [podioStatus?.connected, result, startedAtByKey, startedKeys])
 
   const copyBriefReport = async () => {
     if (!result) return
@@ -316,14 +359,17 @@ export function TlActionsPage() {
 
   const saveStartedStatus = (key: string, startedAt: string) => {
     const next = [...new Set([...startedKeys, key])]
-    const nextStartedAt = { ...startedAtByKeyRef.current, [key]: startedAtByKeyRef.current[key] ?? startedAt }
+    const nextStartedAt = { ...startedAtByKeyRef.current, [key]: startedAt }
+    const nextCheckedKeys = podioCheckAttemptedKeys.filter((item) => item !== key)
     try {
       localStorage.setItem('vos-tl-actions-started-v1', JSON.stringify(next))
       localStorage.setItem('vos-tl-actions-started-at-v1', JSON.stringify(nextStartedAt))
+      localStorage.setItem('vos-tl-actions-podio-checked-v1', JSON.stringify(nextCheckedKeys))
       startedKeysRef.current = next
       startedAtByKeyRef.current = nextStartedAt
       setStartedAtByKey(nextStartedAt)
       setStartedKeys(next)
+      setPodioCheckAttemptedKeys(nextCheckedKeys)
       setPodioSaveError('')
     } catch {
       setPodioSaveError('Could not save submission progress in this browser.')
@@ -372,7 +418,6 @@ export function TlActionsPage() {
 
   const openActionForms = async (row: TlActionResult) => {
     const key = rowKey(row)
-    const startedAt = new Date().toISOString()
     const isPodioConfirmed = podioConfirmedKeys.includes(actionStatusKey(row))
     const podioTab = isPodioConfirmed ? null : window.open('about:blank', '_blank')
     const googleTab = window.open('about:blank', '_blank')
@@ -390,7 +435,7 @@ export function TlActionsPage() {
       const forms = await tlActionsApi.prepare(row)
       if (podioTab) podioTab.location.href = forms.podio_url
       googleTab.location.href = forms.google_form_url
-      if (!isPodioConfirmed) saveStartedStatus(actionStatusKey(row), startedAt)
+      if (!isPodioConfirmed) saveStartedStatus(actionStatusKey(row), new Date().toISOString())
       if (!isPodioConfirmed && forms.agent_warning) {
         setPrepareWarnings((current) => ({ ...current, [key]: forms.agent_warning ?? '' }))
         window.alert(`Both forms are open. ${forms.agent_warning}`)
@@ -526,7 +571,7 @@ export function TlActionsPage() {
               {rows.map((row, index) => {
                 const key = rowKey(row)
                 const statusKey = actionStatusKey(row)
-                return <MissingActionCard key={`${key}-${index}`} row={row} preparing={preparingKey === key} prepareError={prepareErrors[key]} prepareWarning={prepareWarnings[key]} podioConfirmed={podioConfirmedKeys.includes(statusKey)} submissionStarted={startedKeys.includes(statusKey)} onOpenForms={() => openActionForms(row)} />
+                return <MissingActionCard key={`${key}-${index}`} row={row} preparing={preparingKey === key} prepareError={prepareErrors[key]} prepareWarning={prepareWarnings[key]} podioConfirmed={podioConfirmedKeys.includes(statusKey)} submissionStarted={startedKeys.includes(statusKey)} podioCheckAttempted={podioCheckAttemptedKeys.includes(statusKey)} onOpenForms={() => openActionForms(row)} />
               })}
             </section>
           : <div className="rounded-xl border border-b-medium bg-surface-card px-5 py-12 text-center shadow-card">
