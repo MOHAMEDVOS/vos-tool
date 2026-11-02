@@ -1427,7 +1427,7 @@ function AppConfig() {
                   className="max-w-md"
                 />
                 <p className="max-w-2xl text-xs text-vos-500">
-                  This setting only routes new Scoring → Gather jobs. Railway remains the default until you choose Local worker.
+                  New Scoring Gather and Audit, ReadyMode call audits, Find busiest dialer, and ReadyMode user creation run on the connected computer. VOS records and recordings stay on Railway.
                 </p>
               </div>
             ) : Object.entries(config).map(([key, value]) => (

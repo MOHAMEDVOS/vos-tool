@@ -59,6 +59,66 @@ async def bulk_create_users(
     users_dicts = [u.model_dump() for u in request.users]
     dialer_urls = request.dialer_urls
 
+    from backend.services import readymode_worker_service
+    if readymode_worker_service.get_execution_mode() == "local_worker":
+        if not readymode_worker_service.worker_status()["online"]:
+            raise HTTPException(
+                status_code=503,
+                detail="Local ReadyMode worker is offline. Start it or switch execution back to Railway.",
+            )
+        try:
+            job_id = readymode_worker_service.enqueue_worker_job(
+                "readymode_create_users",
+                current_user["username"],
+                {"dialer_urls": dialer_urls},
+                secret_payload={"users": users_dicts},
+            )
+        except RuntimeError as exc:
+            logger.error("Could not encrypt temporary ReadyMode user data: %s", exc)
+            raise HTTPException(status_code=503, detail="Secure worker handoff is unavailable") from exc
+
+        result_queue: "queue.Queue[str | None]" = __import__("queue").Queue()
+
+        def local_worker_waiter():
+            try:
+                def on_progress(message: str):
+                    result_queue.put(_sse("log", message))
+
+                job = readymode_worker_service.wait_for_job(
+                    job_id,
+                    timeout=1800,
+                    progress_callback=on_progress,
+                )
+                if job.get("status") != "completed":
+                    code = job.get("error_code") or "worker_timeout"
+                    if code == "worker_timeout":
+                        readymode_worker_service.abandon_job(job_id)
+                    result_queue.put(_sse("error", f"Local ReadyMode worker failed: {code}"))
+                else:
+                    result = job.get("result_json") or {}
+                    result_queue.put(_sse("done", result.get("results") or []))
+            except Exception:
+                logger.error("Local ReadyMode user creation job failed")
+                result_queue.put(_sse("error", "Local ReadyMode user creation failed"))
+            finally:
+                try:
+                    readymode_worker_service.discard_job(job_id)
+                except Exception:
+                    logger.warning("Could not remove local ReadyMode user-creation job")
+                finally:
+                    result_queue.put(None)
+
+        threading.Thread(target=local_worker_waiter, daemon=True).start()
+
+        def local_create_stream():
+            while True:
+                item = result_queue.get()
+                if item is None:
+                    break
+                yield item
+
+        return StreamingResponse(local_create_stream(), media_type="text/event-stream")
+
     result_queue: "queue.Queue[str | None]" = __import__("queue").Queue()
 
     def log_callback(msg: str):
