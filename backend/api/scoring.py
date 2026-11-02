@@ -149,6 +149,13 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
     day = _date.fromisoformat(request.date) if request.date else _date.today()
     rm_date = day.strftime("%m/%d/%Y")
     dialers = _dialer_list()
+    from backend.services import readymode_worker_service
+    execution_mode = readymode_worker_service.get_execution_mode()
+    if execution_mode == "local_worker" and not readymode_worker_service.worker_status()["online"]:
+        raise HTTPException(
+            status_code=503,
+            detail="Local ReadyMode worker is offline. Start it or switch execution back to Railway.",
+        )
 
     log_q: "queue.Queue[Optional[tuple]]" = queue.Queue()
     result_box: dict = {}
@@ -164,25 +171,61 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
     def worker():
         records_by_dialer: dict = {}
         dialers_ok, dialers_failed = [], []
+        local_job_id = None
         try:
-            with ThreadPoolExecutor(max_workers=len(dialers)) as ex:
-                futures = {ex.submit(_pull_dialer, n, u): n for n, u in dialers}
-                done = 0
-                for fut in as_completed(futures):
-                    name = futures[fut]
-                    try:
-                        dname, records = fut.result()
-                        records_by_dialer[dname] = records
-                        dialers_ok.append(dname)
-                        log_q.put(("log", f"{dname}: {len(records)} calls"))
-                    except ReadyModeLoginError as e:
-                        dialers_failed.append(name)
-                        log_q.put(("log", f"{name}: skipped ({e})"))
-                    except Exception as e:
-                        dialers_failed.append(name)
-                        log_q.put(("log", f"{name}: error ({e})"))
-                    done += 1
-                    log_q.put(("progress", json.dumps({"done": done, "total": len(dialers)})))
+            if execution_mode == "local_worker":
+                local_job_id = readymode_worker_service.enqueue_scoring_job(
+                    username,
+                    {
+                        "date": day.isoformat(),
+                        "dialers": [{"name": name, "url": url} for name, url in dialers],
+                        "dispositions": SCORING_DISPOSITIONS,
+                    },
+                )
+                log_q.put(("log", "Waiting for the local ReadyMode worker"))
+
+                def _worker_progress(message: str):
+                    log_q.put(("log", message))
+
+                job = readymode_worker_service.wait_for_job(
+                    local_job_id,
+                    progress_callback=_worker_progress,
+                )
+                if job.get("status") != "completed":
+                    code = job.get("error_code") or "worker_timeout"
+                    if code == "worker_timeout":
+                        readymode_worker_service.abandon_job(local_job_id)
+                    raise RuntimeError(f"Local ReadyMode worker failed: {code}")
+                result = job.get("result_json") or {}
+                records_by_dialer = result.get("records_by_dialer") or {}
+                dialers_ok = result.get("dialers_ok") or []
+                dialers_failed = result.get("dialers_failed") or []
+                errors_by_dialer = result.get("errors_by_dialer") or {}
+                for name in dialers_ok:
+                    log_q.put(("log", f"{name}: {len(records_by_dialer.get(name, []))} calls"))
+                for name in dialers_failed:
+                    code = errors_by_dialer.get(name, "worker_request_failed")
+                    log_q.put(("log", f"{name}: skipped ({code})"))
+                log_q.put(("progress", json.dumps({"done": len(dialers), "total": len(dialers)})))
+            else:
+                with ThreadPoolExecutor(max_workers=len(dialers)) as ex:
+                    futures = {ex.submit(_pull_dialer, n, u): n for n, u in dialers}
+                    done = 0
+                    for fut in as_completed(futures):
+                        name = futures[fut]
+                        try:
+                            dname, records = fut.result()
+                            records_by_dialer[dname] = records
+                            dialers_ok.append(dname)
+                            log_q.put(("log", f"{dname}: {len(records)} calls"))
+                        except ReadyModeLoginError as e:
+                            dialers_failed.append(name)
+                            log_q.put(("log", f"{name}: skipped ({e})"))
+                        except Exception as e:
+                            dialers_failed.append(name)
+                            log_q.put(("log", f"{name}: error ({e})"))
+                        done += 1
+                        log_q.put(("progress", json.dumps({"done": done, "total": len(dialers)})))
 
             rand_index = build_agent_index(records_by_dialer)
 
@@ -220,6 +263,11 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
             logger.error(f"Scoring gather failed: {e}", exc_info=True)
             result_box["error"] = str(e)
         finally:
+            if local_job_id:
+                try:
+                    readymode_worker_service.discard_job(local_job_id)
+                except Exception:
+                    logger.warning("Could not remove completed local ReadyMode job %s", local_job_id)
             log_q.put(None)
 
     threading.Thread(target=worker, daemon=True).start()

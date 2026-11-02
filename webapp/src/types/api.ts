@@ -215,7 +215,14 @@ export interface ReadyModeStatus {
   message?: string
 }
 
-export type AppConfigCategory = 'audio' | 'detection'
+export type AppConfigCategory = 'audio' | 'detection' | 'readymode_worker'
+
+export interface ReadyModeWorkerStatus {
+  execution_mode: 'railway' | 'local_worker'
+  configured: boolean
+  online: boolean
+  last_seen_at?: string | null
+}
 
 export interface UserListResponse {
   users: UserInfo[]

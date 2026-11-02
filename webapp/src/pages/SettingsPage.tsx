@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { 
   RefreshCw, Trash2, Shield, Users, Activity,
   Minus, Plus, ChevronDown,
-  Database, Share2, Server, Check, AlertCircle, Settings2
+  Database, Share2, Server, Check, AlertCircle, Settings2, Copy
 } from 'lucide-react'
 import { quotaApi } from '@/api/quota'
 import { settingsApi } from '@/api/settings'
@@ -1335,7 +1335,15 @@ function AdminManageUsers() {
 function AppConfig() {
   const qc = useQueryClient()
   const [category, setCategory] = useState<AppConfigCategory>('audio')
+  const [workerToken, setWorkerToken] = useState('')
+  const [tokenCopied, setTokenCopied] = useState(false)
   const { data, isLoading } = useQuery({ queryKey: ['app-config', category], queryFn: () => settingsApi.appConfig(category) })
+  const workerStatus = useQuery({
+    queryKey: ['readymode-worker-status'],
+    queryFn: settingsApi.readymodeWorkerStatus,
+    enabled: category === 'readymode_worker',
+    refetchInterval: 5000,
+  })
   const [config, setConfig] = useState<Record<string, unknown>>({})
 
   useEffect(() => {
@@ -1349,6 +1357,14 @@ function AppConfig() {
   const save = useMutation({
     mutationFn: () => settingsApi.updateAppConfig(category, config),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['app-config', category] }),
+  })
+  const rotateWorkerToken = useMutation({
+    mutationFn: settingsApi.rotateReadymodeWorkerToken,
+    onSuccess: (result) => {
+      setWorkerToken(result.token)
+      setTokenCopied(false)
+      qc.invalidateQueries({ queryKey: ['readymode-worker-status'] })
+    },
   })
 
   const updateKey = (key: string, value: string) => {
@@ -1377,7 +1393,15 @@ function AppConfig() {
              </div>
           </div>
           <div className="p-1 bg-surface-page rounded-xl border border-b-subtle shadow-inner">
-            <CustomSelect options={['audio', 'detection']} value={category} onChange={(v) => setCategory(v as AppConfigCategory)} className="w-44 text-[10px] h-9 border-0 bg-transparent" />
+            <CustomSelect options={[
+              { label: 'Audio', value: 'audio' },
+              { label: 'Detection', value: 'detection' },
+              { label: 'ReadyMode Worker', value: 'readymode_worker' },
+            ]} value={category} onChange={(v) => {
+              setCategory(v as AppConfigCategory)
+              setWorkerToken('')
+              setTokenCopied(false)
+            }} className="w-52 text-[10px] h-9 border-0 bg-transparent" />
           </div>
         </div>
 
@@ -1389,6 +1413,22 @@ function AppConfig() {
               <div className="col-span-2 py-20 text-center opacity-20 flex flex-col items-center">
                 <Database size={40} className="mb-4" />
                 <span className="text-[10px] font-black uppercase tracking-widest">No parameters found for this category</span>
+              </div>
+            ) : category === 'readymode_worker' ? (
+              <div className="col-span-2 flex flex-col gap-4">
+                <label className="text-[9px] font-black uppercase tracking-[0.2em] text-vos-600 ml-1">Run ReadyMode requests on</label>
+                <CustomSelect
+                  options={[
+                    { label: 'Railway', value: 'railway' },
+                    { label: 'Local worker', value: 'local_worker' },
+                  ]}
+                  value={String(config.execution_mode ?? 'railway').replace(/^\"(.*)\"$/, '$1')}
+                  onChange={(value) => setConfig((prev) => ({ ...prev, execution_mode: value }))}
+                  className="max-w-md"
+                />
+                <p className="max-w-2xl text-xs text-vos-500">
+                  This setting only routes new Scoring → Gather jobs. Railway remains the default until you choose Local worker.
+                </p>
               </div>
             ) : Object.entries(config).map(([key, value]) => (
               <div key={key} className="flex flex-col gap-2.5">
@@ -1405,6 +1445,47 @@ function AppConfig() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {category === 'readymode_worker' && !isLoading && (
+          <div className="flex flex-col gap-5 border-t border-b-subtle pt-6">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-t-primary">Local worker connection</h3>
+                <p className="mt-1 text-xs text-vos-500">
+                  {workerStatus.data?.online ? 'Connected and waiting for work.' : workerStatus.data?.configured ? 'Worker is offline.' : 'Create a private token to connect your computer.'}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                onClick={() => rotateWorkerToken.mutate()}
+                disabled={rotateWorkerToken.isPending}
+              >
+                {rotateWorkerToken.isPending ? 'Creating…' : workerStatus.data?.configured ? 'Rotate worker token' : 'Create worker token'}
+              </Button>
+            </div>
+            {workerStatus.isError && <p className="text-xs text-red-400">Could not load worker status.</p>}
+            {rotateWorkerToken.isError && <p className="text-xs text-red-400">Could not create the worker token.</p>}
+            {workerToken && (
+              <div className="flex flex-col gap-3 rounded-xl border border-b-subtle bg-surface-page p-4">
+                <p className="text-xs text-vos-500">Copy this token now. The API returns it only when created; rotating it disconnects the old worker token.</p>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input readOnly value={workerToken} className="h-10 min-w-0 flex-1 rounded-lg border border-b-subtle bg-c-base px-3 font-mono text-xs text-t-primary" />
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(workerToken)
+                      setTokenCopied(true)
+                    }}
+                  >
+                    {tokenCopied ? <Check size={14} /> : <Copy size={14} />}
+                    {tokenCopied ? 'Copied' : 'Copy token'}
+                  </Button>
+                </div>
+                <p className="text-xs text-vos-500">On your computer, run <code>python -m automation.readymode_local_worker</code> with <code>VOS_API_URL</code> and <code>READYMODE_WORKER_TOKEN</code> set.</p>
+              </div>
+            )}
           </div>
         )}
 

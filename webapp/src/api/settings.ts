@@ -6,6 +6,7 @@ import type {
   UserInfo,
   UserListResponse,
   UserSettings,
+  ReadyModeWorkerStatus,
 } from '@/types/api'
 
 export const settingsApi = {
@@ -19,4 +20,6 @@ export const settingsApi = {
   updateAssemblyAiKey: (api_key: string) => api.put<{ status: string; message: string }>('/api/settings/assemblyai-key', { api_key }),
   appConfig: (category: AppConfigCategory) => api.get<Record<string, unknown>>(`/api/settings/app-config/${category}`),
   updateAppConfig: (category: AppConfigCategory, updates: Record<string, unknown>) => api.put<{ success: boolean; category: string; values: Record<string, unknown> }>(`/api/settings/app-config/${category}`, updates),
+  readymodeWorkerStatus: () => api.get<ReadyModeWorkerStatus>('/api/readymode-worker/settings'),
+  rotateReadymodeWorkerToken: () => api.post<{ token: string }>('/api/readymode-worker/token'),
 }

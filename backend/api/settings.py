@@ -320,10 +320,10 @@ async def delete_existing_user(
 # Application-wide persistent settings (gap G6)
 # ---------------------------------------------------------------------------
 # Wraps lib.app_settings_manager.app_settings so the React UI does not need to
-# import it directly. Supported categories today: "audio", "detection".
+# import it directly. Supported categories include "audio", "detection", and "readymode_worker".
 
 
-ALLOWED_APP_CONFIG_CATEGORIES = {"audio", "detection"}
+ALLOWED_APP_CONFIG_CATEGORIES = {"audio", "detection", "readymode_worker"}
 
 
 @router.get("/app-config/{category}")
@@ -359,6 +359,14 @@ async def update_app_config_category(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unknown app-config category '{category}'",
+        )
+    if category == "readymode_worker" and (
+        set(updates) != {"execution_mode"}
+        or updates.get("execution_mode") not in {"railway", "local_worker"}
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="execution_mode must be 'railway' or 'local_worker'",
         )
     try:
         from lib.app_settings_manager import app_settings
