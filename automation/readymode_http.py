@@ -17,7 +17,11 @@ import re
 import json
 import logging
 import os
+import platform
 import requests
+import certifi
+import charset_normalizer
+import urllib3
 from html import unescape
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
@@ -179,6 +183,22 @@ def _safe_diagnostic_header(name: str, value: str) -> str:
     return value
 
 
+def _security_block_indicators(response: requests.Response, body: str) -> list[str]:
+    cf_mitigated = response.headers.get("CF-Mitigated", "").strip().lower()
+    if cf_mitigated == "challenge":
+        return ["Cloudflare challenge"]
+    if response.status_code < 400:
+        return []
+
+    lowered_body = body.lower()
+    indicators = [
+        name
+        for name, markers in LOGIN_SECURITY_MARKERS.items()
+        if any(marker in lowered_body for marker in markers)
+    ]
+    return indicators
+
+
 def _log_login_response(
     label: str,
     response: requests.Response,
@@ -186,12 +206,7 @@ def _log_login_response(
 ) -> None:
     response_body = response.text or ""
     body = response_body[:2000]
-    lowered_body = response_body.lower()
-    indicators = [
-        name
-        for name, markers in LOGIN_SECURITY_MARKERS.items()
-        if any(marker in lowered_body for marker in markers)
-    ]
+    indicators = _security_block_indicators(response, response_body)
     history = [
         {"status": item.status_code, "url": _safe_diagnostic_url(item.url)}
         for item in response.history
@@ -210,12 +225,13 @@ def _log_login_response(
     cookie_names = sorted(cookie.name for cookie in session.cookies)
     logger.info(
         "ReadyMode login diagnostic %s: status=%s final_url=%s redirects=%s "
-        "response_headers=%s security_block=%s request_headers=%s "
+        "runtime_versions=%s response_headers=%s security_block=%s request_headers=%s "
         "session_cookie_names=%s body_first_2000=%r",
         label,
         response.status_code,
         _safe_diagnostic_url(response.url),
         history,
+        _http_runtime_versions(),
         response_headers,
         ", ".join(indicators) if indicators else "no known marker",
         safe_headers,
@@ -227,6 +243,20 @@ def _log_login_response(
 def _login_diagnostics_enabled() -> bool:
     enabled = os.getenv("READYMODE_LOGIN_DIAGNOSTICS", "").strip().lower()
     return enabled in {"1", "true", "yes", "on"}
+
+
+def _http_runtime_versions() -> dict[str, str]:
+    return {
+        "python": platform.python_version(),
+        "requests": requests.__version__,
+        "urllib3": urllib3.__version__,
+        "certifi": certifi.__version__,
+        "charset_normalizer": charset_normalizer.__version__,
+    }
+
+
+if _login_diagnostics_enabled():
+    logger.info("ReadyMode login diagnostic runtime_versions=%s", _http_runtime_versions())
 
 
 class ReadyModeHTTPClient:
