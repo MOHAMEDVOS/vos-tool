@@ -14,6 +14,7 @@ Key facts (see spec for detail):
 """
 
 import re
+import ipaddress
 import json
 import logging
 import os
@@ -245,6 +246,25 @@ def _login_diagnostics_enabled() -> bool:
     return enabled in {"1", "true", "yes", "on"}
 
 
+def _response_peer(response: requests.Response) -> tuple[str, str] | None:
+    """Return the connected peer when requests/urllib3 still exposes its socket."""
+    raw = getattr(response, "raw", None)
+    connection = getattr(raw, "_connection", None)
+    sock = getattr(connection, "sock", None)
+    if sock is None:
+        return None
+    try:
+        address = sock.getpeername()[0]
+        version = ipaddress.ip_address(address).version
+    except (OSError, ValueError, IndexError):
+        return None
+    return address, f"IPv{version}"
+
+
+def _egress_diagnostics_enabled() -> bool:
+    return os.getenv("READYMODE_EGRESS_DIAGNOSTICS", "").strip() == "1"
+
+
 def _http_runtime_versions() -> dict[str, str]:
     return {
         "python": platform.python_version(),
@@ -296,6 +316,16 @@ class ReadyModeHTTPClient:
         if diagnostics:
             logger.info("ReadyMode login diagnostic request: method=GET url=%s", seed_url)
         seed_response = self.session.get(seed_url, headers=h, timeout=30)
+        if _egress_diagnostics_enabled():
+            peer = _response_peer(seed_response)
+            if peer is None:
+                logger.info("ReadyMode initial GET remote_peer=unavailable")
+            else:
+                logger.info(
+                    "ReadyMode initial GET remote_peer=%s family=%s",
+                    peer[0],
+                    peer[1],
+                )
         if diagnostics:
             _log_login_response("initial GET", seed_response, self.session)
 

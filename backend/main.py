@@ -3,6 +3,8 @@ FastAPI Backend Application for VOS (Voice Observation System)
 Main entry point for the REST API backend service.
 """
 
+import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -34,6 +36,13 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     logger.info("Starting VOS Backend API...")
     logger.info("=" * 60)
+
+    if os.getenv("READYMODE_EGRESS_DIAGNOSTICS", "").strip() == "1":
+        from backend.services.readymode_egress_diagnostic import (
+            run_readymode_egress_diagnostic,
+        )
+
+        await asyncio.to_thread(run_readymode_egress_diagnostic)
 
     # CRITICAL: Preload semantic models FIRST (before accepting requests)
     # This prevents the first user from triggering a 30-second blocking load
