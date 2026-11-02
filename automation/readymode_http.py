@@ -26,21 +26,26 @@ logger = logging.getLogger(__name__)
 LOGIN_SECURITY_MARKERS = {
     "Cloudflare challenge": (
         "just a moment", "cf-chl-", "challenge-platform",
-        "attention required! | cloudflare", "cloudflare ray id",
+        "attention required! | cloudflare",
     ),
     "security block": (
         "access denied", "request blocked", "security check", "captcha",
         "incident id", "reference #", "verify you are human", "unusual traffic",
-        "akamai", "incapsula", "imperva", "perimeterx", "forbidden",
     ),
 }
 SENSITIVE_QUERY_KEYS = (
     "token", "csrf", "password", "session", "auth", "cookie", "secret", "user", "login",
 )
 DIAGNOSTIC_REQUEST_HEADERS = (
-    "User-Agent", "Accept", "Accept-Language", "Origin", "Referer",
+    "User-Agent", "Accept", "Accept-Language", "Accept-Encoding", "Origin", "Referer",
     "Sec-Fetch-Dest", "Sec-Fetch-Mode", "Sec-Fetch-Site", "Sec-Fetch-User",
     "Upgrade-Insecure-Requests",
+)
+DIAGNOSTIC_RESPONSE_HEADERS = (
+    "Server", "CF-Ray", "CF-Mitigated", "Retry-After", "CF-Cache-Status",
+    "CF-Request-ID", "Content-Type", "Content-Security-Policy",
+    "Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options",
+    "X-Robots-Tag",
 )
 
 
@@ -168,6 +173,12 @@ def _redact_diagnostic_body(body: str) -> str:
     )
 
 
+def _safe_diagnostic_header(name: str, value: str) -> str:
+    if name.lower() == "content-security-policy":
+        return re.sub(r"(?i)nonce-[^\s;']+", "nonce-[REDACTED]", value)
+    return value
+
+
 def _log_login_response(
     label: str,
     response: requests.Response,
@@ -191,18 +202,21 @@ def _log_login_response(
         for name in DIAGNOSTIC_REQUEST_HEADERS
         if name in request_headers
     }
+    response_headers = {
+        name: _safe_diagnostic_header(name, response.headers[name])
+        for name in DIAGNOSTIC_RESPONSE_HEADERS
+        if name in response.headers
+    }
     cookie_names = sorted(cookie.name for cookie in session.cookies)
     logger.info(
         "ReadyMode login diagnostic %s: status=%s final_url=%s redirects=%s "
-        "content_type=%s server=%s cf_ray=%s security_block=%s "
-        "request_headers=%s session_cookie_names=%s body_first_2000=%r",
+        "response_headers=%s security_block=%s request_headers=%s "
+        "session_cookie_names=%s body_first_2000=%r",
         label,
         response.status_code,
         _safe_diagnostic_url(response.url),
         history,
-        response.headers.get("Content-Type"),
-        response.headers.get("Server"),
-        response.headers.get("CF-Ray"),
+        response_headers,
         ", ".join(indicators) if indicators else "no known marker",
         safe_headers,
         cookie_names,
