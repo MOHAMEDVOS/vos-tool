@@ -16,12 +16,32 @@ Key facts (see spec for detail):
 import re
 import json
 import logging
+import os
 import requests
 from html import unescape
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 logger = logging.getLogger(__name__)
+LOGIN_SECURITY_MARKERS = {
+    "Cloudflare challenge": (
+        "just a moment", "cf-chl-", "challenge-platform",
+        "attention required! | cloudflare", "cloudflare ray id",
+    ),
+    "security block": (
+        "access denied", "request blocked", "security check", "captcha",
+        "incident id", "reference #", "verify you are human", "unusual traffic",
+        "akamai", "incapsula", "imperva", "perimeterx", "forbidden",
+    ),
+}
+SENSITIVE_QUERY_KEYS = (
+    "token", "csrf", "password", "session", "auth", "cookie", "secret", "user", "login",
+)
+DIAGNOSTIC_REQUEST_HEADERS = (
+    "User-Agent", "Accept", "Accept-Language", "Origin", "Referer",
+    "Sec-Fetch-Dest", "Sec-Fetch-Mode", "Sec-Fetch-Site", "Sec-Fetch-User",
+    "Upgrade-Insecure-Requests",
+)
 
 
 class ReadyModeLoginError(Exception):
@@ -120,6 +140,81 @@ def blocked_type_ids(lookup: dict | None) -> set:
     }
 
 
+def _safe_diagnostic_url(url: str) -> str:
+    parsed = urlsplit(url)
+    hostname = parsed.hostname or ""
+    if ":" in hostname:
+        hostname = f"[{hostname}]"
+    if parsed.port:
+        hostname = f"{hostname}:{parsed.port}"
+    query = [
+        (key, "[REDACTED]" if any(marker in key.lower() for marker in SENSITIVE_QUERY_KEYS) else value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+    ]
+    return urlunsplit((parsed.scheme, hostname, parsed.path, urlencode(query), ""))
+
+
+def _redact_diagnostic_body(body: str) -> str:
+    sensitive = "csrf|token|password|session|auth|secret|cookie|phpsessid|stationid|seh"
+    body = re.sub(
+        rf'''(?is)(<(?:input|meta)\b(?=[^>]*(?:name|id)\s*=\s*["'][^"']*(?:{sensitive})[^"']*["'])[^>]*\b(?:value|content)\s*=\s*["'])[^"']*(["'])''',
+        r"\1[REDACTED]\2",
+        body,
+    )
+    return re.sub(
+        rf'''(?i)((?:{sensitive})[\w-]*["']?\s*[:=]\s*["']?)[^"'\s<>&]+''',
+        r"\1[REDACTED]",
+        body,
+    )
+
+
+def _log_login_response(
+    label: str,
+    response: requests.Response,
+    session: requests.Session,
+) -> None:
+    response_body = response.text or ""
+    body = response_body[:2000]
+    lowered_body = response_body.lower()
+    indicators = [
+        name
+        for name, markers in LOGIN_SECURITY_MARKERS.items()
+        if any(marker in lowered_body for marker in markers)
+    ]
+    history = [
+        {"status": item.status_code, "url": _safe_diagnostic_url(item.url)}
+        for item in response.history
+    ]
+    request_headers = response.request.headers if response.request else {}
+    safe_headers = {
+        name: request_headers[name]
+        for name in DIAGNOSTIC_REQUEST_HEADERS
+        if name in request_headers
+    }
+    cookie_names = sorted(cookie.name for cookie in session.cookies)
+    logger.info(
+        "ReadyMode login diagnostic %s: status=%s final_url=%s redirects=%s "
+        "content_type=%s server=%s cf_ray=%s security_block=%s "
+        "request_headers=%s session_cookie_names=%s body_first_2000=%r",
+        label,
+        response.status_code,
+        _safe_diagnostic_url(response.url),
+        history,
+        response.headers.get("Content-Type"),
+        response.headers.get("Server"),
+        response.headers.get("CF-Ray"),
+        ", ".join(indicators) if indicators else "no known marker",
+        safe_headers,
+        cookie_names,
+        _redact_diagnostic_body(body),
+    )
+
+
+def _login_diagnostics_enabled() -> bool:
+    enabled = os.getenv("READYMODE_LOGIN_DIAGNOSTICS", "").strip().lower()
+    return enabled in {"1", "true", "yes", "on"}
+
+
 class ReadyModeHTTPClient:
     """Thin authenticated client over one ``requests.Session``."""
 
@@ -151,10 +246,20 @@ class ReadyModeHTTPClient:
                 "in the dashboard, or READYMODE_USER / READYMODE_PASSWORD in the environment."
             )
         h = self._browser_headers()
+        diagnostics = _login_diagnostics_enabled()
         # seed PHPSESSID / seH
-        self.session.get(f"{self.dialer}/", headers=h, timeout=30)
+        seed_url = f"{self.dialer}/"
+        if diagnostics:
+            logger.info("ReadyMode login diagnostic request: method=GET url=%s", seed_url)
+        seed_response = self.session.get(seed_url, headers=h, timeout=30)
+        if diagnostics:
+            _log_login_response("initial GET", seed_response, self.session)
+
+        login_url = f"{self.dialer}/login_new/?then=/"
+        if diagnostics:
+            logger.info("ReadyMode login diagnostic request: method=POST url=%s", login_url)
         r = self.session.post(
-            f"{self.dialer}/login_new/?then=/",
+            login_url,
             data={
                 "login_account": username, "login_password": password,
                 "login_as_admin": "on", "logout_other_sessions": "on",
@@ -163,18 +268,11 @@ class ReadyModeHTTPClient:
             },
             headers=h, allow_redirects=True, timeout=30,
         )
+        if diagnostics:
+            _log_login_response("login POST", r, self.session)
         if "stationId" not in self.session.cookies.get_dict():
             response_body = r.text or ""
-            logger.error(
-                "ReadyMode login failed for %r on %s: status=%s, final_url=%s. "
-                "Full response body follows:\n%s",
-                username,
-                self.dialer,
-                r.status_code,
-                r.url,
-                response_body,
-            )
-            snippet = response_body[:160].replace("\n", " ")
+            snippet = _redact_diagnostic_body(response_body[:160]).replace("\n", " ")
             raise ReadyModeLoginError(
                 f"ReadyMode login did not establish a session for '{username}' on {self.dialer} "
                 f"(no stationId cookie; status={r.status_code}). Response: {snippet!r}"
