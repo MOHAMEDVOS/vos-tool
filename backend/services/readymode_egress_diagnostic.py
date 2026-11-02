@@ -30,12 +30,14 @@ def _resolve_addresses(host: str, family: int) -> list[str]:
 
 
 def _read_public_ip(endpoint: str, version: int) -> str:
-    with requests.get(endpoint, timeout=(3, 5)) as response:
-        response.raise_for_status()
-        address = ipaddress.ip_address(response.text.strip())
-        if address.version != version:
-            raise ValueError("echo service returned an unexpected address family")
-        return str(address)
+    with requests.Session() as session:
+        session.trust_env = False
+        with session.get(endpoint, timeout=(3, 5)) as response:
+            response.raise_for_status()
+            address = ipaddress.ip_address(response.text.strip())
+            if address.version != version:
+                raise ValueError("echo service returned an unexpected address family")
+            return str(address)
 
 
 def run_readymode_egress_diagnostic() -> None:
