@@ -50,9 +50,6 @@ class AppSettingsManager:
                 "agent_only_detection": True,
                 "semantic_threshold": 0.68
             },
-            "readymode_worker": {
-                "execution_mode": "railway"
-            },
             "user_defaults": {
                 "daily_limit": 5000,
                 "readymode_access": True,

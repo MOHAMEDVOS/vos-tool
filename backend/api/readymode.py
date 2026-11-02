@@ -9,8 +9,6 @@ from typing import Optional
 from datetime import date as _date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys, io, threading, queue, json, uuid, asyncio
-import re
-import shutil
 
 # ── Thread-local stdout router ────────────────────────────────────────────────
 # Each worker thread registers its own QueueWriter here so concurrent audits
@@ -46,8 +44,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from automation.download_readymode_calls import (
     MIN_CALL_DURATION_S,
     download_all_call_recordings,
-    format_agent_name_for_filename,
-    get_next_run_counter,
     ReadyModeLoginError,
     ReadyModeNoCallsError,
     extract_dialer_name_from_url,
@@ -176,51 +172,6 @@ def _resolve_duration(df: str, audit_type: str, custom_secs: Optional[int]):
     elif df == "lt_custom":
         max_dur = custom_secs
     return min_dur, max_dur
-
-
-def _prepare_worker_recording_dirs(
-    username: str,
-    dialer_urls: list[str],
-    agent_name: str | None = None,
-    campaign_name: str | None = None,
-):
-    from config import RECORDINGS_ROOT
-
-    campaign = bool(campaign_name and campaign_name.strip())
-    subfolder = "Campaign" if campaign else "Agent"
-    display_name = campaign_name if campaign else (agent_name or "All users")
-    safe_name = re.sub(r"[^A-Za-z0-9._-]", "", format_agent_name_for_filename(display_name))[:100]
-    safe_user = re.sub(r"[^A-Za-z0-9@._-]", "_", username)[:180] or "user"
-    safe_name = safe_name or "Allusers"
-    root = Path(RECORDINGS_ROOT).resolve()
-    user_base = root / subfolder / safe_user
-    user_base.mkdir(parents=True, exist_ok=True)
-    counter = get_next_run_counter(safe_name, safe_user, subfolder)
-    date_label = _date.today().strftime("%Y-%m-%d")
-    run_name = f"{safe_name}-{date_label}_{counter:03d}"
-
-    if len(dialer_urls) > 1:
-        result_dir = user_base / run_name
-        download_dirs = {
-            extract_dialer_name_from_url(url): result_dir / extract_dialer_name_from_url(url)
-            for url in dialer_urls
-        }
-    else:
-        dialer_name = extract_dialer_name_from_url(dialer_urls[0])
-        result_dir = user_base / f"{run_name} {dialer_name}"
-        download_dirs = {dialer_name: result_dir}
-
-    for directory in download_dirs.values():
-        resolved = directory.resolve()
-        if not resolved.is_relative_to(root):
-            raise ValueError("Invalid ReadyMode recording directory")
-        resolved.mkdir(parents=True, exist_ok=True)
-    return result_dir.resolve(), {name: str(path.resolve()) for name, path in download_dirs.items()}
-
-
-def _cleanup_worker_recording_dir(path: Path | None) -> None:
-    if path and path.exists():
-        shutil.rmtree(path, ignore_errors=True)
 
 
 # ── Campaign disposition scan (fire-and-forget, called after lite+campaign audit) ─────
@@ -399,9 +350,6 @@ async def download_readymode_calls(
     if is_campaign and caller_role == "Auditor":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Auditors can only run Agent audits")
-    local_job_id = None
-    result_dir = None
-    keep_result_dir = False
     try:
         from config import get_user_readymode_credentials, get_user_daily_limit
         readymode_user, readymode_pass = get_user_readymode_credentials(current_user["username"])
@@ -422,96 +370,36 @@ async def download_readymode_calls(
         run_id = str(uuid.uuid4())
         claim_recordings, release_recordings = _recording_registry_callbacks(current_user["username"])
 
-        from backend.services import readymode_worker_service
-        execution_mode = readymode_worker_service.get_execution_mode()
-        dialer_urls = [dialer_url] + ([request.dialer_url_2] if request.dialer_url_2 else [])
-        if execution_mode == "local_worker":
-            if not readymode_worker_service.worker_status()["online"]:
-                raise HTTPException(status_code=503, detail="Local ReadyMode worker is offline")
-            result_dir, download_dirs = _prepare_worker_recording_dirs(
-                current_user["username"],
-                dialer_urls,
-                agent_name=request.agent_name or "All users",
-                campaign_name=request.campaign_name,
-            )
-            local_job_id = readymode_worker_service.enqueue_worker_job(
-                "readymode_recordings",
-                current_user["username"],
-                {
-                    "agent": request.agent_name or "All users",
-                    "campaign_name": request.campaign_name or None,
-                    "start_date": start_date.isoformat(),
-                    "end_date": end_date.isoformat(),
-                    "start_time": request.start_time or None,
-                    "max_samples": max_calls,
-                    "min_duration": min_duration if min_duration is not None else MIN_CALL_DURATION_S,
-                    "max_duration": max_duration,
-                    "disposition": request.dispositions or None,
-                    "force_reaudit": request.force_reaudit,
-                    "download_dirs": download_dirs,
-                    "dialers": [
-                        {"name": extract_dialer_name_from_url(url), "url": url}
-                        for url in dialer_urls
-                    ],
-                },
-            )
-            job = await asyncio.to_thread(
-                readymode_worker_service.wait_for_job,
-                local_job_id,
-                timeout=3600,
-            )
-            if job.get("status") != "completed":
-                code = job.get("error_code") or "worker_timeout"
-                if code == "worker_timeout":
-                    readymode_worker_service.abandon_job(local_job_id)
-                raise HTTPException(status_code=502, detail=f"Local ReadyMode worker failed: {code}")
-            result = job.get("result_json") or {}
-            if result.get("error_code") == "readymode_no_calls":
-                return ReadyModeStatus(status="completed", downloaded_count=0, message="No call recordings found")
-            if result.get("error_code"):
-                raise HTTPException(status_code=502, detail=f"Local ReadyMode worker failed: {result['error_code']}")
-            Path(result_dir, ".readymode_manifest.json").write_text(
-                json.dumps({
-                    "run_id": local_job_id,
-                    "skipped_count": result.get("skipped_count", 0),
-                    "records": result.get("records") or [],
-                }),
-                encoding="utf-8",
-            )
-            download_result = result_dir
-        else:
-            import functools
-            loop = asyncio.get_event_loop()
-            download_result = await loop.run_in_executor(
-                None,
-                functools.partial(
-                    download_all_call_recordings,
-                    dialer_url=dialer_url,
-                    dialer_url_2=request.dialer_url_2 or None,
-                    agent=request.agent_name or "All users",
-                    campaign_name=request.campaign_name or None,
-                    start_date=start_date,
-                    end_date=end_date,
-                    start_time=request.start_time or None,
-                    max_samples=max_calls,
-                    min_duration=min_duration,
-                    max_duration=max_duration,
-                    disposition=request.dispositions or None,
-                    username=current_user["username"],
-                    readymode_user=readymode_user,
-                    readymode_pass=readymode_pass,
-                    registry_run_id=run_id,
-                    force_reaudit=request.force_reaudit,
-                    claim_recordings_callback=claim_recordings,
-                    release_recordings_callback=release_recordings,
-                ),
-            )
+        import functools
+        loop = asyncio.get_event_loop()
+        download_result = await loop.run_in_executor(
+            None,
+            functools.partial(
+                download_all_call_recordings,
+                dialer_url=dialer_url,
+                dialer_url_2=request.dialer_url_2 or None,
+                agent=request.agent_name or "All users",
+                campaign_name=request.campaign_name or None,
+                start_date=start_date,
+                end_date=end_date,
+                start_time=request.start_time or None,
+                max_samples=max_calls,
+                min_duration=min_duration,
+                max_duration=max_duration,
+                disposition=request.dispositions or None,
+                username=current_user["username"],
+                readymode_user=readymode_user,
+                readymode_pass=readymode_pass,
+                registry_run_id=run_id,
+                force_reaudit=request.force_reaudit,
+                claim_recordings_callback=claim_recordings,
+                release_recordings_callback=release_recordings,
+            ),
+        )
 
         downloaded_count, analyzed_count, _, skipped_count = _count_and_analyze(
             download_result, request, current_user, audit_type
         )
-        keep_result_dir = execution_mode == "local_worker"
-
         return ReadyModeStatus(
             status="completed",
             downloaded_count=downloaded_count,
@@ -532,16 +420,6 @@ async def download_readymode_calls(
     except Exception as e:
         logger.error(f"ReadyMode download error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
-    finally:
-        if local_job_id:
-            try:
-                readymode_worker_service.discard_job(local_job_id)
-            except Exception:
-                logger.warning("Could not remove local ReadyMode download job %s", local_job_id)
-        if result_dir and not keep_result_dir:
-            _cleanup_worker_recording_dir(result_dir)
-
-
 # ═════════════════════════════════════════════════════════════════════════════
 # POST /stream  — SSE streaming audit with live log lines
 # ═════════════════════════════════════════════════════════════════════════════
@@ -578,13 +456,6 @@ async def stream_readymode_audit(
 
     username = current_user["username"]
     dialer_urls = [dialer_url] + ([request.dialer_url_2] if request.dialer_url_2 else [])
-    from backend.services import readymode_worker_service
-    execution_mode = readymode_worker_service.get_execution_mode()
-    if execution_mode == "local_worker" and not readymode_worker_service.worker_status()["online"]:
-        raise HTTPException(
-            status_code=503,
-            detail="Local ReadyMode worker is offline. Start it or switch execution back to Railway.",
-        )
     _acquire_dialer_locks(username, readymode_user, dialer_urls)
 
     cancel_event = threading.Event()  # fresh per run — never shared with any other call
@@ -609,9 +480,6 @@ async def stream_readymode_audit(
         # Register on thread-local storage — does NOT touch global sys.stdout,
         # so concurrent users each write only to their own queue.
         _thread_local.queue_writer = QueueWriter()
-        local_job_id = None
-        result_dir = None
-        keep_result_dir = False
         try:
             def check_cancel():
                 return cancel_event.is_set()
@@ -619,94 +487,28 @@ async def stream_readymode_audit(
             def on_progress(downloaded: int, total: int):
                 log_q.put(("progress", json.dumps({"downloaded": downloaded, "total": total})))
 
-            if execution_mode == "local_worker":
-                result_dir, download_dirs = _prepare_worker_recording_dirs(
-                    username,
-                    dialer_urls,
-                    agent_name=request.agent_name or "All users",
-                    campaign_name=request.campaign_name,
-                )
-                worker_dialers = [
-                    {
-                        "name": extract_dialer_name_from_url(url),
-                        "url": url,
-                    }
-                    for url in dialer_urls
-                ]
-                local_job_id = readymode_worker_service.enqueue_worker_job(
-                    "readymode_recordings",
-                    username,
-                    {
-                        "agent": request.agent_name or "All users",
-                        "campaign_name": request.campaign_name or None,
-                        "start_date": start_date.isoformat(),
-                        "end_date": end_date.isoformat(),
-                        "start_time": request.start_time or None,
-                        "max_samples": max_calls,
-                        "min_duration": min_duration if min_duration is not None else MIN_CALL_DURATION_S,
-                        "max_duration": max_duration,
-                        "disposition": request.dispositions or None,
-                        "force_reaudit": request.force_reaudit,
-                        "download_dirs": download_dirs,
-                        "dialers": worker_dialers,
-                    },
-                )
-                log_q.put(("log", "Waiting for the local ReadyMode worker"))
-
-                def on_worker_progress(message: str):
-                    log_q.put(("log", message))
-
-                job = readymode_worker_service.wait_for_job(
-                    local_job_id,
-                    timeout=3600,
-                    progress_callback=on_worker_progress,
-                    cancel_callback=check_cancel,
-                )
-                if job.get("status") != "completed":
-                    code = job.get("error_code") or "worker_timeout"
-                    if code == "worker_timeout":
-                        readymode_worker_service.abandon_job(local_job_id)
-                    if cancel_event.is_set():
-                        result_box["cancelled"] = True
-                        return
-                    raise RuntimeError(f"Local ReadyMode worker failed: {code}")
-                result = job.get("result_json") or {}
-                if result.get("error_code") == "readymode_no_calls":
-                    result_box["no_calls"] = "No call recordings found for the specified criteria"
-                    return
-                if result.get("error_code"):
-                    raise RuntimeError(f"Local ReadyMode worker failed: {result['error_code']}")
-                for name in result.get("dialers_failed") or []:
-                    log_q.put(("log", f"{name}: skipped (ReadyMode request failed)"))
-                records = result.get("records") or []
-                Path(result_dir, ".readymode_manifest.json").write_text(
-                    json.dumps({"run_id": local_job_id, "skipped_count": result.get("skipped_count", 0), "records": records}),
-                    encoding="utf-8",
-                )
-                download_result = result_dir
-            else:
-                download_result = download_all_call_recordings(
-                    dialer_url=dialer_url,
-                    dialer_url_2=request.dialer_url_2 or None,
-                    agent=request.agent_name or "All users",
-                    campaign_name=request.campaign_name or None,
-                    start_date=start_date,
-                    end_date=end_date,
-                    start_time=request.start_time or None,
-                    max_samples=max_calls,
-                    min_duration=min_duration,
-                    max_duration=max_duration,
-                    disposition=request.dispositions or None,
-                    username=username,
-                    readymode_user=readymode_user,
-                    readymode_pass=readymode_pass,
-                    cancellation_callback=check_cancel,
-                    update_callback=on_progress,
-                    registry_run_id=run_id,
-                    force_reaudit=request.force_reaudit,
-                    claim_recordings_callback=claim_recordings,
-                    release_recordings_callback=release_recordings,
-                )
+            download_result = download_all_call_recordings(
+                dialer_url=dialer_url,
+                dialer_url_2=request.dialer_url_2 or None,
+                agent=request.agent_name or "All users",
+                campaign_name=request.campaign_name or None,
+                start_date=start_date,
+                end_date=end_date,
+                start_time=request.start_time or None,
+                max_samples=max_calls,
+                min_duration=min_duration,
+                max_duration=max_duration,
+                disposition=request.dispositions or None,
+                username=username,
+                readymode_user=readymode_user,
+                readymode_pass=readymode_pass,
+                cancellation_callback=check_cancel,
+                update_callback=on_progress,
+                registry_run_id=run_id,
+                force_reaudit=request.force_reaudit,
+                claim_recordings_callback=claim_recordings,
+                release_recordings_callback=release_recordings,
+            )
 
             if cancel_event.is_set():
                 _release_manifest_recordings(download_result, username)
@@ -719,8 +521,6 @@ async def stream_readymode_audit(
             result_box["downloaded"] = downloaded_count
             result_box["analyzed"]   = analyzed_count
             result_box["skipped"] = skipped_count
-            keep_result_dir = execution_mode == "local_worker"
-
         except KeyboardInterrupt:
             result_box["cancelled"] = True
         except ReadyModeLoginError as e:
@@ -732,13 +532,6 @@ async def stream_readymode_audit(
                 _release_manifest_recordings(download_result, username)
             result_box["error"] = str(e)
         finally:
-            if local_job_id:
-                try:
-                    readymode_worker_service.discard_job(local_job_id)
-                except Exception:
-                    logger.warning("Could not remove local ReadyMode recording job %s", local_job_id)
-            if execution_mode == "local_worker" and result_dir and not keep_result_dir:
-                _cleanup_worker_recording_dir(result_dir)
             _release_dialer_locks(readymode_user, dialer_urls)
             with _registry_lock:
                 runs = _active_runs.get(username)
@@ -924,34 +717,6 @@ async def campaign_dialer_counts(request: CampaignDialerCountRequest,
     rm_end = _date.fromisoformat(request.end_date).strftime("%m/%d/%Y")
     dialers = [(name, url) for name, url in READY_MODE_URLS.items() if name != "default"]
 
-    from backend.services import readymode_worker_service
-    if readymode_worker_service.get_execution_mode() == "local_worker":
-        if not readymode_worker_service.worker_status()["online"]:
-            raise HTTPException(status_code=503, detail="Local ReadyMode worker is offline")
-        job_id = readymode_worker_service.enqueue_worker_job(
-            "readymode_dialer_counts",
-            current_user["username"],
-            {
-                "task": "campaign",
-                "identifier": campaign_name,
-                "start_date": request.start_date,
-                "end_date": request.end_date,
-                "dialers": [{"name": name, "url": url} for name, url in dialers],
-            },
-        )
-        try:
-            job = await asyncio.to_thread(readymode_worker_service.wait_for_job, job_id)
-            if job.get("status") != "completed":
-                if job.get("error_code") == "worker_timeout":
-                    readymode_worker_service.abandon_job(job_id)
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"Local ReadyMode worker failed: {job.get('error_code') or 'worker_timeout'}",
-                )
-            return job.get("result_json") or {}
-        finally:
-            readymode_worker_service.discard_job(job_id)
-
     results, failed = [], []
     with ThreadPoolExecutor(max_workers=len(dialers)) as ex:
         futures = {
@@ -994,34 +759,6 @@ async def agent_dialer_counts(request: AgentDialerCountRequest,
     rm_start = _date.fromisoformat(request.start_date).strftime("%m/%d/%Y")
     rm_end = _date.fromisoformat(request.end_date).strftime("%m/%d/%Y")
     dialers = [(name, url) for name, url in READY_MODE_URLS.items() if name != "default"]
-
-    from backend.services import readymode_worker_service
-    if readymode_worker_service.get_execution_mode() == "local_worker":
-        if not readymode_worker_service.worker_status()["online"]:
-            raise HTTPException(status_code=503, detail="Local ReadyMode worker is offline")
-        job_id = readymode_worker_service.enqueue_worker_job(
-            "readymode_dialer_counts",
-            current_user["username"],
-            {
-                "task": "agent",
-                "identifier": agent_name,
-                "start_date": request.start_date,
-                "end_date": request.end_date,
-                "dialers": [{"name": name, "url": url} for name, url in dialers],
-            },
-        )
-        try:
-            job = await asyncio.to_thread(readymode_worker_service.wait_for_job, job_id)
-            if job.get("status") != "completed":
-                if job.get("error_code") == "worker_timeout":
-                    readymode_worker_service.abandon_job(job_id)
-                raise HTTPException(
-                    status_code=502,
-                    detail=f"Local ReadyMode worker failed: {job.get('error_code') or 'worker_timeout'}",
-                )
-            return job.get("result_json") or {}
-        finally:
-            readymode_worker_service.discard_job(job_id)
 
     results, failed = [], []
     with ThreadPoolExecutor(max_workers=len(dialers)) as ex:

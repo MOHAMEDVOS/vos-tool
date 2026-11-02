@@ -149,14 +149,6 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
     day = _date.fromisoformat(request.date) if request.date else _date.today()
     rm_date = day.strftime("%m/%d/%Y")
     dialers = _dialer_list()
-    from backend.services import readymode_worker_service
-    execution_mode = readymode_worker_service.get_execution_mode()
-    if execution_mode == "local_worker" and not readymode_worker_service.worker_status()["online"]:
-        raise HTTPException(
-            status_code=503,
-            detail="Local ReadyMode worker is offline. Start it or switch execution back to Railway.",
-        )
-
     log_q: "queue.Queue[Optional[tuple]]" = queue.Queue()
     result_box: dict = {}
 
@@ -171,61 +163,25 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
     def worker():
         records_by_dialer: dict = {}
         dialers_ok, dialers_failed = [], []
-        local_job_id = None
         try:
-            if execution_mode == "local_worker":
-                local_job_id = readymode_worker_service.enqueue_scoring_job(
-                    username,
-                    {
-                        "date": day.isoformat(),
-                        "dialers": [{"name": name, "url": url} for name, url in dialers],
-                        "dispositions": SCORING_DISPOSITIONS,
-                    },
-                )
-                log_q.put(("log", "Waiting for the local ReadyMode worker"))
-
-                def _worker_progress(message: str):
-                    log_q.put(("log", message))
-
-                job = readymode_worker_service.wait_for_job(
-                    local_job_id,
-                    progress_callback=_worker_progress,
-                )
-                if job.get("status") != "completed":
-                    code = job.get("error_code") or "worker_timeout"
-                    if code == "worker_timeout":
-                        readymode_worker_service.abandon_job(local_job_id)
-                    raise RuntimeError(f"Local ReadyMode worker failed: {code}")
-                result = job.get("result_json") or {}
-                records_by_dialer = result.get("records_by_dialer") or {}
-                dialers_ok = result.get("dialers_ok") or []
-                dialers_failed = result.get("dialers_failed") or []
-                errors_by_dialer = result.get("errors_by_dialer") or {}
-                for name in dialers_ok:
-                    log_q.put(("log", f"{name}: {len(records_by_dialer.get(name, []))} calls"))
-                for name in dialers_failed:
-                    code = errors_by_dialer.get(name, "worker_request_failed")
-                    log_q.put(("log", f"{name}: skipped ({code})"))
-                log_q.put(("progress", json.dumps({"done": len(dialers), "total": len(dialers)})))
-            else:
-                with ThreadPoolExecutor(max_workers=len(dialers)) as ex:
-                    futures = {ex.submit(_pull_dialer, n, u): n for n, u in dialers}
-                    done = 0
-                    for fut in as_completed(futures):
-                        name = futures[fut]
-                        try:
-                            dname, records = fut.result()
-                            records_by_dialer[dname] = records
-                            dialers_ok.append(dname)
-                            log_q.put(("log", f"{dname}: {len(records)} calls"))
-                        except ReadyModeLoginError as e:
-                            dialers_failed.append(name)
-                            log_q.put(("log", f"{name}: skipped ({e})"))
-                        except Exception as e:
-                            dialers_failed.append(name)
-                            log_q.put(("log", f"{name}: error ({e})"))
-                        done += 1
-                        log_q.put(("progress", json.dumps({"done": done, "total": len(dialers)})))
+            with ThreadPoolExecutor(max_workers=len(dialers)) as ex:
+                futures = {ex.submit(_pull_dialer, n, u): n for n, u in dialers}
+                done = 0
+                for fut in as_completed(futures):
+                    name = futures[fut]
+                    try:
+                        dname, records = fut.result()
+                        records_by_dialer[dname] = records
+                        dialers_ok.append(dname)
+                        log_q.put(("log", f"{dname}: {len(records)} calls"))
+                    except ReadyModeLoginError as e:
+                        dialers_failed.append(name)
+                        log_q.put(("log", f"{name}: skipped ({e})"))
+                    except Exception as e:
+                        dialers_failed.append(name)
+                        log_q.put(("log", f"{name}: error ({e})"))
+                    done += 1
+                    log_q.put(("progress", json.dumps({"done": done, "total": len(dialers)})))
 
             rand_index = build_agent_index(records_by_dialer)
 
@@ -263,11 +219,6 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
             logger.error(f"Scoring gather failed: {e}", exc_info=True)
             result_box["error"] = str(e)
         finally:
-            if local_job_id:
-                try:
-                    readymode_worker_service.discard_job(local_job_id)
-                except Exception:
-                    logger.warning("Could not remove completed local ReadyMode job %s", local_job_id)
             log_q.put(None)
 
     threading.Thread(target=worker, daemon=True).start()
@@ -336,14 +287,6 @@ async def audit(request: AuditRequest, current_user: dict = Depends(get_current_
     if not rm_user or not rm_pass:
         raise HTTPException(status_code=400, detail="ReadyMode credentials not configured")
 
-    from backend.services import readymode_worker_service
-    execution_mode = readymode_worker_service.get_execution_mode()
-    if execution_mode == "local_worker" and not readymode_worker_service.worker_status()["online"]:
-        raise HTTPException(
-            status_code=503,
-            detail="Local ReadyMode worker is offline. Start it or switch execution back to Railway.",
-        )
-
     rand_index = run.get("rand_index", {})
     flagged_index = run.get("flagged_index", {})
     run_date = run.get("date")
@@ -396,93 +339,23 @@ async def audit(request: AuditRequest, current_user: dict = Depends(get_current_
                 dialer_url = dialer_urls.get(dialer_name) if dialer_name else None
 
                 if dialer_url:
-                    local_job_id = None
-                    local_result_dir = None
-                    keep_local_result = False
                     try:
                         _prog(i, name, "download")
-                        if execution_mode == "local_worker":
-                            from backend.api.readymode import (
-                                _cleanup_worker_recording_dir,
-                                _prepare_worker_recording_dirs,
-                            )
-                            from automation.download_readymode_calls import extract_dialer_name_from_url
-
-                            local_result_dir, download_dirs = _prepare_worker_recording_dirs(
-                                username, [dialer_url], agent_name=name
-                            )
-                            dialer_label = extract_dialer_name_from_url(dialer_url)
-                            local_job_id = readymode_worker_service.enqueue_worker_job(
-                                "readymode_recordings",
-                                username,
-                                {
-                                    "agent": name,
-                                    "campaign_name": None,
-                                    "start_date": day.isoformat(),
-                                    "end_date": day.isoformat(),
-                                    "start_time": None,
-                                    "max_samples": 5,
-                                    "min_duration": 20,
-                                    "max_duration": None,
-                                    "disposition": SCORING_DISPOSITIONS,
-                                    "force_reaudit": False,
-                                    "track_recordings": False,
-                                    "download_dirs": download_dirs,
-                                    "dialers": [{"name": dialer_label, "url": dialer_url}],
-                                },
-                            )
-
-                            def on_local_progress(message: str):
-                                _prog(i, name, "download", message=message)
-                                log_q.put(("log", f"{name}: {message}"))
-
-                            local_job = readymode_worker_service.wait_for_job(
-                                local_job_id,
-                                timeout=1800,
-                                progress_callback=on_local_progress,
-                                cancel_callback=cancel_event.is_set,
-                            )
-                            if local_job.get("status") != "completed":
-                                code = local_job.get("error_code") or "worker_timeout"
-                                if code == "worker_timeout":
-                                    readymode_worker_service.abandon_job(local_job_id)
-                                if cancel_event.is_set():
-                                    break
-                                raise RuntimeError(f"Local ReadyMode worker failed: {code}")
-                            local_result = local_job.get("result_json") or {}
-                            if local_result.get("error_code"):
-                                if local_result["error_code"] != "readymode_no_calls":
-                                    raise RuntimeError(
-                                        f"Local ReadyMode worker failed: {local_result['error_code']}"
-                                    )
-                                folder = None
-                            else:
-                                Path(local_result_dir, ".readymode_manifest.json").write_text(
-                                    json.dumps({
-                                        "run_id": None,
-                                        "skipped_count": local_result.get("skipped_count", 0),
-                                        "records": local_result.get("records") or [],
-                                    }),
-                                    encoding="utf-8",
-                                )
-                                folder = local_result_dir
-                                keep_local_result = True
-                        else:
-                            folder = download_all_call_recordings(
-                                dialer_url=dialer_url,
-                                agent=name,
-                                start_date=day,
-                                end_date=day,
-                                max_samples=5,
-                                min_duration=20,
-                                disposition=SCORING_DISPOSITIONS,  # keep the 2-disposition rule (matches Gather)
-                                username=username,
-                                readymode_user=rm_user,
-                                readymode_pass=rm_pass,
-                                cancellation_callback=cancel_event.is_set,
-                                update_callback=lambda dl, tot, _i=i, _n=name: _prog(
-                                    _i, _n, "download", downloaded=dl, dl_total=tot),
-                            )
+                        folder = download_all_call_recordings(
+                            dialer_url=dialer_url,
+                            agent=name,
+                            start_date=day,
+                            end_date=day,
+                            max_samples=5,
+                            min_duration=20,
+                            disposition=SCORING_DISPOSITIONS,  # keep the 2-disposition rule (matches Gather)
+                            username=username,
+                            readymode_user=rm_user,
+                            readymode_pass=rm_pass,
+                            cancellation_callback=cancel_event.is_set,
+                            update_callback=lambda dl, tot, _i=i, _n=name: _prog(
+                                _i, _n, "download", downloaded=dl, dl_total=tot),
+                        )
                         if cancel_event.is_set():
                             break
                         folder_path = Path(folder) if isinstance(folder, (str, Path)) else None
@@ -505,14 +378,6 @@ async def audit(request: AuditRequest, current_user: dict = Depends(get_current_
                         # One agent's download/analysis failure shouldn't kill the whole run.
                         logger.warning(f"Scoring audit: {name} download/analyze failed: {e}")
                         log_q.put(("log", f"{name}: {e}"))
-                    finally:
-                        if local_job_id:
-                            try:
-                                readymode_worker_service.discard_job(local_job_id)
-                            except Exception:
-                                logger.warning("Could not remove local ReadyMode scoring-audit job")
-                        if local_result_dir and not keep_local_result:
-                            _cleanup_worker_recording_dir(local_result_dir)
 
                 if not fresh_rows and not action_calls:
                     skipped.append(name)
