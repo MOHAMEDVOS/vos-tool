@@ -15,11 +15,13 @@ Key facts (see spec for detail):
 
 import re
 import json
+import logging
 import requests
 from html import unescape
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+logger = logging.getLogger(__name__)
 
 
 class ReadyModeLoginError(Exception):
@@ -162,7 +164,17 @@ class ReadyModeHTTPClient:
             headers=h, allow_redirects=True, timeout=30,
         )
         if "stationId" not in self.session.cookies.get_dict():
-            snippet = (r.text or "")[:160].replace("\n", " ")
+            response_body = r.text or ""
+            logger.error(
+                "ReadyMode login failed for %r on %s: status=%s, final_url=%s. "
+                "Full response body follows:\n%s",
+                username,
+                self.dialer,
+                r.status_code,
+                r.url,
+                response_body,
+            )
+            snippet = response_body[:160].replace("\n", " ")
             raise ReadyModeLoginError(
                 f"ReadyMode login did not establish a session for '{username}' on {self.dialer} "
                 f"(no stationId cookie; status={r.status_code}). Response: {snippet!r}"
