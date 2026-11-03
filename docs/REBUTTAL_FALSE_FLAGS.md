@@ -1,5 +1,12 @@
 # Why "No Rebuttal" flags are wrong
 
+## Current behavior (2026-11-03)
+
+The objection gate was disabled in the audit pipeline and issue counting. New audits
+now keep the phrase/semantic detector's Yes/No result, and Actions counts every
+`Rebuttal Detection: No` row like the Dashboard. The analysis below records the
+earlier evaluation and rationale for the gate; it describes historical behavior.
+
 Measured 2026-09-02 on 198 calls from the production audit database — every call
 in it that production flagged `No Rebuttal`. Each was judged against one rule:
 
