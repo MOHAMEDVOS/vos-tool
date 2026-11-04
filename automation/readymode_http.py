@@ -346,6 +346,33 @@ class ReadyModeHTTPClient:
             _log_login_response("login POST", r, self.session)
         if "stationId" not in self.session.cookies.get_dict():
             response_body = r.text or ""
+            indicators = _security_block_indicators(r, response_body)
+            if "Cloudflare challenge" in indicators:
+                from automation.readymode_browser_login import (
+                    browser_fallback_enabled,
+                    solve_login_with_browser,
+                )
+                if browser_fallback_enabled():
+                    logger.warning(
+                        "ReadyMode login got a Cloudflare challenge on %s; "
+                        "falling back to a real-browser login to solve it.",
+                        self.dialer,
+                    )
+                    try:
+                        cookies = solve_login_with_browser(self.dialer, username, password)
+                    except Exception as browser_error:
+                        raise ReadyModeLoginError(
+                            f"ReadyMode login hit a Cloudflare challenge on {self.dialer}, "
+                            f"and the browser fallback also failed: {browser_error}"
+                        ) from browser_error
+                    self.session.cookies.update(cookies)
+                    if "stationId" not in self.session.cookies.get_dict():
+                        raise ReadyModeLoginError(
+                            f"ReadyMode login hit a Cloudflare challenge on {self.dialer}; "
+                            f"the browser fallback ran but still did not yield a stationId "
+                            f"cookie for '{username}'."
+                        )
+                    return  # browser fallback succeeded; session now has valid cookies
             snippet = _redact_diagnostic_body(response_body[:160]).replace("\n", " ")
             raise ReadyModeLoginError(
                 f"ReadyMode login did not establish a session for '{username}' on {self.dialer} "

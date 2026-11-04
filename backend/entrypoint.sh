@@ -23,4 +23,4 @@ echo "  Note: model preload and schema setup run in backend.main lifespan."
 echo "=========================================="
 echo ""
 
-exec uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1
+exec xvfb-run -a uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1

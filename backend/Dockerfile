@@ -36,6 +36,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
+    xvfb \
     tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && ln -snf /usr/share/zoneinfo/America/New_York /etc/localtime && echo America/New_York > /etc/timezone
@@ -45,6 +46,10 @@ COPY --from=builder /root/.local /root/.local
 
 # Make sure scripts in .local are usable early
 ENV PATH=/root/.local/bin:$PATH
+
+# Install the browser used only when ReadyMode blocks the HTTP login with a
+# Cloudflare JavaScript challenge. Keep it in the runtime image with its libs.
+RUN python -m playwright install --with-deps chromium
 
 # Clean up unnecessary files to reduce image size
 RUN find /root/.local -type d -name "tests" -exec rm -r {} + 2>/dev/null || true && \
