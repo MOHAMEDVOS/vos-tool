@@ -36,6 +36,30 @@ def browser_fallback_enabled() -> bool:
     return _env_flag("READYMODE_BROWSER_FALLBACK", True) and sync_playwright is not None
 
 
+# Vanilla Playwright/Chromium sets several JS-detectable automation markers
+# (navigator.webdriver=true, no window.chrome, empty plugin list) that Cloudflare's
+# bot score checks for. One dialer (resva) was observed holding the "Just a moment"
+# interstitial indefinitely against an un-patched browser while another (resva5) let
+# it through, which is consistent with resva's zone having a stricter check. This
+# script patches the most common markers before any page JS runs. It's not a
+# guarantee against a true interactive/managed challenge, but it removes the cheap,
+# well-known tells.
+_STEALTH_INIT_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+window.chrome = window.chrome || { runtime: {} };
+Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
+if (originalQuery) {
+    window.navigator.permissions.query = (parameters) => (
+        parameters.name === 'notifications'
+            ? Promise.resolve({ state: Notification.permission })
+            : originalQuery(parameters)
+    );
+}
+"""
+
+
 def solve_login_with_browser(dialer_url: str, username: str, password: str) -> dict:
     """Log into ``dialer_url`` with a real browser and return the resulting cookies.
 
@@ -74,6 +98,7 @@ def solve_login_with_browser(dialer_url: str, username: str, password: str) -> d
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-gpu",
+                "--disable-blink-features=AutomationControlled",
             ],
         )
         try:
@@ -81,6 +106,7 @@ def solve_login_with_browser(dialer_url: str, username: str, password: str) -> d
                 viewport={"width": 1920, "height": 1080},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             )
+            context.add_init_script(_STEALTH_INIT_SCRIPT)
             page = context.new_page()
             login_to_readymode(page, dialer_url, username, password)
             cookies = {cookie["name"]: cookie["value"] for cookie in context.cookies()}
