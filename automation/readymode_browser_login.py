@@ -79,14 +79,26 @@ def solve_login_with_browser(dialer_url: str, username: str, password: str) -> d
     # imports from readymode_http, which would import this module, which would
     # import download_readymode_calls_playwright back) and keeps this module
     # importable even when that sibling module's other dependencies aren't needed.
-    from automation.download_readymode_calls_playwright import login_to_readymode
+    from automation.download_readymode_calls_playwright import (
+        login_to_readymode,
+        ReadyModeLoginError as PlaywrightLoginError,
+    )
 
     headless = _env_flag("READYMODE_HEADLESS", False)
     slow_mo_ms = int(os.getenv("READYMODE_SLOW_MO_MS", "0") or "0")
+    # One observed dialer (resva) held Cloudflare's "Just a moment" Managed Challenge
+    # past login_to_readymode's internal 30s form-wait on the first try (status=403,
+    # selector_count=0) while another (resva5) cleared it immediately. Cloudflare sets
+    # a cf_clearance cookie once a context passes a challenge, reused on the next
+    # navigation in the SAME context — so retrying login_to_readymode a few times (each
+    # attempt re-navigates and waits up to 30s again) gives the challenge more real
+    # wall-clock time to resolve without guessing at Cloudflare's widget internals.
+    max_attempts = int(os.getenv("READYMODE_BROWSER_LOGIN_ATTEMPTS", "3") or "3")
 
     logger.info(
-        "ReadyMode browser-login fallback: launching chromium (headless=%s) for %s",
-        headless, dialer_url,
+        "ReadyMode browser-login fallback: launching chromium (headless=%s) for %s "
+        "(up to %d attempt(s))",
+        headless, dialer_url, max_attempts,
     )
 
     with sync_playwright() as p:
@@ -108,7 +120,24 @@ def solve_login_with_browser(dialer_url: str, username: str, password: str) -> d
             )
             context.add_init_script(_STEALTH_INIT_SCRIPT)
             page = context.new_page()
-            login_to_readymode(page, dialer_url, username, password)
+
+            last_error: Exception | None = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    login_to_readymode(page, dialer_url, username, password)
+                    last_error = None
+                    break
+                except PlaywrightLoginError as error:
+                    last_error = error
+                    logger.warning(
+                        "ReadyMode browser-login fallback attempt %d/%d on %s did not "
+                        "find the login form yet (likely still on the Cloudflare "
+                        "challenge): %s",
+                        attempt, max_attempts, dialer_url, error,
+                    )
+            if last_error is not None:
+                raise last_error
+
             cookies = {cookie["name"]: cookie["value"] for cookie in context.cookies()}
             logger.info(
                 "ReadyMode browser-login fallback succeeded for %s (cookies=%s)",
