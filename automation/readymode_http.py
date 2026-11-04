@@ -286,6 +286,15 @@ class ReadyModeHTTPClient:
         self.dialer = (dialer_url or "").rstrip("/")
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": UA})
+        # Optional egress proxy, e.g. "http://user:pass@host:port". Railway's shared
+        # IP pool gets a Cloudflare challenge on some dialers; routing through a proxy
+        # with a cleaner reputation (a trusted residential IP, or a paid proxy
+        # service) can skip the challenge entirely instead of needing the browser
+        # fallback. Unset by default — set READYMODE_PROXY_URL in the environment to
+        # enable it; nothing changes for anyone who doesn't set it.
+        proxy_url = os.getenv("READYMODE_PROXY_URL")
+        if proxy_url:
+            self.session.proxies.update({"http": proxy_url, "https": proxy_url})
         self._disposition_map: dict | None = None  # this dialer's own label.lower() -> id
         self._folder_map: dict | None = None        # this dialer's own folder name.lower() -> id
 
