@@ -104,6 +104,30 @@ if (originalQuery) {
 """
 
 
+# Confirmed via a saved failure screenshot (2026-11-04): resva's challenge is
+# Cloudflare Turnstile's visible "Verify you are human" checkbox, not a silent/
+# non-interactive block. Turnstile is specifically built to flag non-human click
+# patterns (timing, mouse movement), so a scripted click is not guaranteed to pass —
+# this is a deliberate, informed choice to try it anyway rather than a reliable fix.
+def _attempt_turnstile_click(page) -> bool:
+    """Best-effort: find Cloudflare's Turnstile checkbox inside its iframe and click
+    it. Returns True if a click was attempted (not whether it was accepted)."""
+    try:
+        frame = page.frame_locator("iframe[src*='challenges.cloudflare.com']").first
+        checkbox = frame.locator("input[type='checkbox']").first
+        checkbox.wait_for(state="visible", timeout=8000)
+        checkbox.click(timeout=5000)
+        logger.info("ReadyMode browser-login fallback: clicked the Turnstile checkbox")
+        return True
+    except Exception as click_error:
+        logger.info(
+            "ReadyMode browser-login fallback: no clickable Turnstile checkbox found "
+            "(%s) — continuing without a click",
+            click_error,
+        )
+        return False
+
+
 def solve_login_with_browser(dialer_url: str, username: str, password: str) -> dict:
     """Log into ``dialer_url`` with a real browser and return the resulting cookies.
 
@@ -164,6 +188,15 @@ def solve_login_with_browser(dialer_url: str, username: str, password: str) -> d
             )
             context.add_init_script(_STEALTH_INIT_SCRIPT)
             page = context.new_page()
+
+            # One-time pre-step: navigate ourselves and try to click past a visible
+            # Turnstile checkbox before handing off to login_to_readymode (which does
+            # its own navigation + form wait on each retry attempt below). If this
+            # succeeds, Cloudflare's cf_clearance cookie is set in this context and
+            # carries over to login_to_readymode's subsequent navigation.
+            page.goto(dialer_url, wait_until="domcontentloaded")
+            if _attempt_turnstile_click(page):
+                page.wait_for_timeout(3000)
 
             last_error: Exception | None = None
             for attempt in range(1, max_attempts + 1):
