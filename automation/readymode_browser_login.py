@@ -109,20 +109,39 @@ if (originalQuery) {
 # non-interactive block. Turnstile is specifically built to flag non-human click
 # patterns (timing, mouse movement), so a scripted click is not guaranteed to pass —
 # this is a deliberate, informed choice to try it anyway rather than a reliable fix.
+#
+# The checkbox itself lives deep inside Turnstile's iframe content (not a plain
+# <input type="checkbox"> Playwright's frame_locator can select into directly — the
+# first attempt at this via a DOM selector timed out and never clicked anything).
+# Click by SCREEN POSITION instead: get the outer iframe element's bounding box on
+# the page and click near its left edge, vertically centered — that's where the
+# checkbox renders — the same way a real mouse click lands on whatever is visually
+# there, regardless of what's inside the iframe's own DOM.
 def _attempt_turnstile_click(page) -> bool:
-    """Best-effort: find Cloudflare's Turnstile checkbox inside its iframe and click
-    it. Returns True if a click was attempted (not whether it was accepted)."""
+    """Best-effort: click Cloudflare's Turnstile checkbox by screen position.
+    Returns True if a click was attempted (not whether it was accepted)."""
     try:
-        frame = page.frame_locator("iframe[src*='challenges.cloudflare.com']").first
-        checkbox = frame.locator("input[type='checkbox']").first
-        checkbox.wait_for(state="visible", timeout=8000)
-        checkbox.click(timeout=5000)
-        logger.info("ReadyMode browser-login fallback: clicked the Turnstile checkbox")
+        iframe_el = page.locator("iframe[src*='challenges.cloudflare.com']").first
+        iframe_el.wait_for(state="visible", timeout=10000)
+        box = iframe_el.bounding_box()
+        if not box:
+            logger.info(
+                "ReadyMode browser-login fallback: Turnstile iframe found but has no "
+                "bounding box (not rendered yet) — continuing without a click"
+            )
+            return False
+        click_x = box["x"] + 30
+        click_y = box["y"] + box["height"] / 2
+        page.mouse.click(click_x, click_y)
+        logger.info(
+            "ReadyMode browser-login fallback: clicked the Turnstile checkbox area "
+            "at (%.0f, %.0f)", click_x, click_y,
+        )
         return True
     except Exception as click_error:
         logger.info(
-            "ReadyMode browser-login fallback: no clickable Turnstile checkbox found "
-            "(%s) — continuing without a click",
+            "ReadyMode browser-login fallback: could not click the Turnstile "
+            "checkbox area (%s) — continuing without a click",
             click_error,
         )
         return False
@@ -154,14 +173,11 @@ def solve_login_with_browser(dialer_url: str, username: str, password: str) -> d
 
     headless = _env_flag("READYMODE_HEADLESS", False)
     slow_mo_ms = int(os.getenv("READYMODE_SLOW_MO_MS", "0") or "0")
-    # One observed dialer (resva) held Cloudflare's "Just a moment" Managed Challenge
-    # past login_to_readymode's internal 30s form-wait on the first try (status=403,
-    # selector_count=0) while another (resva5) cleared it immediately. Cloudflare sets
-    # a cf_clearance cookie once a context passes a challenge, reused on the next
-    # navigation in the SAME context — so retrying login_to_readymode a few times (each
-    # attempt re-navigates and waits up to 30s again) gives the challenge more real
-    # wall-clock time to resolve without guessing at Cloudflare's widget internals.
-    max_attempts = int(os.getenv("READYMODE_BROWSER_LOGIN_ATTEMPTS", "3") or "3")
+    # login_to_readymode's own form-wait runs ~60s per attempt, so blindly retrying it
+    # is expensive and does nothing by itself — it only helps if a Turnstile click
+    # already set the cf_clearance cookie in this context. Keep this as a small safety
+    # net (2, not 3+), not the primary mechanism.
+    max_attempts = int(os.getenv("READYMODE_BROWSER_LOGIN_ATTEMPTS", "2") or "2")
 
     logger.info(
         "ReadyMode browser-login fallback: launching chromium (headless=%s) for %s "
@@ -189,14 +205,25 @@ def solve_login_with_browser(dialer_url: str, username: str, password: str) -> d
             context.add_init_script(_STEALTH_INIT_SCRIPT)
             page = context.new_page()
 
-            # One-time pre-step: navigate ourselves and try to click past a visible
-            # Turnstile checkbox before handing off to login_to_readymode (which does
-            # its own navigation + form wait on each retry attempt below). If this
-            # succeeds, Cloudflare's cf_clearance cookie is set in this context and
-            # carries over to login_to_readymode's subsequent navigation.
+            # Pre-step: navigate ourselves and try clicking past a visible Turnstile
+            # checkbox before handing off to login_to_readymode (which does its own
+            # navigation + form wait on each retry attempt below). Two short click
+            # attempts (a few seconds each) are much cheaper than burning a full ~60s
+            # login_to_readymode attempt on a challenge that was never clicked. If a
+            # click succeeds, Cloudflare's cf_clearance cookie is set in this context
+            # and carries over to login_to_readymode's subsequent navigation.
             page.goto(dialer_url, wait_until="domcontentloaded")
-            if _attempt_turnstile_click(page):
-                page.wait_for_timeout(3000)
+            for click_round in range(2):
+                if not _attempt_turnstile_click(page):
+                    break  # no Turnstile widget found at all — nothing more to click
+                page.wait_for_timeout(4000)
+                title = page.title()
+                if "just a moment" not in title.lower():
+                    logger.info(
+                        "ReadyMode browser-login fallback: challenge appears cleared "
+                        "after click round %d (title=%r)", click_round + 1, title,
+                    )
+                    break
 
             last_error: Exception | None = None
             for attempt in range(1, max_attempts + 1):
