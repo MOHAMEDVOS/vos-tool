@@ -3,7 +3,7 @@
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0006_remove_readymode_local_worker"
+revision = "0006_rm_readymode_local_worker"
 down_revision = "0005_readymode_worker_secrets"
 branch_labels = None
 depends_on = None
