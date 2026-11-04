@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import platform
+import time
 import requests
 import certifi
 import charset_normalizer
@@ -52,6 +53,34 @@ DIAGNOSTIC_RESPONSE_HEADERS = (
     "Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options",
     "X-Robots-Tag",
 )
+
+
+# When ReadyMode traffic is routed through READYMODE_PROXY_URL (a home-laptop Tailscale
+# tunnel, not a data-center link), a single login request can time out on its own — a brief
+# Wi-Fi blip, a Tailscale relay hop, home upload bandwidth shared with other traffic — even
+# with no other logins in flight. Retrying a couple of times clears this without masking a
+# real failure: only transient network errors (timeout/connection reset) are retried here,
+# never a login the server actually answered (bad credentials, Cloudflare challenge, etc).
+READYMODE_LOGIN_MAX_ATTEMPTS = 3
+READYMODE_LOGIN_RETRY_DELAY_SECONDS = 3
+
+
+def _request_with_retries(method, url, **kwargs):
+    last_error = None
+    for attempt in range(1, READYMODE_LOGIN_MAX_ATTEMPTS + 1):
+        try:
+            return method(url, **kwargs)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
+            last_error = error
+            if attempt < READYMODE_LOGIN_MAX_ATTEMPTS:
+                logger.warning(
+                    "ReadyMode request to %s timed out/failed (attempt %d/%d): %s - retrying "
+                    "in %ds",
+                    url, attempt, READYMODE_LOGIN_MAX_ATTEMPTS, error,
+                    READYMODE_LOGIN_RETRY_DELAY_SECONDS,
+                )
+                time.sleep(READYMODE_LOGIN_RETRY_DELAY_SECONDS)
+    raise last_error
 
 
 class ReadyModeLoginError(Exception):
@@ -324,7 +353,7 @@ class ReadyModeHTTPClient:
         seed_url = f"{self.dialer}/"
         if diagnostics:
             logger.info("ReadyMode login diagnostic request: method=GET url=%s", seed_url)
-        seed_response = self.session.get(seed_url, headers=h, timeout=30)
+        seed_response = _request_with_retries(self.session.get, seed_url, headers=h, timeout=30)
         if _egress_diagnostics_enabled():
             peer = _response_peer(seed_response)
             if peer is None:
@@ -341,7 +370,8 @@ class ReadyModeHTTPClient:
         login_url = f"{self.dialer}/login_new/?then=/"
         if diagnostics:
             logger.info("ReadyMode login diagnostic request: method=POST url=%s", login_url)
-        r = self.session.post(
+        r = _request_with_retries(
+            self.session.post,
             login_url,
             data={
                 "login_account": username, "login_password": password,
