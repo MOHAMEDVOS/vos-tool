@@ -3,7 +3,7 @@ ReadyMode API endpoints — blocking download + SSE streaming variant.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date as _date
@@ -61,7 +61,7 @@ from backend.services.readymode_recording_metadata import (
     attach_recording_identity as _attach_recording_identity,
     recording_rows_from_dataframe as _recording_rows_from_dataframe,
 )
-from backend.core.dependencies import get_current_user
+from backend.core.dependencies import get_current_user, get_current_admin_user
 import logging
 
 logger = logging.getLogger(__name__)
@@ -931,3 +931,49 @@ def _count_and_analyze(download_result, request, current_user, audit_type):
 
     _release_manifest_recordings(download_path, current_user["username"])
     return downloaded_count, analyzed_count, download_path, skipped_count
+
+
+# ── Cloudflare-challenge debug snapshots ───────────────────────────────────────
+# automation/readymode_browser_login.py saves a screenshot + the page HTML here
+# whenever the browser-login fallback exhausts its retries on a Cloudflare
+# challenge, so a human can see exactly what the browser was looking at instead of
+# guessing from log text. Admin-only: these can contain the dialer's page structure.
+def _challenge_debug_dir() -> Path:
+    from automation.readymode_browser_login import _debug_dir
+    return _debug_dir()
+
+
+@router.get("/debug/challenges")
+async def list_challenge_debug_snapshots(
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """List saved Cloudflare-challenge screenshot/HTML pairs, newest first."""
+    debug_dir = _challenge_debug_dir()
+    files = sorted(debug_dir.glob("*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return {
+        "snapshots": [
+            {
+                "name": f.stem,
+                "screenshot_url": f"/api/readymode/debug/challenges/{f.name}",
+                "html_url": f"/api/readymode/debug/challenges/{f.stem}.html",
+                "saved_at": f.stat().st_mtime,
+            }
+            for f in files
+        ]
+    }
+
+
+@router.get("/debug/challenges/{filename}")
+async def get_challenge_debug_snapshot(
+    filename: str,
+    current_user: dict = Depends(get_current_admin_user),
+):
+    """Serve one saved screenshot (.png) or page dump (.html) by exact filename."""
+    debug_dir = _challenge_debug_dir()
+    # Resolve and verify the path stays inside debug_dir — filename is a path
+    # segment from the URL, not from our own glob, so it must be re-validated here.
+    resolved = (debug_dir / filename).resolve()
+    if resolved.parent != debug_dir.resolve() or not resolved.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Snapshot not found")
+    media_type = "image/png" if resolved.suffix == ".png" else "text/html"
+    return FileResponse(path=str(resolved), media_type=media_type, filename=resolved.name)

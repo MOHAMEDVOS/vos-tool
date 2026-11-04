@@ -16,6 +16,10 @@ to the original "raise ReadyModeLoginError" behavior) if it causes problems on R
 
 import logging
 import os
+import re
+import time
+from pathlib import Path
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +27,46 @@ try:
     from playwright.sync_api import sync_playwright
 except ImportError:  # playwright not installed in this environment
     sync_playwright = None
+
+# Where failed-challenge screenshots/HTML get saved for later inspection via the
+# /api/readymode/debug/challenges endpoint (backend/api/readymode.py). Lives on the
+# same persistent volume as recordings (RECORDINGS_ROOT), not /tmp, so it survives
+# past the request and can be viewed after the fact instead of only in logs.
+def _debug_dir() -> Path:
+    try:
+        from config import RECORDINGS_ROOT
+        base = Path(RECORDINGS_ROOT).parent
+    except Exception:
+        base = Path("/data")
+    debug_dir = base / "readymode_debug"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    return debug_dir
+
+
+def _save_challenge_debug_snapshot(page, dialer_url: str) -> None:
+    """Best-effort: save a screenshot + the page HTML so a human can see exactly
+    what the browser was looking at when it gave up. Never raises — a failure here
+    must not mask the real ReadyModeLoginError."""
+    try:
+        host = urlsplit(dialer_url).hostname or "dialer"
+        slug = re.sub(r"[^A-Za-z0-9_-]", "_", host)
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        base_name = f"{slug}_{stamp}"
+        debug_dir = _debug_dir()
+        png_path = debug_dir / f"{base_name}.png"
+        html_path = debug_dir / f"{base_name}.html"
+        page.screenshot(path=str(png_path), full_page=True)
+        html_path.write_text(page.content(), encoding="utf-8")
+        logger.warning(
+            "ReadyMode browser-login fallback: saved failure snapshot %s / %s "
+            "(view via GET /api/readymode/debug/challenges)",
+            png_path.name, html_path.name,
+        )
+    except Exception as snapshot_error:
+        logger.warning(
+            "ReadyMode browser-login fallback: could not save failure snapshot: %s",
+            snapshot_error,
+        )
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -136,6 +180,7 @@ def solve_login_with_browser(dialer_url: str, username: str, password: str) -> d
                         attempt, max_attempts, dialer_url, error,
                     )
             if last_error is not None:
+                _save_challenge_debug_snapshot(page, dialer_url)
                 raise last_error
 
             cookies = {cookie["name"]: cookie["value"] for cookie in context.cookies()}
