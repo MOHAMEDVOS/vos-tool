@@ -33,13 +33,23 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install only runtime system dependencies (no build tools)
+# curl: needed only to install the Tailscale client below.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
     xvfb \
     tzdata \
+    curl \
     && rm -rf /var/lib/apt/lists/* \
     && ln -snf /usr/share/zoneinfo/America/New_York /etc/localtime && echo America/New_York > /etc/timezone
+
+# Tailscale client: lets this container route ReadyMode traffic through a trusted
+# peer (the user's own laptop, set up as a Tailscale exit node) instead of Railway's
+# shared IP pool, which some ReadyMode dialers' Cloudflare config challenges. Only
+# active when TAILSCALE_AUTHKEY is set at runtime (backend/entrypoint.sh) — the
+# image install here is a no-op otherwise. Railway containers don't have
+# /dev/net/tun or NET_ADMIN, so this runs in userspace-networking mode.
+RUN curl -fsSL https://tailscale.com/install.sh | sh
 
 # Copy Python packages from builder
 COPY --from=builder /root/.local /root/.local
