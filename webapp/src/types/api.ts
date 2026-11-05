@@ -86,6 +86,9 @@ export interface AgentAuditRow {
   /** "Yes" when the owner clearly asked not to be called again but the
    *  disposition logged isn't "DNC - Decision Maker". */
   'Wrong Dispo Detection'?: string
+  /** Short reason when 'Wrong Dispo Detection' is "Yes", e.g. "WN instead
+   *  of DNC" -- what was logged vs. what the transcript shows. */
+  'Wrong Dispo Reason'?: string
   Transcription?: string
   'Dialer Name'?: string
   'Agent Intro'?: string

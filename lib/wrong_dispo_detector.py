@@ -242,16 +242,69 @@ def _semantic_category_match(transcript: str, category: str, model, phrase_embed
     return bool(similarities.size) and float(similarities.max()) >= _SEMANTIC_THRESHOLD
 
 
-def wrong_dispo_detection(transcript: str, disposition: str) -> str:
-    """"Yes" when the transcript clearly contradicts the logged disposition;
-    "No" otherwise (including when either input is missing -- a silent
-    miss, not a false accusation). See the module docstring for the checks
-    this runs (Tier 1: exact phrase match; Tier 2: semantic paraphrase
-    match, only for a category Tier 1 found nothing in)."""
+# ── Short reason labels, for the UI ("WN instead of DNC") ──────────────────
+# Added 2026-11-05 so the flagged-calls list can show which check fired and
+# what was actually logged, not just "Wrong Dispo". Purely cosmetic -- never
+# changes whether something flags, only how the flag is described.
+
+_CHECK_TARGET_LABEL = {
+    "dnc": "DNC",
+    "wrong_number": "WN",
+    # Check 3 doesn't have one "correct" disposition to point to (unlike DNC/
+    # WN) -- it only knows the transcript contradicts "not yet interested".
+    "nyi": "Interested",
+}
+
+# Common dispositions -> short label. Anything not listed here falls back to
+# the raw disposition text as typed (see _abbreviate_disposition) rather than
+# guessing an abbreviation for a value we don't recognize.
+_DISPOSITION_ABBREVIATIONS = {
+    "dnc-decision maker": "DNC",
+    "dnc-unknown": "DNC-Unk",
+    "wrong number": "WN",
+    "decision maker-nyi": "NYI",
+    "decision maker-lead": "Lead",
+    "decision maker": "DM",
+    "unknown": "Unk",
+    "influencer": "Infl",
+    "voicemail": "VM",
+    "prank voicemail": "Prank VM",
+    "agent": "Agent",
+    "callback": "CB",
+    "spanish speaker": "Spanish",
+    "dead call": "Dead",
+    "listed property": "Listed",
+    "sold": "Sold",
+}
+
+
+def _abbreviate_disposition(disposition: str) -> str:
+    """Short label for whatever the agent actually logged. _normalize()
+    collapses dash variants to a plain "-", so the lookup key below strips
+    spaces around it too (e.g. "DNC - Decision Maker" -> "dnc-decision
+    maker"). Falls back to the disposition as typed if it's not a
+    disposition we recognize -- better an unabbreviated label than a wrong
+    guess."""
+    norm = _normalize(disposition).replace(" - ", "-").replace("- ", "-").replace(" -", "-")
+    return _DISPOSITION_ABBREVIATIONS.get(norm, disposition.strip() or "Unknown")
+
+
+def wrong_dispo_detail(transcript: str, disposition: str) -> tuple[str, str | None]:
+    """(("Yes"|"No"), reason). reason is a short "<logged> instead of
+    <category>" string (e.g. "WN instead of DNC") when flagged, else None.
+    Single source of truth for both wrong_dispo_detection() and
+    wrong_dispo_reason() below, and the only place that should be called
+    when you need both -- calling them separately runs every check (and the
+    semantic model) twice for the same transcript.
+
+    See the module docstring for the checks this runs (Tier 1: exact phrase
+    match; Tier 2: semantic paraphrase match, only for a category Tier 1
+    found nothing in)."""
     if not transcript or not disposition:
-        return "No"
+        return "No", None
 
     norm_transcript = _normalize(transcript)
+    logged_label = _abbreviate_disposition(disposition)
 
     # Each "_applicable" flag mirrors the disposition guard Tier 1 already
     # uses for that category -- Tier 2 only gets a turn where Tier 1 could
@@ -260,11 +313,14 @@ def wrong_dispo_detection(transcript: str, disposition: str) -> str:
     wrong_number_applicable = not _is_wrong_number(disposition) and not _is_dnc_decision_maker(disposition)
     nyi_applicable = _is_decision_maker_nyi(disposition)
 
+    def _reason(category: str) -> str:
+        return f"{logged_label} instead of {_CHECK_TARGET_LABEL[category]}"
+
     # Check 1: DNC phrase present, disposition isn't "DNC - Decision Maker".
     if dnc_applicable:
         for phrase in DNC_PHRASES:
             if phrase in norm_transcript:
-                return "Yes"
+                return "Yes", _reason("dnc")
 
     # Check 2: Wrong Number phrase present, disposition is neither
     # "Wrong Number" nor "DNC - Decision Maker" (DNC wins over Wrong Number
@@ -272,7 +328,7 @@ def wrong_dispo_detection(transcript: str, disposition: str) -> str:
     if wrong_number_applicable:
         for phrase in WRONG_NUMBER_PHRASES:
             if phrase in norm_transcript:
-                return "Yes"
+                return "Yes", _reason("wrong_number")
 
     # Check 3: disposition is specifically "Decision Maker - NYI" but the
     # transcript has a clear acceptance phrase contradicting "not yet
@@ -280,17 +336,34 @@ def wrong_dispo_detection(transcript: str, disposition: str) -> str:
     if nyi_applicable:
         for phrase in NYI_CONTRADICTION_PHRASES:
             if phrase in norm_transcript:
-                return "Yes"
+                return "Yes", _reason("nyi")
 
     # Tier 2: paraphrase of a Check 1/2/3 phrase, for whichever category
     # Tier 1 didn't already rule out or already search literally.
     model, phrase_embeddings = _get_semantic_resources()
     if model is not None and phrase_embeddings is not None:
         if dnc_applicable and _semantic_category_match(transcript, "dnc", model, phrase_embeddings):
-            return "Yes"
+            return "Yes", _reason("dnc")
         if wrong_number_applicable and _semantic_category_match(transcript, "wrong_number", model, phrase_embeddings):
-            return "Yes"
+            return "Yes", _reason("wrong_number")
         if nyi_applicable and _semantic_category_match(transcript, "nyi", model, phrase_embeddings):
-            return "Yes"
+            return "Yes", _reason("nyi")
 
-    return "No"
+    return "No", None
+
+
+def wrong_dispo_detection(transcript: str, disposition: str) -> str:
+    """"Yes" when the transcript clearly contradicts the logged disposition;
+    "No" otherwise (including when either input is missing -- a silent
+    miss, not a false accusation). See wrong_dispo_detail() for the checks
+    this runs; call that directly instead if you also need the reason, to
+    avoid running the checks twice."""
+    return wrong_dispo_detail(transcript, disposition)[0]
+
+
+def wrong_dispo_reason(transcript: str, disposition: str) -> str | None:
+    """Short reason like "WN instead of DNC" when wrong_dispo_detection()
+    would return "Yes"; None otherwise. See wrong_dispo_detail() for the
+    checks this runs; call that directly instead if you also need the Yes/No
+    result, to avoid running the checks twice."""
+    return wrong_dispo_detail(transcript, disposition)[1]

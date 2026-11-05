@@ -253,7 +253,10 @@ export function ActionsPage() {
     if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
     if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
     if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
-    if (c['Wrong Dispo Detection'] === 'Yes') issues.push('Wrong Dispo')
+    if (c['Wrong Dispo Detection'] === 'Yes') {
+      const reason = c['Wrong Dispo Reason']
+      issues.push(reason ? `Wrong Dispo ${reason}` : 'Wrong Dispo')
+    }
     const lc = c['Long VM/Dead Detection']
     if (isLongCallFlagged(lc)) {
       const s = String(lc).toLowerCase()

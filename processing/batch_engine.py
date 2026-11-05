@@ -540,6 +540,7 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
                 RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
                 RESULT_KEYS["WRONG_DISPO"]: result.get('wrong_dispo_detection', 'No'),
+                RESULT_KEYS["WRONG_DISPO_REASON"]: result.get('wrong_dispo_reason') or '',
                 RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', ''),  # Fallback for legacy key
                 "File Name": file_name,
                 "File Path": file_path_str
@@ -644,6 +645,7 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
                 RESULT_KEYS["LATE_HELLO"]: "Error",
                 RESULT_KEYS["REBUTTAL"]: "N/A",
                 RESULT_KEYS["WRONG_DISPO"]: "N/A",
+                RESULT_KEYS["WRONG_DISPO_REASON"]: "",
                 RESULT_KEYS["TRANSCRIPTION"]: f"Error: {result.get('error', 'Unknown error')}",
                 "File Name": file_name,
                 "File Path": file_path_str,
@@ -669,6 +671,7 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
             RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
             RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
             RESULT_KEYS["WRONG_DISPO"]: result.get('wrong_dispo_detection', 'No'),
+            RESULT_KEYS["WRONG_DISPO_REASON"]: result.get('wrong_dispo_reason') or '',
             RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', '') or result.get('transcript', ''),  # Fallback for legacy key
             "File Name": file_name,
             "File Path": file_path_str,

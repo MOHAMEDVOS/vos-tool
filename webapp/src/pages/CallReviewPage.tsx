@@ -288,7 +288,10 @@ function CallCard({ call }: { call: FlaggedCall }) {
   if (call['Releasing Detection'] === 'Yes') issues.push('Releasing')
   if (call['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
   if (call['Rebuttal Detection'] === 'No') issues.push('No Rebuttals')
-  if (call['Wrong Dispo Detection'] === 'Yes') issues.push('Wrong Dispo')
+  if (call['Wrong Dispo Detection'] === 'Yes') {
+    const wrongDispoReason = call['Wrong Dispo Reason']
+    issues.push(wrongDispoReason ? `Wrong Dispo ${wrongDispoReason}` : 'Wrong Dispo')
+  }
 
   const filePath = call['File Path'] as string | undefined
   const fileName = (call['File Name'] ?? call.filename ?? call.Filename) as string | undefined

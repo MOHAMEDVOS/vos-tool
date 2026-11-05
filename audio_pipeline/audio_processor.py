@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from pydub import AudioSegment
 
 from audio_pipeline.detections import debug_audio_analysis, late_hello_detection, releasing_detection
-from lib.wrong_dispo_detector import wrong_dispo_detection
+from lib.wrong_dispo_detector import wrong_dispo_detail
 
 # Import agent_only_detector with fallback
 try:
@@ -430,6 +430,8 @@ class AudioProcessor:
         if not dialer_name and additional_metadata:
             dialer_name = additional_metadata.get("Dialer Name", "") or ""
 
+        wrong_dispo_result, wrong_dispo_reason = wrong_dispo_detail(transcription, disposition)
+
         result = {
             'agent_name': agent_name,
             'phone_number': phone_number,
@@ -441,7 +443,8 @@ class AudioProcessor:
             'releasing_detection': classification['releasing_detection'],
             'late_hello_detection': classification['late_hello_detection'],
             'rebuttal_detection': classification['rebuttal_detection'],
-            'wrong_dispo_detection': wrong_dispo_detection(transcription, disposition),
+            'wrong_dispo_detection': wrong_dispo_result,
+            'wrong_dispo_reason': wrong_dispo_reason,
             'transcription': transcription,
             'dialer_name': dialer_name
         }
@@ -485,6 +488,7 @@ RESULT_KEYS = {
     "LATE_HELLO": "Late Hello Detection",
     "REBUTTAL": "Rebuttal Detection",
     "WRONG_DISPO": "Wrong Dispo Detection",
+    "WRONG_DISPO_REASON": "Wrong Dispo Reason",
     "TRANSCRIPTION": "Transcription"
 }
 
@@ -511,6 +515,7 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
                 RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
                 RESULT_KEYS["WRONG_DISPO"]: result.get('wrong_dispo_detection', 'No'),
+                RESULT_KEYS["WRONG_DISPO_REASON"]: result.get('wrong_dispo_reason') or '',
                 RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', ''),
                 "file_path": result.get('file_path', '')
             }
@@ -540,6 +545,7 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> List[Dict]:
             RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
             RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
             RESULT_KEYS["WRONG_DISPO"]: result.get('wrong_dispo_detection', 'No'),
+            RESULT_KEYS["WRONG_DISPO_REASON"]: result.get('wrong_dispo_reason') or '',
             RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', ''),
             "file_path": result.get('file_path', '')
         }
