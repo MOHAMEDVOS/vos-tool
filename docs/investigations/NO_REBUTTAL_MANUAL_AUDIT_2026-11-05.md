@@ -3,109 +3,82 @@
 ## What this is
 
 Mohamed asked for a human read of the Agent Audit Dashboard's "No Rebuttal"
-flags — not a re-run of the detector, an independent judgment call on what's
-actually happening in these calls.
+flags: an independent judgment on what happens in these calls, not a re-run of
+the detector.
 
-**Population**: 198 calls currently flagged `Rebuttal Detection = No` across
-3 accounts (ayasamir 136, mohamedabdo 54, zeinab 8).
+**Population at the time**: 198 calls flagged `Rebuttal Detection = No` across
+3 accounts (ayasamir 136, mohamedabdo 54, zeinab 8), out of 568 audit rows in
+the local database. The same database later held 441 rows, all dated Nov 4. The
+audit's queries were read-only and the cause of the drop is unknown.
 
-**Sample**: the 30 most recent No-Rebuttal calls, pulled read-only with the
-existing `scripts/rebuttal_eval/pull_sample.py` (data retrieval only — the
-detector itself was never invoked; every call below was read and judged by
-hand). All 30 happen to be one agent/dialer (Belal Shaban Abdelrazek Hassan
-Ashry, dialer "resva", Nov 4 run) since the pull is newest-first — this is a
-recency sample, not a cross-agent one. Raw sample:
-`scripts/rebuttal_eval/pull_sample.py --no-count 30 --yes-count 0`.
+**Sample**: the 30 newest No-Rebuttal calls, pulled read-only with
+`scripts/rebuttal_eval/pull_sample.py --no-count 30 --yes-count 0`. The detector
+was not run on them; each call was read and judged by hand. All 30 are one agent
+and dialer (Belal Shaban Abdelrazek Hassan Ashry, dialer "resva", Nov 4 calls),
+so this sample can't support conclusions about other agents.
 
-## Correction (same day, after Mohamed read this)
+## Corrected after Mohamed's review
 
-I got one category wrong below: **"Wrong Number" is not automatically exempt.**
-The correct agent move on a wrong-number call is still to ask whether the
-person (or anyone they know) has property to sell — skipping that is still a
-miss. I'd assumed "wrong person on the line" meant "nothing to rebut," which
-isn't right. The breakdown and percentages below are left as originally
-written for the record, but treat the "Wrong Number" row as "needs the same
-scrutiny as any other call," not "doesn't apply." See
-[[objection-gate-not-wired-into-flagging]] for what changed as a result.
+The first version of this doc said no call in the sample was a fair flag. That
+was wrong under two rules Mohamed confirmed:
 
-## Headline
+1. **Wrong-number calls still need a rebuttal.** The agent should still ask
+   whether the person or the owner has any property for sale.
+2. **A call that ends right after an owner objection counts as No Rebuttal.** A
+   transcript can't show who hung up, so the flag stands. The current gate still
+   exempts a call when the owner explicitly closes it, for example "Goodbye".
 
-**In 30 calls, zero show an agent clearly ignoring a real objection while the
-conversation kept going.** The flag is overwhelmingly firing on calls that
-never got far enough to have anything to rebut. This matches what's already
-in memory from the last time this was reviewed ("90% not valid").
+Under those rules, at least 5 of the 30 are fair flags: 2 calls that end on an
+objection with no closing word, and 3 wrong-number calls with no visible pivot.
+The wrong-number transcripts have no speaker labels, so those 3 are less certain.
 
 ## Breakdown
 
-| category | count | what it means |
+Each call is counted once, by what its transcript shows.
+
+| category | count | reading under the corrected rules |
 |---|---:|---|
-| Empty transcript | 6 (20%) | Nothing to judge — audio never got transcribed, or came back blank. Flagging these as a rebuttal failure blames the agent for a data gap, not a behavior. |
-| No real objection raised | ~14 (47%) | Call ends mid-pitch, or the owner says nothing beyond "hello"/"who's this" before hanging up. There was nothing *to* rebut. |
-| Wrong Number | ~4 (13%) | The person on the line explicitly isn't the target owner. "Rebuttal" doesn't apply — there's no owner objection to handle. |
-| Owner objected, then hung up immediately | ~3 (10%) | A real objection ("not selling my house... goodbye"), but the owner ends the call in the same breath — the agent has no window to respond. Not a fair miss. |
-| Owner objected, agent visibly started responding, cut off | 2 (7%) | The only cases that look like genuine detector misses — the agent *is* mid-rebuttal ("Yeah, I'm just saying, Barbara...") when the transcript/call cuts off. Likely the phrase-matcher needs a complete sentence it never got, not an agent who did nothing. |
+| Empty transcript | 6 | Nothing to judge. |
+| No objection in the transcript | 14 | Call stops mid-pitch or the owner gives no pushback. Nothing visible to rebut. |
+| Wrong Number disposition | 4 | 3 show a denial with no pivot and count as flags. 1 is a bad connection with no denial. |
+| Call ends on an owner objection | 3 | 2 have no closing word and count as flags. 1 ends with "Goodbye" and is exempt. |
+| Agent replies after the objection, then the transcript stops | 2 | Garbled or cut off, so it's unclear whether this was a rebuttal. |
+| Owner's words cut off | 1 | "I'm not." Too little text to judge. |
 
-Percentages don't round to a clean 100 — a few calls arguably straddle two
-buckets (e.g. a wrong-number call with no speaker labels at all).
+## Examples (verbatim from the stored transcripts)
 
-## Representative examples
+**Empty transcript**: call `c6322411`, disposition "Wrong Number", `dialogue: ""`.
 
-**Empty transcript** (disposition "Wrong Number", logged as No-Rebuttal with
-nothing to analyze):
-> `dialogue: ""` — call ad2dff78... duration not even recorded.
-
-**No objection, call never got there:**
+**No objection in the transcript** (call `8db7100e`):
 > Agent: Hello?\
 > Owner: Hello?\
-> Agent: Hey, Mrs. Allison.\
+> Agent: Hey. Mrs. Allison.\
 > Owner: May I ask who's calling?\
-> Agent: Yeah. Hello, ma'am. This is Daniel speaking. I just believe on a
+> Agent: Yeah. Hello, ma'. Am. This is daniel speaking. I just believe on a
 > property at voltage drive. 67, 65. Am I right?\
 > Agent: Am I right?
 
-Transcript just stops. The owner never objects to anything — there's no
-rebuttal to score here, favorable or not.
-
-**Owner objected and hung up, agent had no chance:**
+**Ends on an objection with an explicit close, exempt** (call `e8bdad31`):
 > Owner: I'm sorry. Right now I've been sitting on the side of a road with a
-> blown tire waiting for a [wrecker]. I am not selling my house. Thank you.
+> blown tire waiting for a rucker. I am not sellling my house. Thank you.
 > Goodbye.
 
-That's the entire remainder of the call. Flagging the agent for "not
-rebutting" this is flagging them for the owner hanging up.
+**Ends on an objection with no close, counts as a flag** (call `2dfc21e3`):
+> Owner: No, not interestted.
 
-**The closest thing to a real miss (and it's a stretch):**
-> Owner: No, we're not interested. That's where I live. That's not for sale.\
-> Agent: Yeah, I'm sure Mrs. Brown, have you...
+**Agent replies, then the transcript stops** (call `e62a418b`):
+> Owner: No, we're not interestted. That's where I live. That's not for sale.\
+> Agent: Yeah, I'm same Mrs. Brown, have you.
 
-The agent *is* rebutting — the sentence just gets cut off before it resolves
-into something the phrase library recognizes. This reads like a transcription
-cutoff, not an agent failure.
+## Other observations
 
-## Two things I noticed that aren't about this sample specifically
-
-1. **The audio/transcription quality looks rough across the board** — "I just
-   believe on a property" instead of (almost certainly) "I'm calling about a
-   property," garbled addresses, agent names that come out differently in
-   different calls (Danny Freeman / Daniel / Blake / Danny Raymond — probably
-   one agent's cold-call alias, not a misattribution, but worth confirming).
-   Bad transcription degrades every text-based detector riding on it, not
-   just this one.
-2. **`analyzer/objection_gate.py` already computes exactly this distinction**
-   (`verdict`: `no_objection` / `attempted` / `no_attempt` / `unusable`) and
-   it's stored per-call (`Objection Gate` column, `objection_gate_verdict` in
-   the metadata). But nothing in the actual flagging logic
-   (`backend/services/dashboard_service.py::get_flagged_calls`, or the
-   webapp's own counts in `ActionsPage.tsx`/`CallReviewPage.tsx`/
-   `utils/audit.ts`) reads it — flagging is still a flat
-   `Rebuttal Detection == "No"` check. The infrastructure to exclude
-   `no_objection`/`unusable` calls from this flag already exists and isn't
-   wired in.
-
-## Not a recommendation, just what I'd ask before changing anything
-
-Wiring the Objection Gate into the flagging query would cut this flag's
-volume a lot based on this sample — but per [[rebuttal-flag-polarity]], any
-change that makes detection more lenient needs to be checked against a
-stored-"Yes" control group too, not just measured by how many fewer flags it
-produces. That's what `scripts/rebuttal_eval/` already exists for.
+1. **Transcription looks rough in this sample.** The agent's opener repeatedly
+   comes out as "I just believe on a property", addresses are garbled, and the
+   agent's spoken name varies (Danny Freeman, Daniel, Blake, Danny Raymond). The
+   names may be a calling alias, which isn't confirmed. Bad transcription affects
+   every text-based detector.
+2. **The objection gate was not running when this audit was done.** Commit
+   `1de3ac7` removed it on 2026-11-03 because it cleared calls where agents had
+   skipped the rebuttal. The first version of this doc wrongly said it was
+   computed but unused. It was rebuilt and re-enabled in commit `c9fc844`, so it
+   only applies to calls audited after that code is deployed.

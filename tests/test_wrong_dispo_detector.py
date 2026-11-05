@@ -174,20 +174,20 @@ def _enable_fake_semantic_tier(monkeypatch):
 
 def test_semantic_paraphrase_flags_when_tier_1_would_have_missed_it(monkeypatch):
     _enable_fake_semantic_tier(monkeypatch)
-    transcript = "Caller: honestly signal_dnc, please understand."
+    transcript = "Owner: honestly signal_dnc, please understand."
     assert wrong_dispo_detection(transcript, "Wrong Number") == "Yes"
 
 
 def test_semantic_dnc_still_wins_over_wrong_number(monkeypatch):
     # Both category markers present; DNC takes precedence, same as Tier 1.
     _enable_fake_semantic_tier(monkeypatch)
-    transcript = "Caller: signal_dnc signal_wn"
+    transcript = "Owner: signal_dnc signal_wn"
     assert wrong_dispo_detection(transcript, "DNC - Decision Maker") == "No"
 
 
 def test_semantic_wrong_number_category_skipped_when_dispo_already_correct(monkeypatch):
     _enable_fake_semantic_tier(monkeypatch)
-    transcript = "Caller: signal_wn"
+    transcript = "Owner: signal_wn"
     assert wrong_dispo_detection(transcript, "Wrong Number") == "No"
     assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "Yes"
 
@@ -201,7 +201,7 @@ def test_semantic_nyi_only_applies_to_nyi_disposition(monkeypatch):
 
 def test_semantic_irrelevant_transcript_not_flagged(monkeypatch):
     _enable_fake_semantic_tier(monkeypatch)
-    transcript = "Caller: nothing relevant here at all."
+    transcript = "Owner: nothing relevant here at all."
     assert wrong_dispo_detection(transcript, "Wrong Number") == "No"
 
 
@@ -254,6 +254,68 @@ def test_semantic_reason_reported_for_tier_2_matches(monkeypatch):
     _enable_fake_semantic_tier(monkeypatch)
     transcript = "Owner: signal_nyi"
     assert wrong_dispo_reason(transcript, "Decision Maker - NYI") == "NYI instead of Interested"
+
+
+# ── Owner lines only ─────────────────────────────────────────────────────────
+
+def test_phrase_said_by_agent_not_flagged():
+    transcript = "Agent: Is this the wrong number?\nOwner: No, this is me. Not selling, thanks."
+    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
+
+
+def test_phrase_said_by_owner_flagged_in_labelled_transcript():
+    transcript = "Agent: Is this Mrs. Lewis?\nOwner: You have the wrong number."
+    assert wrong_dispo_reason(transcript, "Decision Maker - NYI") == "NYI instead of WN"
+
+
+def test_phrase_cannot_match_across_two_owner_turns():
+    transcript = "Owner: That is the wrong\nAgent: Sorry?\nOwner: number of times you called."
+    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
+
+
+def test_labelled_transcript_with_no_owner_lines_not_flagged():
+    assert wrong_dispo_detection("Agent: do not call me again", "Wrong Number") == "No"
+
+
+def test_semantic_tier_only_sees_owner_text_without_labels(monkeypatch):
+    seen = []
+
+    class RecordingEncoder(_FakeEncoder):
+        def encode(self, texts, **kwargs):
+            seen.extend(texts)
+            return super().encode(texts, **kwargs)
+
+    monkeypatch.setattr(
+        wrong_dispo_detector, "_get_semantic_resources",
+        lambda: (RecordingEncoder(), _fake_phrase_embeddings()),
+    )
+    transcript = "Agent: signal_dnc from the agent\nOwner: I am busy today"
+    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
+    assert seen and all("signal_dnc" not in t and "Owner" not in t for t in seen)
+
+
+def test_semantic_tier_skipped_when_transcript_has_no_labels(monkeypatch):
+    _enable_fake_semantic_tier(monkeypatch)
+    assert wrong_dispo_detection("honestly signal_dnc, please understand.", "Wrong Number") == "No"
+
+
+def test_real_model_agent_asking_about_property_not_flagged(monkeypatch):
+    # Real false flag: "This is your property?" scored 0.888 against
+    # "this is not my property" while the owner was keeping the property.
+    monkeypatch.setattr(wrong_dispo_detector, "_get_semantic_resources", _REAL_GET_SEMANTIC_RESOURCES)
+    model, _ = wrong_dispo_detector._get_semantic_resources()
+    if model is None:
+        pytest.skip("semantic model not available in this environment")
+    transcript = (
+        "Owner: Hello.\n"
+        "Agent: I'm calling about the property at 382. This is your property?\n"
+        "Owner: This is ye.\n"
+        "Agent: I'm just asking if you think about selling the property at 382.\n"
+        "Owner: No, we're not. It's a family property that's owned, and we're going to keep it in the family.\n"
+        "Agent: That's fine. Have a good one.\n"
+        "Owner: All right. Bye. Bye."
+    )
+    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
 
 
 def test_semantic_real_model_loads_and_scores_sanely(monkeypatch):

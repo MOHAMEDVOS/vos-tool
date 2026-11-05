@@ -28,6 +28,11 @@ paraphrase that clears a conservative similarity threshold. See
 docs/superpowers/plans/2026-11-05-wrong-dispo-semantic-layer.md. Tier 2
 degrades silently (falls back to Tier 1 only) if the model isn't available --
 same "silent miss over false positive" rule as everywhere else in this file.
+
+Every phrase list describes something the owner says, so a transcript with
+"Agent:"/"Owner:" labels is matched on the owner's lines only. A transcript
+with no labels can't be scoped that way: it gets Tier 1 on the whole text and
+skips Tier 2.
 """
 
 from __future__ import annotations
@@ -278,6 +283,20 @@ _DISPOSITION_ABBREVIATIONS = {
 }
 
 
+_TURN_RE = re.compile(r"^[ \t]*(Agent|Owner)[ \t]*:[ \t]*(.*)$", re.IGNORECASE | re.MULTILINE)
+
+
+def _owner_text(transcript: str) -> tuple[str, bool]:
+    """(text to match, has speaker labels). Labels are left out of the text
+    because the word "Owner" pulls embeddings toward "i am not the owner", and
+    lines are joined with a period so a phrase can't match across two turns."""
+    turns = _TURN_RE.findall(transcript)
+    if not turns:
+        return transcript, False
+    owner_lines = [text.strip() for speaker, text in turns if speaker.lower() == "owner" and text.strip()]
+    return ". ".join(owner_lines), True
+
+
 def _abbreviate_disposition(disposition: str) -> str:
     """Short label for whatever the agent actually logged. _normalize()
     collapses dash variants to a plain "-", so the lookup key below strips
@@ -303,7 +322,11 @@ def wrong_dispo_detail(transcript: str, disposition: str) -> tuple[str, str | No
     if not transcript or not disposition:
         return "No", None
 
-    norm_transcript = _normalize(transcript)
+    search_text, has_speaker_labels = _owner_text(transcript)
+    if not search_text:
+        return "No", None
+
+    norm_transcript = _normalize(search_text)
     logged_label = _abbreviate_disposition(disposition)
 
     # Each "_applicable" flag mirrors the disposition guard Tier 1 already
@@ -340,13 +363,15 @@ def wrong_dispo_detail(transcript: str, disposition: str) -> tuple[str, str | No
 
     # Tier 2: paraphrase of a Check 1/2/3 phrase, for whichever category
     # Tier 1 didn't already rule out or already search literally.
+    if not has_speaker_labels:
+        return "No", None
     model, phrase_embeddings = _get_semantic_resources()
     if model is not None and phrase_embeddings is not None:
-        if dnc_applicable and _semantic_category_match(transcript, "dnc", model, phrase_embeddings):
+        if dnc_applicable and _semantic_category_match(search_text, "dnc", model, phrase_embeddings):
             return "Yes", _reason("dnc")
-        if wrong_number_applicable and _semantic_category_match(transcript, "wrong_number", model, phrase_embeddings):
+        if wrong_number_applicable and _semantic_category_match(search_text, "wrong_number", model, phrase_embeddings):
             return "Yes", _reason("wrong_number")
-        if nyi_applicable and _semantic_category_match(transcript, "nyi", model, phrase_embeddings):
+        if nyi_applicable and _semantic_category_match(search_text, "nyi", model, phrase_embeddings):
             return "Yes", _reason("nyi")
 
     return "No", None
