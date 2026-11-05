@@ -178,6 +178,11 @@ _SEMANTIC_THRESHOLD = max(0.65, min(
 
 _SENTENCE_SPLIT_RE = re.compile(r"[.!?]+")
 
+# The model barely registers "not": "This is my house" scores 0.900 against
+# "this is not my house". So a Wrong Number paraphrase has to contain a denial
+# word of its own. Matched after _normalize(), which strips apostrophes.
+_DENIAL_WORD_RE = re.compile(r"\b(?:not|dont|doesnt|isnt|wasnt|aint|never|wrong|no longer)\b")
+
 _semantic_model = None
 _phrase_embeddings = None
 _semantic_lock = threading.Lock()
@@ -233,6 +238,8 @@ def _semantic_category_match(transcript: str, category: str, model, phrase_embed
     (not looked up internally) so tests can inject a fake encoder instead of
     loading the real model."""
     sentences = _split_into_sentences(transcript)
+    if category == "wrong_number":
+        sentences = [s for s in sentences if _DENIAL_WORD_RE.search(_normalize(s))]
     if not sentences:
         return False
 

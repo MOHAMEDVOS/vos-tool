@@ -187,9 +187,39 @@ def test_semantic_dnc_still_wins_over_wrong_number(monkeypatch):
 
 def test_semantic_wrong_number_category_skipped_when_dispo_already_correct(monkeypatch):
     _enable_fake_semantic_tier(monkeypatch)
-    transcript = "Owner: signal_wn"
+    transcript = "Owner: not signal_wn"
     assert wrong_dispo_detection(transcript, "Wrong Number") == "No"
     assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "Yes"
+
+
+def test_semantic_wrong_number_needs_a_denial_word(monkeypatch):
+    _enable_fake_semantic_tier(monkeypatch)
+    assert wrong_dispo_detection("Owner: signal_wn", "Decision Maker - NYI") == "No"
+
+
+@pytest.mark.parametrize("sentence", [
+    "that is not signal_wn",
+    "that's not signal_wn",
+    "I don't signal_wn",
+    "this isn't signal_wn",
+    "you have the wrong signal_wn",
+    "I no longer signal_wn",
+])
+def test_semantic_wrong_number_denial_words_count(monkeypatch, sentence):
+    _enable_fake_semantic_tier(monkeypatch)
+    assert wrong_dispo_detection(f"Owner: {sentence}", "Decision Maker - NYI") == "Yes"
+
+
+def test_semantic_denial_word_in_another_sentence_does_not_count(monkeypatch):
+    _enable_fake_semantic_tier(monkeypatch)
+    transcript = "Owner: signal_wn.\nAgent: Have you thought about selling?\nOwner: No, not for sale."
+    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
+
+
+def test_semantic_denial_word_rule_only_applies_to_wrong_number(monkeypatch):
+    _enable_fake_semantic_tier(monkeypatch)
+    assert wrong_dispo_detection("Owner: signal_dnc", "Decision Maker - NYI") == "Yes"
+    assert wrong_dispo_detection("Owner: signal_nyi", "Decision Maker - NYI") == "Yes"
 
 
 def test_semantic_nyi_only_applies_to_nyi_disposition(monkeypatch):
@@ -316,6 +346,21 @@ def test_real_model_agent_asking_about_property_not_flagged(monkeypatch):
         "Owner: All right. Bye. Bye."
     )
     assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
+
+
+@pytest.mark.parametrize("owner_line", [
+    "This is my house.",
+    "I own a property? Yes.",
+    "I own property. Yes, I do.",
+])
+def test_real_model_owner_confirming_ownership_not_flagged(monkeypatch, owner_line):
+    # Real false flags: "This is my house" scored 0.900 against "this is not my
+    # house", because the embedding barely registers the word "not".
+    monkeypatch.setattr(wrong_dispo_detector, "_get_semantic_resources", _REAL_GET_SEMANTIC_RESOURCES)
+    model, _ = wrong_dispo_detector._get_semantic_resources()
+    if model is None:
+        pytest.skip("semantic model not available in this environment")
+    assert wrong_dispo_detection(f"Owner: {owner_line}", "Decision Maker - NYI") == "No"
 
 
 def test_semantic_real_model_loads_and_scores_sanely(monkeypatch):
