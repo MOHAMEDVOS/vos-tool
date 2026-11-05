@@ -12,6 +12,22 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { CountUp, Metric } from '@/components/ui/Metric'
 import { dedupeLongCallRows, isLongCallFlagged } from '@/utils/audit'
 
+type FlagTypeFilter = 'All Flags' | 'Releasing' | 'Late Hello' | 'No Rebuttal' | 'Wrong Dispo' | 'Long VM/Dead'
+
+const FLAG_TYPE_OPTIONS: FlagTypeFilter[] = ['All Flags', 'Releasing', 'Late Hello', 'No Rebuttal', 'Wrong Dispo', 'Long VM/Dead']
+
+// Mirrors callIssues() below -- one call can match more than one flag type.
+function callMatchesFlagType(c: FlaggedCall, filter: FlagTypeFilter): boolean {
+  switch (filter) {
+    case 'All Flags': return true
+    case 'Releasing': return c['Releasing Detection'] === 'Yes'
+    case 'Late Hello': return c['Late Hello Detection'] === 'Yes'
+    case 'No Rebuttal': return c['Rebuttal Detection'] === 'No'
+    case 'Wrong Dispo': return c['Wrong Dispo Detection'] === 'Yes'
+    case 'Long VM/Dead': return isLongCallFlagged(c['Long VM/Dead Detection'])
+  }
+}
+
 export interface AgentDeductionRow {
   agentName: string; totalCalls: number; flaggedCalls: number
   releasing: number; lateHello: number; noRebuttals: number; longCall: number
@@ -211,6 +227,7 @@ export function ActionsPage() {
   const { data: allAuditsData, isLoading: auditsLoading } = useAgentAudits()
   const { data: liteAuditsData, isLoading: liteLoading } = useLiteAudits()
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
+  const [flagTypeFilter, setFlagTypeFilter] = useState<FlagTypeFilter>('All Flags')
   const [showConfirm, setShowConfirm] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteNotice, setDeleteNotice] = useState<string | null>(null)
@@ -342,6 +359,11 @@ export function ActionsPage() {
     return dedupedCalls.filter((c) => (c['Agent Name'] || 'Unknown').trim() === activeAgent)
   }, [dedupedCalls, activeAgent])
 
+  const filteredAgentCalls = useMemo<FlaggedCall[]>(
+    () => selectedAgentCalls.filter((c) => callMatchesFlagType(c, flagTypeFilter)),
+    [selectedAgentCalls, flagTypeFilter],
+  )
+
   useEffect(() => { if (!flaggedLoading) markAsSeen() }, [markAsSeen, flaggedCalls, flaggedLoading])
 
   const clearData = useMutation({
@@ -444,21 +466,29 @@ export function ActionsPage() {
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8">
           {/* Detailed Flagged Calls */}
           <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-3 ml-1">
-              <div className="w-1 h-4 bg-ship-red rounded-full" />
-              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Detailed flagged calls — {activeAgent}</h3>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 ml-1">
+                <div className="w-1 h-4 bg-ship-red rounded-full" />
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Detailed flagged calls — {activeAgent}</h3>
+              </div>
+              <CustomSelect
+                options={FLAG_TYPE_OPTIONS}
+                value={flagTypeFilter}
+                onChange={(v) => setFlagTypeFilter(v as FlagTypeFilter)}
+                className="w-44"
+              />
             </div>
-            
+
             <div className="rounded-2xl bg-surface-card border border-b-strong shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl">
               {/* Copy-all header */}
-              {selectedAgentCalls.length > 0 && (
+              {filteredAgentCalls.length > 0 && (
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-b-subtle bg-c-raised/50">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-vos-500">{selectedAgentCalls.length} calls</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-vos-500">{filteredAgentCalls.length} calls</span>
                   <Button
                     variant="action"
                     size="sm"
                     onClick={() => {
-                      const text = selectedAgentCalls.map(c => {
+                      const text = filteredAgentCalls.map(c => {
                         const issues = callIssues(c)
                         return `${formatPhone(c['Phone Number'])} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}`
                       }).join('\n')
@@ -476,14 +506,14 @@ export function ActionsPage() {
               )}
 
               <div className="overflow-y-auto custom-scrollbar flex-1 min-h-[400px] max-h-[600px]">
-                {selectedAgentCalls.length === 0 ? (
+                {filteredAgentCalls.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 opacity-30">
                     <Search size={40} strokeWidth={1} className="mb-4" />
                     <span className="text-[10px] font-black uppercase tracking-widest">No detailed calls found</span>
                   </div>
                 ) : (
                   <div className="p-4 font-mono text-sm leading-7 text-t-label whitespace-pre select-text">
-                    {selectedAgentCalls.map((c, i) => {
+                    {filteredAgentCalls.map((c, i) => {
                       const issues = callIssues(c)
                       return (
                         <div key={i} className="hover:text-t-primary transition-colors">
