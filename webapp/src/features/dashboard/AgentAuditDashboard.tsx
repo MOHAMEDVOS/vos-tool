@@ -35,13 +35,14 @@ export function AgentAuditDashboard() {
   }, [data])
 
   const metrics = useMemo(() => {
-    let releasing = 0, lateHello = 0, noRebuttal = 0
+    let releasing = 0, lateHello = 0, noRebuttal = 0, wrongDispo = 0
     for (const r of rows) {
       if (r['Releasing Detection'] === 'Yes') releasing++
       if (r['Late Hello Detection'] === 'Yes') lateHello++
       if (r['Rebuttal Detection'] === 'No') noRebuttal++
+      if (r['Wrong Dispo Detection'] === 'Yes') wrongDispo++
     }
-    return { total: rows.length, releasing, lateHello, noRebuttal }
+    return { total: rows.length, releasing, lateHello, noRebuttal, wrongDispo }
   }, [rows])
 
   const problematicAgents = useMemo(() => {
@@ -72,6 +73,7 @@ export function AgentAuditDashboard() {
         <Metric label="Total Calls"       value={metrics.total} />
         <Metric label="Late Hello Calls"  value={metrics.lateHello} />
         <Metric label="Missing Rebuttals" value={metrics.noRebuttal} />
+        <Metric label="Wrong Dispo"       value={metrics.wrongDispo} />
       </div>
 
       {problematicAgents.length > 0 && (

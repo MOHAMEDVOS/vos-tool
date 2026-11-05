@@ -9,6 +9,7 @@ export const AGENT_AUDIT_COLUMN_ORDER = [
   'Late Hello Detection',
   'Long VM/Dead Detection',
   'Rebuttal Detection',
+  'Wrong Dispo Detection',
   'Transcription',
   'Dialer Name',
   'Agent Intro',
@@ -103,7 +104,8 @@ export function isRowFlagged(row: AgentAuditRow): boolean {
     row['Releasing Detection'] === 'Yes' ||
     row['Late Hello Detection'] === 'Yes' ||
     isLongCallFlagged(row['Long VM/Dead Detection']) ||
-    row['Rebuttal Detection'] === 'No'
+    row['Rebuttal Detection'] === 'No' ||
+    row['Wrong Dispo Detection'] === 'Yes'
   )
 }
 
@@ -114,7 +116,7 @@ export function detectionVariant(val: unknown, col: string, row?: AgentAuditRow)
     if (val === 'No') return 'danger'
     return 'muted'
   }
-  if (col === 'Releasing Detection' || col === 'Late Hello Detection') {
+  if (col === 'Releasing Detection' || col === 'Late Hello Detection' || col === 'Wrong Dispo Detection') {
     return val === 'Yes' ? 'danger' : 'success'
   }
   if (col === 'Long VM/Dead Detection') {
@@ -125,5 +127,6 @@ export function detectionVariant(val: unknown, col: string, row?: AgentAuditRow)
 
 const DETECTION_COLS = new Set([
   'Releasing Detection', 'Late Hello Detection', 'Long VM/Dead Detection', 'Rebuttal Detection',
+  'Wrong Dispo Detection',
 ])
 export { DETECTION_COLS }

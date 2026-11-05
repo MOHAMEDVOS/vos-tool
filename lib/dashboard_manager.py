@@ -2519,6 +2519,7 @@ class DashboardManager:
                 campaign_audit_columns = [
                     'Agent Name', 'Phone Number', 'Timestamp', 'Disposition',
                     'Releasing Detection', 'Late Hello Detection', 'Rebuttal Detection',
+                    'Wrong Dispo Detection',
                     'Transcription', 'Feedback', 'Dialer Name', 'Agent Intro', 'Owner Name',
                     'Reason for calling', 'Intro Score', 'Status',
                     'File Name', 'File Path', 'Call Duration', 'Confidence Score',
@@ -2865,6 +2866,7 @@ class DashboardManager:
                     expected_columns = [
                         'Agent Name', 'Phone Number', 'Timestamp', 'Disposition',
                         'Releasing Detection', 'Late Hello Detection', 'Rebuttal Detection',
+                        'Wrong Dispo Detection',
                         'Transcription', 'Dialer Name', 'Agent Intro', 'Owner Name',
                         'Reason for calling', 'Intro Score', 'Status',
                         'File Name', 'File Path', 'Call Duration', 'Confidence Score',

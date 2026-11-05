@@ -318,6 +318,7 @@ def _run_agent_call_length_scan(
                 "Releasing Detection":    "No",
                 "Late Hello Detection":   "No",
                 "Rebuttal Detection":     "N/A",
+                "Wrong Dispo Detection":  "N/A",
                 "Long VM/Dead Detection": f"{disp_text} {f['duration']}s",
             })
 

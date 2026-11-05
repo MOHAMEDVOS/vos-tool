@@ -30,14 +30,15 @@ export function LiteAuditDashboard() {
   [data])
 
   const metrics = useMemo(() => {
-    let flagged = 0, releasing = 0, lateHello = 0, longCall = 0
+    let flagged = 0, releasing = 0, lateHello = 0, longCall = 0, wrongDispo = 0
     for (const r of rows) {
       if (isRowFlagged(r)) flagged++
       if (r['Releasing Detection'] === 'Yes') releasing++
       if (r['Late Hello Detection'] === 'Yes') lateHello++
       if (isLongCallFlagged(r['Long VM/Dead Detection'])) longCall++
+      if (r['Wrong Dispo Detection'] === 'Yes') wrongDispo++
     }
-    return { total: rows.length, flagged, releasing, lateHello, longCall }
+    return { total: rows.length, flagged, releasing, lateHello, longCall, wrongDispo }
   }, [rows])
 
   if (isLoading) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>
@@ -53,11 +54,12 @@ export function LiteAuditDashboard() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-8 sm:grid-cols-5 py-2">
+      <div className="grid grid-cols-2 gap-8 sm:grid-cols-6 py-2">
         <Metric label="Flagged Calls" value={metrics.flagged} />
         <Metric label="Releasing"     value={metrics.releasing} />
         <Metric label="Late Hello"    value={metrics.lateHello} />
         <Metric label="Long VM/Dead"  value={metrics.longCall} />
+        <Metric label="Wrong Dispo"   value={metrics.wrongDispo} />
         <Metric label="Total Calls"    value={metrics.total} />
       </div>
 

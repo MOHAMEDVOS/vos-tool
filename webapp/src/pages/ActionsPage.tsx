@@ -15,6 +15,7 @@ import { dedupeLongCallRows, isLongCallFlagged } from '@/utils/audit'
 export interface AgentDeductionRow {
   agentName: string; totalCalls: number; flaggedCalls: number
   releasing: number; lateHello: number; noRebuttals: number; longCall: number
+  wrongDispo: number
   dialerNames: string[]; deduction: boolean
 }
 
@@ -48,6 +49,7 @@ export function AgentDeductionsTable({
     { key: 'lateHello',    label: 'Late Hello',     cls: 'text-right' },
     { key: 'noRebuttals',  label: 'No Rebuttals',   cls: 'text-right' },
     { key: 'longCall',     label: 'Long VM/Dead',   cls: 'text-right' },
+    { key: 'wrongDispo',   label: 'Wrong Dispo',    cls: 'text-right' },
     { key: 'dialerNames',  label: 'Dialer(s)',      cls: '' },
     { key: 'deduction',    label: 'Deduction',      cls: '' },
   ]
@@ -166,6 +168,9 @@ export function AgentDeductionsTable({
                 <td className="border-r border-b-subtle px-2.5 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
                   <CountUp value={row.longCall} />
                 </td>
+                <td className="border-r border-b-subtle px-2.5 py-2.5 whitespace-nowrap text-right text-t-primary tabular-nums font-medium">
+                  <CountUp value={row.wrongDispo} />
+                </td>
                 <td className="border-r border-b-subtle px-2.5 py-2.5 text-t-primary font-medium">
                   <span className="block break-words">{row.dialerNames.length ? row.dialerNames.join(' & ') : '—'}</span>
                 </td>
@@ -248,6 +253,7 @@ export function ActionsPage() {
     if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
     if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
     if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
+    if (c['Wrong Dispo Detection'] === 'Yes') issues.push('Wrong Dispo')
     const lc = c['Long VM/Dead Detection']
     if (isLongCallFlagged(lc)) {
       const s = String(lc).toLowerCase()
@@ -297,23 +303,24 @@ export function ActionsPage() {
 
   const agentDeductions = useMemo<AgentDeductionRow[]>(() => {
     const calls: FlaggedCall[] = dedupedCalls
-    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; dialerNames: Set<string> }>()
+    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; wrongDispo: number; dialerNames: Set<string> }>()
     for (const call of calls) {
       const name = (call['Agent Name'] ?? 'Unknown').trim()
-      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, longCall: 0, dialerNames: new Set() })
+      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, longCall: 0, wrongDispo: 0, dialerNames: new Set() })
       const entry = agentMap.get(name)!
       entry.flagged.push(call)
       if (call['Releasing Detection'] === 'Yes') entry.releasing++
       if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
       if (call['Rebuttal Detection'] === 'No') entry.noRebuttals++
       if (isLongCallFlagged(call['Long VM/Dead Detection'])) entry.longCall++
+      if (call['Wrong Dispo Detection'] === 'Yes') entry.wrongDispo++
       const dialer = call['Dialer Name'] as string | undefined
       if (dialer) entry.dialerNames.add(dialer)
     }
     return [...agentMap.entries()].map(([agentName, data]) => ({
       agentName, totalCalls: totalCallsMap.get(agentName) ?? data.flagged.length,
       flaggedCalls: data.flagged.length, releasing: data.releasing, lateHello: data.lateHello,
-      noRebuttals: data.noRebuttals, longCall: data.longCall,
+      noRebuttals: data.noRebuttals, longCall: data.longCall, wrongDispo: data.wrongDispo,
       dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
     })).sort((a, b) => b.flaggedCalls - a.flaggedCalls)
   }, [dedupedCalls, totalCallsMap])
@@ -322,7 +329,8 @@ export function ActionsPage() {
     const all = dedupedCalls
     return { total: all.length, releasing: all.filter((r) => r['Releasing Detection'] === 'Yes').length,
       lateHello: all.filter((r) => r['Late Hello Detection'] === 'Yes').length,
-      noRebuttal: all.filter((r) => r['Rebuttal Detection'] === 'No').length }
+      noRebuttal: all.filter((r) => r['Rebuttal Detection'] === 'No').length,
+      wrongDispo: all.filter((r) => r['Wrong Dispo Detection'] === 'Yes').length }
   }, [dedupedCalls])
 
   const activeAgent = selectedAgent ?? agentDeductions[0]?.agentName ?? null
@@ -367,6 +375,7 @@ export function ActionsPage() {
         <Metric label="Releasing Issues" value={summary.releasing} />
         <Metric label="Late Hello Issues" value={summary.lateHello} />
         <Metric label="Rebuttal Issues" value={summary.noRebuttal} />
+        <Metric label="Wrong Dispo Issues" value={summary.wrongDispo} />
       </div>
 
       <div className="flex flex-col gap-3">

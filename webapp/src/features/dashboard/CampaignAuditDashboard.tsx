@@ -153,14 +153,15 @@ export function CampaignAuditDashboard() {
   }, [rows])
 
   const summary = useMemo(() => {
-    let flagged = 0, releasing = 0, lateHello = 0, noRebuttal = 0
+    let flagged = 0, releasing = 0, lateHello = 0, noRebuttal = 0, wrongDispo = 0
     for (const r of displayRows) {
       if (isRowFlagged(r)) flagged++
       if (r['Releasing Detection'] === 'Yes') releasing++
       if (r['Late Hello Detection'] === 'Yes') lateHello++
       if (r['Rebuttal Detection'] === 'No') noRebuttal++
+      if (r['Wrong Dispo Detection'] === 'Yes') wrongDispo++
     }
-    return { total: displayRows.length, flagged, releasing, lateHello, noRebuttal }
+    return { total: displayRows.length, flagged, releasing, lateHello, noRebuttal, wrongDispo }
   }, [displayRows])
 
   if (loadingCampaigns) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>
@@ -206,11 +207,12 @@ export function CampaignAuditDashboard() {
         <>
           {reachScan && <ReachabilityPanel scan={reachScan} />}
 
-          <div className="grid grid-cols-2 gap-8 sm:grid-cols-5 py-2">
+          <div className="grid grid-cols-2 gap-8 sm:grid-cols-6 py-2">
             <Metric label="Total Calls"   value={summary.total} />
             <Metric label="Releasing"     value={summary.releasing} />
             <Metric label="Late Hello"    value={summary.lateHello} />
             <Metric label="No Rebuttal"   value={summary.noRebuttal} />
+            <Metric label="Wrong Dispo"   value={summary.wrongDispo} />
             <Metric label="Campaign"      value={effectiveCampaign} />
           </div>
 

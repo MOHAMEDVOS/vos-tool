@@ -83,6 +83,9 @@ export interface AgentAuditRow {
    *  Rebuttal Detection stands -- 'no_objection' means the owner never gave
    *  the agent anything to rebut, so it shouldn't count as a flag. */
   'Objection Gate'?: string
+  /** "Yes" when the owner clearly asked not to be called again but the
+   *  disposition logged isn't "DNC - Decision Maker". */
+  'Wrong Dispo Detection'?: string
   Transcription?: string
   'Dialer Name'?: string
   'Agent Intro'?: string

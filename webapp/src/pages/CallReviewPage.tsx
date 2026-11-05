@@ -163,7 +163,7 @@ function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted, downloa
   )
 }
 
-type IssueFilter = 'All Issues' | 'Releasing Only' | 'Late Hello Only' | 'No Rebuttals Only'
+type IssueFilter = 'All Issues' | 'Releasing Only' | 'Late Hello Only' | 'No Rebuttals Only' | 'Wrong Dispo Only'
 
 
 export function CallReviewPage() {
@@ -187,23 +187,24 @@ export function CallReviewPage() {
 
   const agentDeductions = useMemo<AgentDeductionRow[]>(() => {
     const flagged = dedupeLongCallRows(calls ?? [])
-    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; dialerNames: Set<string> }>()
+    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; wrongDispo: number; dialerNames: Set<string> }>()
     for (const call of flagged) {
       const name = (call['Agent Name'] ?? 'Unknown').trim()
-      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, longCall: 0, dialerNames: new Set() })
+      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, longCall: 0, wrongDispo: 0, dialerNames: new Set() })
       const entry = agentMap.get(name)!
       entry.flagged.push(call)
       if (call['Releasing Detection'] === 'Yes') entry.releasing++
       if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
       if (call['Rebuttal Detection'] === 'No') entry.noRebuttals++
       if (isLongCallFlagged(call['Long VM/Dead Detection'])) entry.longCall++
+      if (call['Wrong Dispo Detection'] === 'Yes') entry.wrongDispo++
       const dialer = call['Dialer Name'] as string | undefined
       if (dialer) entry.dialerNames.add(dialer)
     }
     return [...agentMap.entries()].map(([agentName, data]) => ({
       agentName, totalCalls: totalCallsMap.get(agentName) ?? data.flagged.length,
       flaggedCalls: data.flagged.length, releasing: data.releasing, lateHello: data.lateHello,
-      noRebuttals: data.noRebuttals, longCall: data.longCall,
+      noRebuttals: data.noRebuttals, longCall: data.longCall, wrongDispo: data.wrongDispo,
       dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
     })).sort((a, b) => b.flaggedCalls - a.flaggedCalls)
   }, [calls, totalCallsMap])
@@ -218,6 +219,7 @@ export function CallReviewPage() {
     if (issueFilter === 'Releasing Only') rows = rows.filter((row) => row['Releasing Detection'] === 'Yes')
     if (issueFilter === 'Late Hello Only') rows = rows.filter((row) => row['Late Hello Detection'] === 'Yes')
     if (issueFilter === 'No Rebuttals Only') rows = rows.filter((row) => row['Rebuttal Detection'] === 'No')
+    if (issueFilter === 'Wrong Dispo Only') rows = rows.filter((row) => row['Wrong Dispo Detection'] === 'Yes')
     if (agentFilter !== 'All Agents') rows = rows.filter((row) => row['Agent Name'] === agentFilter)
     if (search.trim()) {
       const q = search.trim().toLowerCase()
@@ -245,7 +247,7 @@ export function CallReviewPage() {
 
       <div className="flex flex-wrap items-center gap-3">
         <CustomSelect
-          options={['All Issues', 'Releasing Only', 'Late Hello Only', 'No Rebuttals Only']}
+          options={['All Issues', 'Releasing Only', 'Late Hello Only', 'No Rebuttals Only', 'Wrong Dispo Only']}
           value={issueFilter}
           onChange={(v) => setIssueFilter(v as IssueFilter)}
           className="w-48"
@@ -286,6 +288,7 @@ function CallCard({ call }: { call: FlaggedCall }) {
   if (call['Releasing Detection'] === 'Yes') issues.push('Releasing')
   if (call['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
   if (call['Rebuttal Detection'] === 'No') issues.push('No Rebuttals')
+  if (call['Wrong Dispo Detection'] === 'Yes') issues.push('Wrong Dispo')
 
   const filePath = call['File Path'] as string | undefined
   const fileName = (call['File Name'] ?? call.filename ?? call.Filename) as string | undefined

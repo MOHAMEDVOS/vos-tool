@@ -232,7 +232,11 @@ def get_flagged_calls(
         else:
             long_call = pd.Series([False] * len(combined), index=combined.index)
 
-        flagged = combined[(quality & no_rebuttal) | rebuttal_issue | long_call]
+        # Homeowner clearly asked not to be called again, but the agent logged a
+        # disposition other than "DNC - Decision Maker" (lib/wrong_dispo_detector.py).
+        wrong_dispo_issue = combined.get("Wrong Dispo Detection", "No") == "Yes"
+
+        flagged = combined[(quality & no_rebuttal) | rebuttal_issue | long_call | wrong_dispo_issue]
         if flagged.empty:
             return []
         import json as _json
