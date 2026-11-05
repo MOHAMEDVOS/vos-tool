@@ -23,6 +23,39 @@ losing none of them).
 
 This module only ever runs on a verdict the matchers already called "No" --
 it never overrides a "Yes", and it never invents a matched phrase.
+
+2026-11-05: shipped 2026-09-02, then disabled 2026-11-03 (commit 1de3ac7)
+because it was too generous -- it cleared calls where the agent genuinely
+skipped a rebuttal. Mohamed identified two concrete gaps while reviewing:
+
+1. "Wrong Number" was never treated as an objection needing a rebuttal at
+   all, so `_owner_objection()` returned nothing and every wrong-number call
+   got `no_objection` regardless of what the agent did next. Per Mohamed:
+   the correct move on a wrong-number call is still to ask whether the
+   person has (or knows of) any property for sale -- that's the rebuttal.
+   Skipping it is still a miss. See `_WRONG_NUMBER_DENIAL`/`_WRONG_NUMBER_PIVOT`.
+2. `unusable` (no parseable speaker turns) was computed but never excluded
+   from the flagging query in the original wiring -- it only excluded
+   `no_objection`. A blank transcript was still flagged as if the agent
+   failed, even though there's no data to judge them on.
+
+   First attempt at this fix excluded ALL unparseable transcripts, not just
+   empty ones -- measured against the 198 labelled calls, that dropped fair
+   flags kept from 41/52 to 29/52, because several non-empty transcripts
+   with no "Agent:"/"Owner:" structure (flat text, or "Channel 1:"/
+   "Channel 2:" from the diarization bug in docs/REBUTTAL_FALSE_FLAGS.md)
+   were genuinely-fair flags a human could still read and confirm. Fixed:
+   `unusable` is now ONLY a truly empty transcript; a non-empty one that
+   just can't be parsed is `unparseable` and stays flagged by default (same
+   as before this module existed) since there's no way to verify it's
+   unfair.
+
+Also added: `owner_ended_call` -- the owner objects and closes the call
+("...not selling my house. Thank you. Goodbye.") with no further agent turn
+at all. Narrow and literal on purpose (an explicit closing word, not just
+"no agent reply"), same precision-first reasoning as everywhere else here --
+the risk of making this verdict too generous is exactly the bug that got the
+gate disabled the first time.
 """
 from __future__ import annotations
 
@@ -32,6 +65,7 @@ from typing import Optional, TypedDict
 
 class ObjectionGateResult(TypedDict):
     verdict: str          # "no_objection" | "attempted" | "no_attempt" | "unusable"
+                           # | "owner_ended_call" | "unparseable"
     objection_quote: Optional[str]
     reason: str
 
@@ -94,6 +128,31 @@ _POSITIVE_ENGAGEMENT = re.compile(
     re.IGNORECASE,
 )
 
+# "Wrong number" is its own objection type -- the correct agent response is a
+# pivot ("do you know anyone with property to sell?"), not a free pass. Kept
+# narrow and literal, mirroring lib/wrong_dispo_detector.py's
+# WRONG_NUMBER_PHRASES (not imported directly -- that list is normalized-text
+# substring matching, this is raw-text regex, same literal phrases either way).
+_WRONG_NUMBER_DENIAL = re.compile(
+    r"\bwrong\s+number\b|\bwrong\s+person\b"
+    r"|\byou\s+have\s+the\s+wrong\s+(?:number|person)\b"
+    r"|\byou'?ve\s+got\s+the\s+wrong\s+(?:number|person)\b"
+    r"|\bnot\s+my\s+number\b"
+    r"|\bnot\s+my\s+(?:property|house)\b|\bthis\s+is\s+not\s+my\s+(?:property|house)\b"
+    r"|\bi\s+do\s*n'?t\s+own\s+(?:this|that|it)\b"
+    r"|\bi'?m\s+not\s+the\s+owner\b",
+    re.IGNORECASE,
+)
+
+# Explicit call-ending language only -- narrow on purpose. Used to tell "owner
+# objected and hung up" from "owner objected and the agent just didn't
+# respond" when no agent turn follows the objection at all.
+_CLOSING_PHRASE = re.compile(
+    r"\bgoodbye\b|\bgood\s*bye\b|\bbye\b|\bhave\s+a\s+good\s+(?:day|one|night)\b"
+    r"|\bgotta\s+go\b|\bi'?m\s+hanging\s+up\b|\bi'?m\s+gonna\s+go\b",
+    re.IGNORECASE,
+)
+
 # --- agent-side rebuttal-attempt cues ----------------------------------------
 _REBUTTAL_OPENERS = re.compile(
     r"\bnot\s+even\b|\bhow\s+about\b|\bwhat\s+about\b"
@@ -108,6 +167,16 @@ _REBUTTAL_OPENERS = re.compile(
     r"|\bany\s+other\s+one\b|\banother\s+one\b|\bmaybe\s+later\b"
     r"|\bthis\s+year\b|\bnext\s+year\b|\bend\s+of\s+(?:the\s+)?year\b"
     r"|\bthe\s+owner\??\s*$",
+    re.IGNORECASE,
+)
+# The expected pivot after a wrong-number denial, per Mohamed: still ask
+# whether they (or anyone they know) has property to sell.
+_WRONG_NUMBER_PIVOT = re.compile(
+    r"\bdo\s+you\s+(?:happen\s+to\s+)?know\s+(?:if\s+)?(?:the\s+owner|anyone|anybody)\b"
+    r"|\bdo\s+you\s+have\s+any\s+propert\w*\b"
+    r"|\bany\s+propert\w*\s+(?:for\s+sale|you'?re\s+looking\s+to\s+sell|to\s+sell)\b"
+    r"|\blooking\s+to\s+sell\s+any\w*\s+propert\w*\b"
+    r"|\bdo\s+you\s+know\s+(?:the\s+)?owner'?s?\s+(?:number|contact)\b",
     re.IGNORECASE,
 )
 # Agent language that means "I agree with you / I'm backing off" -- a turn
@@ -138,6 +207,7 @@ def _owner_objection(turns: list[tuple[str, str]]) -> tuple[bool, Optional[str],
             continue
         strong = _OBJECTION_STRONG.search(text)
         soft = _OBJECTION_SOFT.search(text)
+        wrong_number = _WRONG_NUMBER_DENIAL.search(text)
         bare = bool(
             _BARE_DECLINE.match(text.strip())
             and len(text.split()) <= 6
@@ -145,7 +215,7 @@ def _owner_objection(turns: list[tuple[str, str]]) -> tuple[bool, Optional[str],
             and turns[i - 1][0] == "Agent"
             and _PITCH_KEYWORD.search(turns[i - 1][1])
         )
-        if (strong or soft or bare) and not _POSITIVE_ENGAGEMENT.search(text):
+        if (strong or soft or wrong_number or bare) and not _POSITIVE_ENGAGEMENT.search(text):
             return True, text.strip(), i
     return False, None, -1
 
@@ -156,7 +226,7 @@ def _agent_attempted(turns: list[tuple[str, str]], objection_idx: int) -> bool:
     after = [t for t in after if not _AGENT_SURRENDER.search(t)]
     if not after:
         return False
-    if any(_REBUTTAL_OPENERS.search(t) for t in after):
+    if any(_REBUTTAL_OPENERS.search(t) or _WRONG_NUMBER_PIVOT.search(t) for t in after):
         return True
     joined = " ".join(after)
     residual = [
@@ -173,15 +243,41 @@ def evaluate(dialogue: str) -> ObjectionGateResult:
     "No". Never overrides a "Yes"; never invents a matched phrase -- callers
     decide how to translate the verdict into a stored result.
     """
+    if not dialogue or not dialogue.strip():
+        # Truly nothing to judge -- excluded from flagging below. Keep this
+        # distinct from "unparseable" (next check): measured against 198
+        # labelled calls, several unparseable-but-non-empty transcripts were
+        # genuinely-fair flags a human judge could still read and confirm --
+        # see analyzer/objection_gate.py module docstring, 2026-11-05 note.
+        return {"verdict": "unusable", "objection_quote": None,
+                "reason": "empty transcript"}
+
     turns = _parse_turns(dialogue)
     if not turns:
-        return {"verdict": "unusable", "objection_quote": None,
-                "reason": "no parseable speaker turns"}
+        # Real text, just not in "Agent: ...\nOwner: ..." form (e.g. flat
+        # text, or "Channel 1:"/"Channel 2:" from the diarization bug noted
+        # in docs/REBUTTAL_FALSE_FLAGS.md). We cannot tell if this is fair or
+        # not, so it is NOT excluded from flagging -- same conservative
+        # default as before this module existed. Distinct from "unusable" so
+        # a caller can still count how often this happens.
+        return {"verdict": "unparseable", "objection_quote": None,
+                "reason": "dialogue has content but no parseable Agent:/Owner: structure"}
 
     found, quote, idx = _owner_objection(turns)
     if not found:
         return {"verdict": "no_objection", "objection_quote": None,
                 "reason": "owner never raised an objection -- nothing to rebut"}
+
+    # No agent turn follows the objection at all -- narrow check for whether
+    # the owner explicitly closed the call (not the agent's fault) before
+    # falling through to the ordinary attempted/no_attempt logic below, which
+    # would otherwise call this "no_attempt" by default.
+    after_turns = turns[idx + 1:]
+    if not any(s == "Agent" for s, _ in after_turns):
+        owner_texts_after = [quote] + [t for s, t in after_turns if s == "Owner"]
+        if any(_CLOSING_PHRASE.search(t) for t in owner_texts_after):
+            return {"verdict": "owner_ended_call", "objection_quote": quote,
+                    "reason": "owner objected and closed the call before the agent could respond"}
 
     if _agent_attempted(turns, idx):
         return {"verdict": "attempted", "objection_quote": quote,

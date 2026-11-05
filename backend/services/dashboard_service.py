@@ -220,6 +220,18 @@ def get_flagged_calls(
         if "Rebuttal Detection" in combined.columns:
             no_rebuttal = combined["Rebuttal Detection"].isin(["No", "N/A"])
             rebuttal_issue = combined["Rebuttal Detection"] == "No"
+            # "No" stays "No" whether or not the owner ever objected -- the
+            # column is strictly Yes/No. "Objection Gate" carries why, and a
+            # "No" that wasn't a fair miss isn't a fair flag. Only these three
+            # verdicts are excluded -- "unparseable" (no speaker labels, but
+            # real content) and "no_attempt" stay flagged, since there's no
+            # way to confirm those are unfair. See
+            # analyzer/objection_gate.py and docs/REBUTTAL_FALSE_FLAGS.md.
+            if "Objection Gate" in combined.columns:
+                not_a_fair_miss = combined["Objection Gate"].isin(
+                    ["no_objection", "owner_ended_call", "unusable"]
+                )
+                rebuttal_issue = rebuttal_issue & ~not_a_fair_miss
         else:
             no_rebuttal = pd.Series([True] * len(combined), index=combined.index)
             rebuttal_issue = pd.Series([False] * len(combined), index=combined.index)

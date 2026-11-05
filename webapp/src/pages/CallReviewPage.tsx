@@ -9,7 +9,7 @@ import { Play, Pause, Volume2, MoreVertical, Search, Download } from 'lucide-rea
 import { CustomSelect } from '@/components/ui/Select'
 import { KaraokeTranscript } from '@/components/KaraokeTranscript'
 import { AgentDeductionsTable, type AgentDeductionRow } from '@/pages/ActionsPage'
-import { dedupeLongCallRows, isLongCallFlagged } from '@/utils/audit'
+import { dedupeLongCallRows, isLongCallFlagged, isFairRebuttalMiss } from '@/utils/audit'
 
 /* ─── Custom Audio Player ─────────────────────────────────────── */
 interface AudioPlayerProps {
@@ -195,7 +195,7 @@ export function CallReviewPage() {
       entry.flagged.push(call)
       if (call['Releasing Detection'] === 'Yes') entry.releasing++
       if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
-      if (call['Rebuttal Detection'] === 'No') entry.noRebuttals++
+      if (isFairRebuttalMiss(call)) entry.noRebuttals++
       if (isLongCallFlagged(call['Long VM/Dead Detection'])) entry.longCall++
       if (call['Wrong Dispo Detection'] === 'Yes') entry.wrongDispo++
       const dialer = call['Dialer Name'] as string | undefined
@@ -218,7 +218,7 @@ export function CallReviewPage() {
     let rows = calls ?? []
     if (issueFilter === 'Releasing Only') rows = rows.filter((row) => row['Releasing Detection'] === 'Yes')
     if (issueFilter === 'Late Hello Only') rows = rows.filter((row) => row['Late Hello Detection'] === 'Yes')
-    if (issueFilter === 'No Rebuttals Only') rows = rows.filter((row) => row['Rebuttal Detection'] === 'No')
+    if (issueFilter === 'No Rebuttals Only') rows = rows.filter(isFairRebuttalMiss)
     if (issueFilter === 'Wrong Dispo Only') rows = rows.filter((row) => row['Wrong Dispo Detection'] === 'Yes')
     if (agentFilter !== 'All Agents') rows = rows.filter((row) => row['Agent Name'] === agentFilter)
     if (search.trim()) {
@@ -287,7 +287,7 @@ function CallCard({ call }: { call: FlaggedCall }) {
   const issues: string[] = []
   if (call['Releasing Detection'] === 'Yes') issues.push('Releasing')
   if (call['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
-  if (call['Rebuttal Detection'] === 'No') issues.push('No Rebuttals')
+  if (isFairRebuttalMiss(call)) issues.push('No Rebuttals')
   if (call['Wrong Dispo Detection'] === 'Yes') {
     const wrongDispoReason = call['Wrong Dispo Reason']
     issues.push(wrongDispoReason ? `Wrong Dispo ${wrongDispoReason}` : 'Wrong Dispo')

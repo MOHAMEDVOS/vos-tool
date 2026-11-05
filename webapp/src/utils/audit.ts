@@ -97,14 +97,30 @@ export function dedupeLongCallRows<T extends AgentAuditRow>(rows: T[]): T[] {
   return out
 }
 
+// A "No" Rebuttal Detection where the owner never had anything to rebut, or
+// closed the call before the agent got a turn, or the transcript was empty,
+// isn't a fair flag -- see analyzer/objection_gate.py and
+// docs/REBUTTAL_FALSE_FLAGS.md. "unparseable" (real content, no speaker
+// labels) and "no_attempt" stay flagged -- there's no way to confirm those
+// are unfair.
+const NOT_A_FAIR_MISS = new Set(['no_objection', 'owner_ended_call', 'unusable'])
+
+// The single check every "No Rebuttal" issue count/badge/filter should use
+// instead of a bare `row['Rebuttal Detection'] === 'No'` -- keeps them all
+// agreeing with isRowFlagged and the backend's get_flagged_calls.
+export function isFairRebuttalMiss(row: AgentAuditRow): boolean {
+  return row['Rebuttal Detection'] === 'No' && !NOT_A_FAIR_MISS.has(row['Objection Gate'] ?? '')
+}
+
 // Flag logic - mirrors backend/services/dashboard_service.py get_flagged_calls,
 // plus long VM/Dead-call detection.
 export function isRowFlagged(row: AgentAuditRow): boolean {
+  const rebuttalIssue = isFairRebuttalMiss(row)
   return (
     row['Releasing Detection'] === 'Yes' ||
     row['Late Hello Detection'] === 'Yes' ||
     isLongCallFlagged(row['Long VM/Dead Detection']) ||
-    row['Rebuttal Detection'] === 'No' ||
+    rebuttalIssue ||
     row['Wrong Dispo Detection'] === 'Yes'
   )
 }
@@ -113,7 +129,11 @@ export function isRowFlagged(row: AgentAuditRow): boolean {
 export function detectionVariant(val: unknown, col: string, row?: AgentAuditRow) {
   if (col === 'Rebuttal Detection') {
     if (val === 'Yes') return 'success'
-    if (val === 'No') return 'danger'
+    if (val === 'No') {
+      // A "No" that wasn't a fair miss isn't an issue -- don't paint it red.
+      // See isRowFlagged above for the matching flag logic.
+      return NOT_A_FAIR_MISS.has(row?.['Objection Gate'] ?? '') ? 'success' : 'danger'
+    }
     return 'muted'
   }
   if (col === 'Releasing Detection' || col === 'Late Hello Detection' || col === 'Wrong Dispo Detection') {

@@ -6,7 +6,7 @@ import { Metric } from '@/components/ui/Metric'
 import { Button, DestroyButton } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { SuccessFlash } from '@/components/ui/SuccessFlash'
-import { isRowFlagged } from '@/utils/audit'
+import { isRowFlagged, isFairRebuttalMiss } from '@/utils/audit'
 import type { AgentAuditRow, ReachabilityScan } from '@/types/api'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, FileText } from 'lucide-react'
@@ -158,7 +158,7 @@ export function CampaignAuditDashboard() {
       if (isRowFlagged(r)) flagged++
       if (r['Releasing Detection'] === 'Yes') releasing++
       if (r['Late Hello Detection'] === 'Yes') lateHello++
-      if (r['Rebuttal Detection'] === 'No') noRebuttal++
+      if (isFairRebuttalMiss(r)) noRebuttal++
       if (r['Wrong Dispo Detection'] === 'Yes') wrongDispo++
     }
     return { total: displayRows.length, flagged, releasing, lateHello, noRebuttal, wrongDispo }

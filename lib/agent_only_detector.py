@@ -18,6 +18,7 @@ from pydub import AudioSegment
 
 # Import existing components
 from analyzer.rebuttal_detection import KeywordRepository, SemanticDetectionEngine, OutputFormatter
+from analyzer import objection_gate
 from lib.egyptian_accent_correction import EgyptianAccentCorrection
 
 # logger level is managed by lib/logging_config.py
@@ -403,6 +404,27 @@ class AgentOnlyRebuttalDetector:
                 confidence = 0.0
                 logger.debug("No rebuttals detected")
 
+                # Second opinion: the phrase/semantic matchers only catch
+                # rebuttals matching the fixed phrase library. Before this
+                # "No" becomes a flag, check whether the owner even objected
+                # (including a wrong-number denial, which still expects a
+                # "do you know anyone selling?" pivot -- not an automatic
+                # pass), whether the owner closed the call before the agent
+                # got a turn, and whether the agent made a detectable attempt
+                # the matchers missed. See analyzer/objection_gate.py.
+                if dialogue:
+                    try:
+                        gate = objection_gate.evaluate(dialogue)
+                        feedback_metadata['objection_gate'] = gate
+                        if gate['verdict'] == 'attempted':
+                            result = "Yes"
+                            confidence = 0.55  # heuristic evidence, not a phrase match
+                            logger.debug(f"Objection gate: rebuttal attempt detected - {gate['reason']}")
+                        else:
+                            logger.debug(f"Objection gate: {gate['verdict']} - {gate['reason']}")
+                    except Exception as gate_error:
+                        logger.warning(f"Objection gate failed, keeping original verdict: {gate_error}")
+
             # Step 5: Format final result
             processing_time = int((time.time() - start_time) * 1000)
             
@@ -439,6 +461,10 @@ class AgentOnlyRebuttalDetector:
                     "dialogue": dialogue,  # Full conversation for LLM (also used for display now)
                     "owner_transcript": transcription_result.get("owner_transcript", ""),  # Owner's words
                     "feedback": feedback_str,  # Pass feedback to formatter
+                    # Flat verdict so downstream flagging can exclude
+                    # no-objection/owner-ended/unusable calls without a third
+                    # detection value.
+                    "objection_gate_verdict": feedback_metadata.get('objection_gate', {}).get('verdict'),
                 }
             )
 

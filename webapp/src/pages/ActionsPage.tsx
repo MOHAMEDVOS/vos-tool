@@ -10,7 +10,7 @@ import { RefreshCw, Search, Check, Copy, ArrowUp, ArrowDown, Trash2 } from 'luci
 import { CustomSelect } from '@/components/ui/Select'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CountUp, Metric } from '@/components/ui/Metric'
-import { dedupeLongCallRows, isLongCallFlagged } from '@/utils/audit'
+import { dedupeLongCallRows, isLongCallFlagged, isFairRebuttalMiss } from '@/utils/audit'
 
 type FlagTypeFilter = 'All Flags' | 'Releasing' | 'Late Hello' | 'No Rebuttal' | 'Wrong Dispo' | 'Long VM/Dead'
 
@@ -22,7 +22,7 @@ function callMatchesFlagType(c: FlaggedCall, filter: FlagTypeFilter): boolean {
     case 'All Flags': return true
     case 'Releasing': return c['Releasing Detection'] === 'Yes'
     case 'Late Hello': return c['Late Hello Detection'] === 'Yes'
-    case 'No Rebuttal': return c['Rebuttal Detection'] === 'No'
+    case 'No Rebuttal': return isFairRebuttalMiss(c)
     case 'Wrong Dispo': return c['Wrong Dispo Detection'] === 'Yes'
     case 'Long VM/Dead': return isLongCallFlagged(c['Long VM/Dead Detection'])
   }
@@ -269,7 +269,7 @@ export function ActionsPage() {
     const issues: string[] = []
     if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
     if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
-    if (c['Rebuttal Detection'] === 'No') issues.push('No Rebuttal')
+    if (isFairRebuttalMiss(c)) issues.push('No Rebuttal')
     if (c['Wrong Dispo Detection'] === 'Yes') {
       const reason = c['Wrong Dispo Reason']
       issues.push(reason ? `Wrong Dispo ${reason}` : 'Wrong Dispo')
@@ -331,7 +331,7 @@ export function ActionsPage() {
       entry.flagged.push(call)
       if (call['Releasing Detection'] === 'Yes') entry.releasing++
       if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
-      if (call['Rebuttal Detection'] === 'No') entry.noRebuttals++
+      if (isFairRebuttalMiss(call)) entry.noRebuttals++
       if (isLongCallFlagged(call['Long VM/Dead Detection'])) entry.longCall++
       if (call['Wrong Dispo Detection'] === 'Yes') entry.wrongDispo++
       const dialer = call['Dialer Name'] as string | undefined
@@ -349,7 +349,7 @@ export function ActionsPage() {
     const all = dedupedCalls
     return { total: all.length, releasing: all.filter((r) => r['Releasing Detection'] === 'Yes').length,
       lateHello: all.filter((r) => r['Late Hello Detection'] === 'Yes').length,
-      noRebuttal: all.filter((r) => r['Rebuttal Detection'] === 'No').length,
+      noRebuttal: all.filter(isFairRebuttalMiss).length,
       wrongDispo: all.filter((r) => r['Wrong Dispo Detection'] === 'Yes').length }
   }, [dedupedCalls])
 

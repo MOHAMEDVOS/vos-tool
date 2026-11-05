@@ -78,7 +78,11 @@ def main() -> None:
             match_type = None
             phrase = None
             gate = objection_gate.evaluate(dialogue)
-            if gate["verdict"] == "no_objection":
+            if gate["verdict"] in ("no_objection", "owner_ended_call", "unusable"):
+                # 2026-11-05: owner_ended_call and unusable weren't excluded
+                # in the original 2026-09-02 wiring -- only no_objection was.
+                # Reflecting the intended fixed wiring here so this replay
+                # measures what's about to ship, not the old gap.
                 result = "N/A"
             elif gate["verdict"] == "attempted":
                 result = "Yes"

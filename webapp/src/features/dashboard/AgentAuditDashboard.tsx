@@ -4,7 +4,7 @@ import { AuditTable } from '@/components/tables/AuditTable'
 import { Metric } from '@/components/ui/Metric'
 import { Button, DestroyButton } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
-import { isRowFlagged } from '@/utils/audit'
+import { isRowFlagged, isFairRebuttalMiss } from '@/utils/audit'
 import type { AgentAuditRow } from '@/types/api'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { dashboardApi } from '@/api/dashboard'
@@ -39,7 +39,7 @@ export function AgentAuditDashboard() {
     for (const r of rows) {
       if (r['Releasing Detection'] === 'Yes') releasing++
       if (r['Late Hello Detection'] === 'Yes') lateHello++
-      if (r['Rebuttal Detection'] === 'No') noRebuttal++
+      if (isFairRebuttalMiss(r)) noRebuttal++
       if (r['Wrong Dispo Detection'] === 'Yes') wrongDispo++
     }
     return { total: rows.length, releasing, lateHello, noRebuttal, wrongDispo }
