@@ -1157,7 +1157,17 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
         except Exception as e:
             logger.error(f"Late hello detection failed for {file_path.name}: {e}")
             late_hello = "Error"
-        
+
+        # Dead Call vs Unknown, from the owner channel. Campaign audits reuse this
+        # function but aren't in scope for the check.
+        wrong_dispo, wrong_dispo_reason = "No", None
+        if not (additional_metadata or {}).get("Campaign Name"):
+            try:
+                from lib.lite_wrong_dispo_detector import lite_wrong_dispo_detail
+                wrong_dispo, wrong_dispo_reason = lite_wrong_dispo_detail(audio, disposition)
+            except Exception as e:
+                logger.error(f"Lite wrong dispo check failed for {file_path.name}: {e}")
+
         # Memory: Python's reference counter frees audio objects automatically when
         # this function returns. No need for manual gc.collect() — it adds 50-100ms
         # overhead per file and is wasteful with 24GB RAM available.
@@ -1183,6 +1193,8 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             "Releasing Detection": releasing,
             "Late Hello Detection": late_hello,
             "Rebuttal Detection": "N/A",
+            "Wrong Dispo Detection": wrong_dispo,
+            "Wrong Dispo Reason": wrong_dispo_reason or "",
             "Transcription": "N/A",
             "Dialer Name": dialer_name,  # Extract from folder path
             "Agent Intro": "N/A",
