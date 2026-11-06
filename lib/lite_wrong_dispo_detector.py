@@ -82,6 +82,6 @@ def lite_wrong_dispo_detail(audio: AudioSegment, disposition: str | None) -> tup
     sound_ms, peak, air_level = _owner_channel_levels(audio)
     if logged == "unknown" and peak <= _SILENT_PEAK and air_level <= _SILENT_AIR_LEVEL:
         return "Yes", "Unk instead of Dead"
-    if logged == "dead call" and (sound_ms >= _MIN_OWNER_SOUND_MS or air_level > _SILENT_AIR_LEVEL):
+    if logged == "dead call" and sound_ms >= _MIN_OWNER_SOUND_MS:
         return "Yes", "Dead instead of Unk"
     return "No", None
