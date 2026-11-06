@@ -1,5 +1,5 @@
-import React, { forwardRef, useState } from 'react'
-import { motion, useAnimationControls } from 'framer-motion'
+import React, { forwardRef } from 'react'
+import { motion } from 'framer-motion'
 
 type NativeButtonProps = Omit<
   React.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -91,43 +91,17 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
 )
 Button.displayName = 'Button'
 
-/* Animated delete button — shakes on hover, explodes on click */
+/* Delete button: a plain button with no motion, so it can't get stuck hidden. */
 interface DestroyButtonProps extends NativeButtonProps {
   size?: 'sm' | 'md'
 }
 
-export function DestroyButton({ children, onClick, disabled, size = 'md', className = '', ...rest }: DestroyButtonProps) {
-  const controls = useAnimationControls()
-  const [clicking, setClicking] = useState(false)
-
-  const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
-    if (disabled || clicking) return
-    setClicking(true)
-    try {
-      await controls.start({
-        x: [0, -6, 6, -5, 5, -3, 3, 0],
-        transition: { duration: 0.35, ease: 'easeInOut' },
-      })
-      await controls.start({
-        scale: [1, 1.08, 0],
-        opacity: [1, 1, 0],
-        transition: { duration: 0.28, ease: 'easeIn' },
-      })
-      onClick?.(e)
-    } finally {
-      await controls.start({ scale: 1, opacity: 1, x: 0, transition: { duration: 0 } })
-      setClicking(false)
-    }
-  }
-
+export function DestroyButton({ children, size = 'md', className = '', ...rest }: DestroyButtonProps) {
   const sizeClass = size === 'sm' ? 'px-3 py-1.5 text-[10px]' : 'px-4 py-2 text-[10px]'
 
   return (
-    <motion.button
-      animate={controls}
-      whileHover={disabled ? undefined : { scale: 1.03 }}
-      disabled={disabled}
-      onClick={handleClick}
+    <button
+      type="button"
       className={[
         'inline-flex items-center justify-center gap-1.5',
         'font-black uppercase tracking-[0.2em] rounded-full cursor-pointer select-none',
@@ -143,6 +117,6 @@ export function DestroyButton({ children, onClick, disabled, size = 'md', classN
       {...rest}
     >
       {children}
-    </motion.button>
+    </button>
   )
 }
