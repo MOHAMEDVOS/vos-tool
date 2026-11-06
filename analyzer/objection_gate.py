@@ -56,6 +56,12 @@ at all. Narrow and literal on purpose (an explicit closing word, not just
 "no agent reply"), same precision-first reasoning as everywhere else here --
 the risk of making this verdict too generous is exactly the bug that got the
 gate disabled the first time.
+
+2026-11-05, later: the wrong-number denial list was too literal, so "I don't
+own a house." and "Wrong phone number." came back `no_objection` and cleared
+real misses. A phrase list can't cover every denial, so `evaluate()` now takes
+the logged disposition. A Wrong Number call can only clear with an explicit
+owner close, and only a real pivot counts as an attempt.
 """
 from __future__ import annotations
 
@@ -154,6 +160,16 @@ _CLOSING_PHRASE = re.compile(
 )
 
 # --- agent-side rebuttal-attempt cues ----------------------------------------
+# Agent language that means "I agree with you / I'm backing off" -- a turn
+# containing one of these is a surrender even mid-sentence, and must not
+# count as an attempt just because it repeats a sales keyword from the
+# owner's own objection ("I'm not interested" said BY THE AGENT is agreement,
+# not a pitch).
+_AGENT_SURRENDER_PATTERN = (
+    r"\bi'?m\s+not\s+interest\w*\b|\byou'?re\s+right\b|\bi\s+understand\b"
+    r"|\bno\s+worries\b|\bmy\s+apologies\b|\bmy\s+bad\b"
+)
+_AGENT_SURRENDER = re.compile(_AGENT_SURRENDER_PATTERN, re.IGNORECASE)
 _REBUTTAL_OPENERS = re.compile(
     r"\bnot\s+even\b|\bhow\s+about\b|\bwhat\s+about\b"
     r"|\bwould\s+you\s+(?:be\s+)?(?:open|consider|interest)|\bare\s+you\s+open\b"
@@ -173,20 +189,20 @@ _REBUTTAL_OPENERS = re.compile(
 # whether they (or anyone they know) has property to sell.
 _WRONG_NUMBER_PIVOT = re.compile(
     r"\bdo\s+you\s+(?:happen\s+to\s+)?know\s+(?:if\s+)?(?:the\s+owner|anyone|anybody)\b"
-    r"|\bdo\s+you\s+have\s+any\s+propert\w*\b"
+    r"|\byou\s+(?:happen\s+to\s+)?(?:have|own)\s+(?:any|another|other)\s+(?:other\s+)?"
+    r"(?:propert\w*|houses?|homes?|one)\b"
     r"|\bany\s+propert\w*\s+(?:for\s+sale|you'?re\s+looking\s+to\s+sell|to\s+sell)\b"
-    r"|\blooking\s+to\s+sell\s+any\w*\s+propert\w*\b"
-    r"|\bdo\s+you\s+know\s+(?:the\s+)?owner'?s?\s+(?:number|contact)\b",
+    r"|\blooking\s+to\s+sell\w*\s+any\w*\s+propert\w*\b"
+    r"|\bdo\s+you\s+know\s+(?:the\s+)?owner'?s?\s+(?:number|contact)\b"
+    r"|\b(?:nothing|anything)\b.*\bsell"
+    # The question was started and the recording cut off.
+    r"|\b(?:do|would)\s+you\s+have\W*$",
     re.IGNORECASE,
 )
-# Agent language that means "I agree with you / I'm backing off" -- a turn
-# containing one of these is a surrender even mid-sentence, and must not
-# count as an attempt just because it repeats a sales keyword from the
-# owner's own objection ("I'm not interested" said BY THE AGENT is agreement,
-# not a pitch).
-_AGENT_SURRENDER = re.compile(
-    r"\bi'?m\s+not\s+interest\w*\b|\byou'?re\s+right\b|\bi\s+understand\b"
-    r"|\bno\s+worries\b|\bmy\s+apologies\b|\bmy\s+bad\b",
+# The agent had already given up, so an owner's "bye" after this isn't the owner
+# ending the call on them.
+_AGENT_WRAPPED_UP = re.compile(
+    _AGENT_SURRENDER_PATTERN + r"|\bsorry\b|\bthank|" + _CLOSING_PHRASE.pattern,
     re.IGNORECASE,
 )
 _CLOSING_WORDS = {
@@ -236,12 +252,39 @@ def _agent_attempted(turns: list[tuple[str, str]], objection_idx: int) -> bool:
     return len(residual) >= 2
 
 
-def evaluate(dialogue: str) -> ObjectionGateResult:
+def _is_wrong_number(disposition: Optional[str]) -> bool:
+    return " ".join((disposition or "").lower().split()) == "wrong number"
+
+
+def _evaluate_wrong_number(turns: list[tuple[str, str]]) -> ObjectionGateResult:
+    """A logged Wrong Number means the agent treated it as a denial, whatever
+    words the owner used. The agent still owes a pivot, so this never returns
+    `no_objection`, and the general word-count attempt rule doesn't apply."""
+    found, quote, _ = _owner_objection(turns)
+
+    last_agent_idx = max((i for i, (s, _) in enumerate(turns) if s == "Agent"), default=-1)
+    trailing_owner = [t for _, t in turns[last_agent_idx + 1:]]
+    agent_gave_up = last_agent_idx >= 0 and _AGENT_WRAPPED_UP.search(turns[last_agent_idx][1])
+    if not agent_gave_up and any(_CLOSING_PHRASE.search(t) for t in trailing_owner):
+        return {"verdict": "owner_ended_call", "objection_quote": quote or trailing_owner[-1],
+                "reason": "owner closed the wrong-number call before the agent could pivot"}
+
+    first_owner_idx = next((i for i, (s, _) in enumerate(turns) if s == "Owner"), len(turns))
+    if any(s == "Agent" and _WRONG_NUMBER_PIVOT.search(t) for s, t in turns[first_owner_idx + 1:]):
+        return {"verdict": "attempted", "objection_quote": quote,
+                "reason": "agent asked about other property after the wrong-number call turned"}
+
+    return {"verdict": "no_attempt", "objection_quote": quote,
+            "reason": "wrong-number call with no question about other property"}
+
+
+def evaluate(dialogue: str, disposition: Optional[str] = None) -> ObjectionGateResult:
     """Second-opinion evaluation of an existing "No Rebuttal" verdict.
 
     Call this only when the phrase/semantic/LLM matchers already returned
     "No". Never overrides a "Yes"; never invents a matched phrase -- callers
-    decide how to translate the verdict into a stored result.
+    decide how to translate the verdict into a stored result. `disposition` is
+    what the agent logged; a Wrong Number call gets stricter rules.
     """
     if not dialogue or not dialogue.strip():
         # Truly nothing to judge -- excluded from flagging below. Keep this
@@ -262,6 +305,9 @@ def evaluate(dialogue: str) -> ObjectionGateResult:
         # a caller can still count how often this happens.
         return {"verdict": "unparseable", "objection_quote": None,
                 "reason": "dialogue has content but no parseable Agent:/Owner: structure"}
+
+    if _is_wrong_number(disposition):
+        return _evaluate_wrong_number(turns)
 
     found, quote, idx = _owner_objection(turns)
     if not found:

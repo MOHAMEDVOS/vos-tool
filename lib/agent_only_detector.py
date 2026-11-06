@@ -206,14 +206,17 @@ class AgentOnlyTranscriptionEngine:
             if cached_result:
                 logger.debug(f"✅ CACHE HIT for transcription: {cache_key_path}")
                 processing_time = int((time.time() - start_time) * 1000)
+                dialogue = cached_result.get("dialogue", "")
                 return {
-                    "transcript": cached_result.get("transcript", ""),
+                    "transcript": cached_result.get("agent_transcript") or cached_result.get("transcript", ""),
                     "full_transcript": cached_result.get("transcript", ""),
+                    "dialogue": dialogue,
+                    "owner_transcript": cached_result.get("owner_transcript", ""),
                     "speakers": cached_result.get("speakers", []),
                     "utterances": cached_result.get("utterances", []),
                     "processing_time_ms": processing_time,
                     "transcription_method": "assemblyai_api_cached",
-                    "channels_processed": 1,
+                    "channels_processed": 2 if dialogue else 1,
                     "transcription_status": "completed",
                     "transcription_error": None,
                     "error": ""
@@ -339,13 +342,14 @@ class AgentOnlyRebuttalDetector:
         
         logger.debug("Agent-Only Rebuttal Detector initialized (reusing shared engines)")
 
-    def detect_rebuttals_in_audio(self, audio_file_path: str, original_file_path: Optional[str] = None) -> Dict[str, Any]:
+    def detect_rebuttals_in_audio(self, audio_file_path: str, original_file_path: Optional[str] = None, disposition: Optional[str] = None) -> Dict[str, Any]:
         """
         Complete pipeline: Agent-only transcription with AssemblyAI → Rebuttal detection
 
         Args:
             audio_file_path: Path to audio file (may be temp file)
             original_file_path: Original file path for cache lookup (if different from audio_file_path)
+            disposition: What the agent logged, passed to the objection gate
 
         Returns:
             Standardized detection result
@@ -414,7 +418,7 @@ class AgentOnlyRebuttalDetector:
                 # the matchers missed. See analyzer/objection_gate.py.
                 if dialogue:
                     try:
-                        gate = objection_gate.evaluate(dialogue)
+                        gate = objection_gate.evaluate(dialogue, disposition)
                         feedback_metadata['objection_gate'] = gate
                         if gate['verdict'] == 'attempted':
                             result = "Yes"

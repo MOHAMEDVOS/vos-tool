@@ -77,7 +77,9 @@ def main() -> None:
             result = "No"
             match_type = None
             phrase = None
-            gate = objection_gate.evaluate(dialogue)
+            file_stem = Path(rec.get("file_name") or "").stem
+            disposition = file_stem.split(" _ ")[-1] if " _ " in file_stem else None
+            gate = objection_gate.evaluate(dialogue, disposition)
             if gate["verdict"] in ("no_objection", "owner_ended_call", "unusable"):
                 # 2026-11-05: owner_ended_call and unusable weren't excluded
                 # in the original 2026-09-02 wiring -- only no_objection was.

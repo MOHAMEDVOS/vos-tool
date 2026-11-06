@@ -132,7 +132,7 @@ class AudioProcessor:
             return audio.split_to_mono()[0]
         return audio
 
-    def classify_call(self, agent_audio: AudioSegment, full_audio: AudioSegment, file_name: str = "", file_path: str = "", user_api_key: Optional[str] = None) -> Dict[str, Any]:
+    def classify_call(self, agent_audio: AudioSegment, full_audio: AudioSegment, file_name: str = "", file_path: str = "", user_api_key: Optional[str] = None, disposition: str = "") -> Dict[str, Any]:
         logger.debug(f"Starting classification for file: {file_name}")
         start_time = time.time()
 
@@ -172,8 +172,9 @@ class AudioProcessor:
                 agent_detector = get_agent_detector(user_api_key)
                 future_rebuttal = _shared_executor.submit(
                     agent_detector.detect_rebuttals_in_audio, 
-                    transcription_file, 
-                    original_file_path=transcription_file
+                    transcription_file,
+                    original_file_path=transcription_file,
+                    disposition=disposition
                 )
             else:
                  logger.error(f"Cannot run rebuttal detection: Original file path missing or invalid: {transcription_file}")
@@ -398,7 +399,7 @@ class AudioProcessor:
             }
 
         try:
-            classification = self.classify_call(agent_audio, audio, file_name=file_path.name, file_path=str(file_path), user_api_key=user_api_key)
+            classification = self.classify_call(agent_audio, audio, file_name=file_path.name, file_path=str(file_path), user_api_key=user_api_key, disposition=disposition)
         except Exception as e:
             logger.error(f"Classification failed for {file_path}: {e}", exc_info=True)
             classification = {
