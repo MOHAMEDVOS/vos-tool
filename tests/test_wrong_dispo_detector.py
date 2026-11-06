@@ -52,9 +52,9 @@ def test_dnc_decision_maker_matches_regardless_of_dash_style_and_case():
     assert wrong_dispo_detection(transcript, "dnc - decision maker") == "No"
 
 
-def test_dnc_unknown_is_not_treated_as_correct():
-    # Per spec: only "DNC - Decision Maker" counts as correct. "DNC - Unknown"
-    # still gets flagged when a clear DNC phrase is present.
+def test_dnc_unknown_is_not_treated_as_correct_without_a_denial():
+    # "DNC - Unknown" only counts as correct when the person says they aren't the
+    # owner. See test_dnc_unknown_is_correct_for_a_non_owner.
     transcript = "Owner: take me off your list."
     assert wrong_dispo_detection(transcript, "DNC - Unknown") == "Yes"
 
@@ -361,6 +361,147 @@ def test_real_model_owner_confirming_ownership_not_flagged(monkeypatch, owner_li
     if model is None:
         pytest.skip("semantic model not available in this environment")
     assert wrong_dispo_detection(f"Owner: {owner_line}", "Decision Maker - NYI") == "No"
+
+
+@pytest.mark.parametrize("owner_text", [
+    "Sorry, I got the wrong number.",
+    "I think I put the wrong number.",
+    "I must have dialed the wrong number.",
+    "Sorry. I\nAgent: Gerald.\nOwner: got the wrong number.",
+])
+def test_speaker_saying_they_made_the_mistake_is_not_a_wrong_number(owner_text):
+    assert wrong_dispo_detection(f"Owner: {owner_text}", "Decision Maker - NYI") == "No"
+
+
+@pytest.mark.parametrize("owner_text", [
+    "No, you got the wrong number.",
+    "I think you got the wrong number.",
+    "Wrong number.",
+    "I got the wrong number. Actually you have the wrong number.",
+])
+def test_owner_telling_the_agent_it_is_a_wrong_number_still_flags(owner_text):
+    assert wrong_dispo_reason(f"Owner: {owner_text}", "Decision Maker - NYI") == "NYI instead of WN"
+
+
+def test_own_mistake_phrase_does_not_affect_the_dnc_check():
+    transcript = "Owner: I got the wrong number. Stop calling me."
+    assert wrong_dispo_reason(transcript, "Decision Maker - NYI") == "NYI instead of DNC"
+
+
+@pytest.mark.parametrize("owner_text", [
+    "I don't own the property on Trotter Drive. Take me off your call list and never call me again.",
+    "I haven't owned it for years. Stop calling me.",
+    "You have the wrong number. Stop calling me.",
+    "That's not my house. Don't call me again.",
+    "I'm not the owner. Remove my number.",
+    "We don't own that. Stop calling me.",
+    "I don't have any property. Stop calling me.",
+])
+def test_dnc_unknown_is_correct_for_a_non_owner(owner_text):
+    assert wrong_dispo_detail(f"Owner: {owner_text}", "DNC - Unknown") == ("No", None)
+
+
+@pytest.mark.parametrize("owner_text", [
+    "Stop calling me.",
+    "Yes, that's my house. Don't call me again.",
+    "I got the wrong number. Stop calling me.",
+])
+def test_dnc_unknown_still_flags_without_a_denial(owner_text):
+    assert wrong_dispo_reason(f"Owner: {owner_text}", "DNC - Unknown") == "DNC-Unk instead of DNC"
+
+
+def test_dnc_unknown_ignores_a_denial_said_by_the_agent():
+    transcript = "Agent: So you don't own the property? I don't own it either.\nOwner: Stop calling me."
+    assert wrong_dispo_reason(transcript, "DNC - Unknown") == "DNC-Unk instead of DNC"
+
+
+def test_non_owner_who_asked_not_to_be_called_still_flags_on_other_dispositions():
+    transcript = "Owner: I don't own the property. Never call me again."
+    assert wrong_dispo_reason(transcript, "Wrong Number") == "WN instead of DNC"
+    assert wrong_dispo_reason(transcript, "Decision Maker - NYI") == "NYI instead of DNC"
+
+
+def test_semantic_wrong_number_ignores_talk_of_other_property(monkeypatch):
+    _enable_fake_semantic_tier(monkeypatch)
+    assert wrong_dispo_detection("Owner: I don't have any other signal_wn", "Decision Maker - NYI") == "No"
+    assert wrong_dispo_detection("Owner: I don't own another signal_wn", "Decision Maker - NYI") == "No"
+
+
+def test_semantic_wrong_number_ignores_own_mistake(monkeypatch):
+    # With the phrase left in, "wrong" would count as the sentence's denial word.
+    _enable_fake_semantic_tier(monkeypatch)
+    assert wrong_dispo_detection("Owner: I got the wrong number signal_wn", "Decision Maker - NYI") == "No"
+
+
+def test_real_model_owner_with_no_other_property_not_flagged(monkeypatch):
+    # Real false flag: an owner who had just confirmed owning the house.
+    monkeypatch.setattr(wrong_dispo_detector, "_get_semantic_resources", _REAL_GET_SEMANTIC_RESOURCES)
+    model, _ = wrong_dispo_detector._get_semantic_resources()
+    if model is None:
+        pytest.skip("semantic model not available in this environment")
+    transcript = (
+        "Agent: I believe you own a property on 161.\nOwner: Yeah.\n"
+        "Agent: Would you consider selling?\nOwner: No, I'm not. I don't plan on selling it. And\n"
+        "Agent: Oh,\nOwner: I don't have any other property."
+    )
+    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
+
+
+@pytest.mark.parametrize("owner_line", [
+    "Are you asking if I want to sell it?",
+    "No, if I want to sell it, I put it on the market, you know?",
+    "Oh, my God. Are you guys asking me if I want to sell my house? The answer is still no.",
+    "You know, if I want to sell it, I advertise it.",
+    "They got money in hand. If I want to sell right now for 75.",
+    "And I also don't have any other properties that I want to sell.",
+    "Well, you know, I don't think I want to sell it yet.",
+    "Do I want to sell? Why would you ask that",
+])
+def test_nyi_phrase_inside_a_question_or_condition_not_flagged(owner_line):
+    assert wrong_dispo_detection(f"Owner: {owner_line}", "Decision Maker - NYI") == "No"
+
+
+@pytest.mark.parametrize("owner_lines", [
+    "Yes, I'm interested. Actually no, not interested. Thank you.",
+    "I want to sell.\nOwner: Well, I'm not selling to you.",
+    "Let's do it.\nOwner: No. Not. Not interested. Thank you. Bye.",
+])
+def test_nyi_owner_who_says_not_interested_not_flagged(owner_lines):
+    assert wrong_dispo_detection(f"Owner: {owner_lines}", "Decision Maker - NYI") == "No"
+
+
+@pytest.mark.parametrize("owner_line", [
+    "I want to sell.",
+    "Yeah, I want to sell it this year.",
+    "Yes, I'm interested.",
+    "Okay. Send me the offer.",
+    "When can we close?",
+    "Like, you call me if I want to sell. Sure. Let's sell it.",
+])
+def test_nyi_clear_acceptance_still_flags(owner_line):
+    transcript = f"Agent: Have you thought about selling?\nOwner: {owner_line}"
+    assert wrong_dispo_reason(transcript, "Decision Maker - NYI") == "NYI instead of Interested"
+
+
+def test_semantic_nyi_ignores_owner_questions(monkeypatch):
+    _enable_fake_semantic_tier(monkeypatch)
+    assert wrong_dispo_detection("Owner: are you asking about signal_nyi?", "Decision Maker - NYI") == "No"
+
+
+def test_semantic_nyi_ignores_an_owner_who_declined(monkeypatch):
+    _enable_fake_semantic_tier(monkeypatch)
+    assert wrong_dispo_detection("Owner: signal_nyi. Not interested.", "Decision Maker - NYI") == "No"
+
+
+def test_real_model_owner_asking_if_they_want_to_sell_not_flagged(monkeypatch):
+    # The phrase list can't catch this once the literal match is scoped, so the
+    # model must not either.
+    monkeypatch.setattr(wrong_dispo_detector, "_get_semantic_resources", _REAL_GET_SEMANTIC_RESOURCES)
+    model, _ = wrong_dispo_detector._get_semantic_resources()
+    if model is None:
+        pytest.skip("semantic model not available in this environment")
+    transcript = "Owner: Are you asking if I want to sell it?\nAgent: Yes.\nOwner: No."
+    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
 
 
 def test_semantic_real_model_loads_and_scores_sanely(monkeypatch):

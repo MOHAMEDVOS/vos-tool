@@ -10,7 +10,8 @@ precision beats recall throughout. Widen the phrase lists as real misses
 turn up, same as the original DNC check.
 
 1. DNC: the homeowner clearly asked not to be contacted again, but the
-   disposition isn't "DNC - Decision Maker".
+   disposition isn't "DNC - Decision Maker". "DNC - Unknown" is also correct
+   when the person says they aren't the owner (Mohamed, 2026-11-05).
 2. Wrong Number: the person on the call clearly denied being the
    owner/right number, but the disposition is neither "Wrong Number" nor
    "DNC - Decision Maker" (DNC always wins over Wrong Number when both
@@ -108,6 +109,7 @@ NYI_CONTRADICTION_PHRASES = [
     "im interested in selling", "i am interested in selling",
     "lets move forward",
     "lets do it",
+    "lets sell",
     "i agree to sell",
     "i accept the offer",
     "send me the offer", "send me the contract",
@@ -138,6 +140,12 @@ def _is_dnc_decision_maker(disposition: str) -> bool:
     """
     norm = _normalize(disposition)
     return norm.startswith("dnc") and "decision maker" in norm
+
+
+def _is_dnc_unknown(disposition: str) -> bool:
+    """True for a disposition that normalizes to "dnc - unknown"."""
+    norm = _normalize(disposition)
+    return norm.startswith("dnc") and "unknown" in norm
 
 
 def _is_wrong_number(disposition: str) -> bool:
@@ -182,6 +190,34 @@ _SENTENCE_SPLIT_RE = re.compile(r"[.!?]+")
 # "this is not my house". So a Wrong Number paraphrase has to contain a denial
 # word of its own. Matched after _normalize(), which strips apostrophes.
 _DENIAL_WORD_RE = re.compile(r"\b(?:not|dont|doesnt|isnt|wasnt|aint|never|wrong|no longer)\b")
+# "I don't have any other property" is an owner answering the other-property
+# question, not denying this one.
+_OTHER_PROPERTY_RE = re.compile(r"\b(?:other|another)\b")
+# "I got the wrong number" means the speaker made the mistake, unlike "you got the
+# wrong number". The gap allows for a line break, as in "I." / "got the wrong number".
+_OWN_MISTAKE_RE = re.compile(
+    r"\bi\W+(?:must have )?(?:got|have|put|dialed|called) (?:the |a )?wrong (?:number|person)\b"
+)
+
+# "Are you asking if I want to sell it?" and "I don't think I want to sell" both
+# contain "i want to sell". An NYI contradiction has to be a plain statement, and
+# an owner who says they aren't interested or selling makes NYI correct anyway.
+# All matched after _normalize().
+_NYI_DECLINE_RE = re.compile(r"\bnot (?:interest|sell)|\bno interest")
+_NYI_UNDERCUT_RE = re.compile(r"\b(?:if|whether|when|unless|not|dont|doesnt|never|think|that|asking)\b")
+_NYI_ACCEPTING_QUESTIONS = ("when can we close", "when can we sign")
+_CLAUSE_SPLIT_RE = re.compile(r"(?<=[.!?,])\s+")
+
+# The person says they aren't the owner, which makes "DNC - Unknown" correct.
+# Wider than WRONG_NUMBER_PHRASES because a miss here only means a flag stays.
+_NON_OWNER_RE = re.compile(
+    r"\b(?:i|we) (?:dont|do not|never|no longer) own"
+    r"|\b(?:i|we) (?:havent|have not) owned"
+    r"|\b(?:i|we) (?:dont|do not) have (?:a |any |no )?(?:propert|house|home)"
+    r"|\b(?:i|we) have no (?:propert|house|home)"
+    r"|\bnot (?:my|our) (?:propert|house|home|number)|\bnot mine\b|\bim not the owner"
+    r"|\bwrong (?:phone )?(?:number|person)\b"
+)
 
 _semantic_model = None
 _phrase_embeddings = None
@@ -193,6 +229,19 @@ def _split_into_sentences(text: str) -> list[str]:
     detector's -- Wrong Dispo doesn't need its question-chunking, just short
     text segments to embed."""
     return [s.strip() for s in _SENTENCE_SPLIT_RE.split(text) if len(s.strip()) >= 3]
+
+
+def _nyi_statements(norm_text: str) -> list[str]:
+    """The clauses that could contradict "not yet interested": none if the owner
+    declined anywhere, otherwise plain statements with no question or condition."""
+    if _NYI_DECLINE_RE.search(norm_text):
+        return []
+    clauses = _CLAUSE_SPLIT_RE.split(norm_text.replace("yes, ", "yes "))
+    return [
+        c for c in clauses
+        if any(question in c for question in _NYI_ACCEPTING_QUESTIONS)
+        or (not c.endswith("?") and not _NYI_UNDERCUT_RE.search(c))
+    ]
 
 
 def _get_semantic_resources():
@@ -239,7 +288,10 @@ def _semantic_category_match(transcript: str, category: str, model, phrase_embed
     loading the real model."""
     sentences = _split_into_sentences(transcript)
     if category == "wrong_number":
-        sentences = [s for s in sentences if _DENIAL_WORD_RE.search(_normalize(s))]
+        sentences = [
+            s for s in sentences
+            if _DENIAL_WORD_RE.search(_normalize(s)) and not _OTHER_PROPERTY_RE.search(_normalize(s))
+        ]
     if not sentences:
         return False
 
@@ -339,8 +391,12 @@ def wrong_dispo_detail(transcript: str, disposition: str) -> tuple[str, str | No
     # Each "_applicable" flag mirrors the disposition guard Tier 1 already
     # uses for that category -- Tier 2 only gets a turn where Tier 1 could
     # have fired too.
-    dnc_applicable = not _is_dnc_decision_maker(disposition)
-    wrong_number_applicable = not _is_wrong_number(disposition) and not _is_dnc_decision_maker(disposition)
+    wrong_number_text = _OWN_MISTAKE_RE.sub("", norm_transcript)
+    dnc_is_correct = _is_dnc_decision_maker(disposition) or (
+        _is_dnc_unknown(disposition) and _NON_OWNER_RE.search(wrong_number_text) is not None
+    )
+    dnc_applicable = not dnc_is_correct
+    wrong_number_applicable = not _is_wrong_number(disposition) and not dnc_is_correct
     nyi_applicable = _is_decision_maker_nyi(disposition)
 
     def _reason(category: str) -> str:
@@ -357,16 +413,16 @@ def wrong_dispo_detail(transcript: str, disposition: str) -> tuple[str, str | No
     # when both signals are present).
     if wrong_number_applicable:
         for phrase in WRONG_NUMBER_PHRASES:
-            if phrase in norm_transcript:
+            if phrase in wrong_number_text:
                 return "Yes", _reason("wrong_number")
 
     # Check 3: disposition is specifically "Decision Maker - NYI" but the
     # transcript has a clear acceptance phrase contradicting "not yet
     # interested".
-    if nyi_applicable:
-        for phrase in NYI_CONTRADICTION_PHRASES:
-            if phrase in norm_transcript:
-                return "Yes", _reason("nyi")
+    nyi_text = ". ".join(_nyi_statements(norm_transcript)) if nyi_applicable else ""
+    for phrase in NYI_CONTRADICTION_PHRASES:
+        if phrase in nyi_text:
+            return "Yes", _reason("nyi")
 
     # Tier 2: paraphrase of a Check 1/2/3 phrase, for whichever category
     # Tier 1 didn't already rule out or already search literally.
@@ -376,9 +432,9 @@ def wrong_dispo_detail(transcript: str, disposition: str) -> tuple[str, str | No
     if model is not None and phrase_embeddings is not None:
         if dnc_applicable and _semantic_category_match(search_text, "dnc", model, phrase_embeddings):
             return "Yes", _reason("dnc")
-        if wrong_number_applicable and _semantic_category_match(search_text, "wrong_number", model, phrase_embeddings):
+        if wrong_number_applicable and _semantic_category_match(wrong_number_text, "wrong_number", model, phrase_embeddings):
             return "Yes", _reason("wrong_number")
-        if nyi_applicable and _semantic_category_match(search_text, "nyi", model, phrase_embeddings):
+        if nyi_text and _semantic_category_match(nyi_text, "nyi", model, phrase_embeddings):
             return "Yes", _reason("nyi")
 
     return "No", None
