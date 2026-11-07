@@ -64,7 +64,6 @@ def create_user(
 ) -> bool:
     """Create new user and sync to whitelist."""
     try:
-        # Sync to whitelist first
         from backend.core.database import get_db
         db = get_db()
         if db:
@@ -105,7 +104,6 @@ def update_user(
 ) -> bool:
     """Update user and sync to whitelist."""
     try:
-        # Sync to whitelist
         from backend.core.database import get_db
         db = get_db()
         if db:
@@ -152,7 +150,6 @@ def update_user(
 def delete_user(username: str, deleted_by: str) -> bool:
     """Delete user and sync to whitelist."""
     try:
-        # Remove from whitelist
         from backend.core.database import get_db
         db = get_db()
         if db:
@@ -170,8 +167,7 @@ def get_user_settings(username: str) -> Dict[str, Any]:
         user_data = user_manager.get_user(username)
         if not user_data:
             return {}
-        
-        # Decrypt AssemblyAI API key if it exists
+
         assemblyai_api_key = None
         if user_data.get("assemblyai_api_key_encrypted"):
             try:

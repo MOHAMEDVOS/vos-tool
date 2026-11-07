@@ -6,21 +6,22 @@ import { Info, Link2, X } from 'lucide-react'
 import { LiveCountUp } from '@/components/ui/LiveCountUp'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuthStore } from '@/store/authStore'
+import { canAccess } from '@/utils/permissions'
 import { ChevronDown, Settings2, Square } from 'lucide-react'
 import { CustomDatePicker } from '@/components/ui/DatePicker'
 import { DateRangePicker } from '@/components/ui/DateRangePicker'
 import { CustomSelect } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
-import { useAuditStore } from '@/store/auditStore'
+import {
+  useAuditStore,
+  inferPhase,
+  type StreamStatus,
+  type ProgressState,
+  type AnalysisProgress,
+  type DoneResult,
+  type LogLine,
+} from '@/store/auditStore'
 import { useQuotaStore } from '@/store/quotaStore'
-import { 
-  inferPhase, 
-  type StreamStatus, 
-  type ProgressState, 
-  type AnalysisProgress, 
-  type DoneResult, 
-  type LogLine 
-} from '@/hooks/useAuditStream'
 
 type AuditSection = 'agent' | 'campaign'
 function todayISO() {
@@ -43,7 +44,6 @@ function previousTwoWorkWeeksRange(): [string, string] {
   return [localISO(twoWeeksAgoMonday), localISO(previousFriday)]
 }
 
-/* â”€â”€â”€ Motion Variants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { duration: 0.3, staggerChildren: 0.05 } },
@@ -54,7 +54,6 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 }
 
-/* â”€â”€â”€ Shared class helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 const inputBase: React.CSSProperties = {
   width: '100%',
   backgroundColor: 'var(--c-base)',
@@ -62,7 +61,6 @@ const inputBase: React.CSSProperties = {
   color: 'var(--t-primary)',
 }
 
-/* â”€â”€â”€ Multi-select Dropdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function MultiSelectDropdown({
   options,
   selected,
@@ -187,7 +185,6 @@ function MultiSelectDropdown({
             </div>
 
             <div className="max-h-72 overflow-y-auto custom-scrollbar flex flex-col gap-0.5 py-1">
-              {/* Select all */}
               <label
                 style={{ color: 'var(--t-primary)' }}
                 className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold hover:bg-c-raised transition-colors select-none"
@@ -251,9 +248,6 @@ function MultiSelectDropdown({
   )
 }
 
-/* â”€â”€â”€ Custom Date Picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-
-/* â”€â”€â”€ Number Stepper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function NumberStepper({
   value,
   onChange,
@@ -314,10 +308,9 @@ function NumberStepper({
   )
 }
 
-/* â”€â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 export function AuditPage() {
   const role = useAuthStore((s) => s.role)
-  const isAuditor = role === 'Auditor'
+  const isAuditor = !!role && !canAccess(role, 'campaign-audit')
 
   const sections: { id: AuditSection; label: string }[] = isAuditor
     ? []
@@ -330,7 +323,6 @@ export function AuditPage() {
 
   return (
     <div className="flex flex-col gap-6 pb-12 w-full max-w-[1400px]">
-      {/* Tab bar */}
       {!isAuditor && sections.length > 1 && (
         <div
           style={{ backgroundColor: 'var(--c-raised)', borderColor: 'var(--b-subtle)' }}
@@ -375,7 +367,7 @@ export function AuditPage() {
   )
 }
 
-/* â”€â”€â”€ Phase message banks (50+ messages, shuffled randomly) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+// Phase message banks (50+ messages, shuffled randomly)
 const PHASE_MESSAGES = {
   login: [
     'Sneaking into the dialer...',
@@ -452,7 +444,6 @@ function useRotatingMessage(phase: keyof typeof PHASE_MESSAGES, isRunning: boole
   return shuffled[index] ?? PHASE_MESSAGES[phase][0]
 }
 
-/* â”€â”€â”€ Premium Audit Progress Bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 function AuditProgressBar({
   status,
   progress,
@@ -486,7 +477,7 @@ function AuditProgressBar({
   const pct = useMemo(() => {
     if (isDone) return 100
     if (phase === 'analyzing') {
-      if (!analysisProgress) return 0 // Reset to 0 when analysis starts
+      if (!analysisProgress) return 0
       if (analysisProgress.total === 0) return 0
       return Math.min(100, Math.round((analysisProgress.completed / analysisProgress.total) * 100))
     }
@@ -521,7 +512,6 @@ function AuditProgressBar({
     >
       <div className="px-6 pt-6 pb-5 flex flex-col gap-4">
 
-        {/* Top row — phase badge + counter */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             {isRunning && (
@@ -544,7 +534,6 @@ function AuditProgressBar({
             </span>
           </div>
 
-          {/* X / Total counter */}
           {(isRunning || isDone) && (phase === 'analyzing' ? analysisProgress : progress) && (
             <span className="text-xs font-bold tabular-nums" style={{ color: 'var(--t-label)' }}>
               <span style={{ color: accentColor }}>
@@ -573,7 +562,6 @@ function AuditProgressBar({
           )}
         </div>
 
-        {/* Status message */}
         <AnimatePresence mode="wait">
           <motion.p
             key={isDone ? 'done' : isCancelled ? 'cancelled' : isError ? 'error' : message}
@@ -594,7 +582,6 @@ function AuditProgressBar({
           </motion.p>
         </AnimatePresence>
 
-        {/* Progress bar */}
         <div
           className="relative h-2 w-full rounded-full overflow-hidden"
           style={{ backgroundColor: 'var(--c-deep, #1a1a1f)' }}
@@ -633,7 +620,6 @@ function AuditProgressBar({
           )}
         </div>
 
-        {/* Percentage label */}
         <div className="flex items-center justify-between -mt-2">
           <span className="text-[10px] font-bold tabular-nums" style={{ color: 'var(--t-muted)' }}>
             {pct !== null ? `${pct}%` : '—'}
@@ -659,7 +645,6 @@ function AuditProgressBar({
           )}
         </div>
 
-        {/* Done result breakdown */}
         <AnimatePresence>
           {isDone && result && (
             <motion.div
@@ -692,7 +677,6 @@ function AuditProgressBar({
   )
 }
 
-/* ────────────────────────────────────────────────────────────────────────────── */
 function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const [dialerUrl, setDialerUrl] = useState('https://resva.readymode.com/')
   const [dialerUrl2, setDialerUrl2] = useState('')
@@ -712,13 +696,8 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const [forceReaudit, setForceReaudit] = useState(false)
   const [dialerCheck, setDialerCheck] = useState<{
     status: 'idle' | 'loading' | 'done' | 'error'
-    data?: CampaignDialerCountsResponse
-    error?: string
-  }>({ status: 'idle' })
-  const [agentDialerCheck, setAgentDialerCheck] = useState<{
-    status: 'idle' | 'loading' | 'done' | 'error'
     queryKey?: string
-    data?: AgentDialerCountsResponse
+    data?: CampaignDialerCountsResponse | AgentDialerCountsResponse
     error?: string
   }>({ status: 'idle' })
   const isCampaign = mode === 'campaign'
@@ -737,37 +716,29 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   }, [isCampaign, campaignRangeCustomized])
 
   const runDialerCheck = useCallback(async () => {
-    setDialerCheck({ status: 'loading' })
-    try {
-      const data = await readymodeApi.campaignDialerCounts({
-        campaign_name: identifier.trim(),
-        start_date: startDate,
-        end_date: endDate,
-      })
-      setDialerCheck({ status: 'done', data })
-    } catch (e) {
-      setDialerCheck({ status: 'error', error: e instanceof Error ? e.message : 'Check failed' })
-    }
-  }, [identifier, startDate, endDate])
-
-  const runAgentDialerCheck = useCallback(async () => {
     const queryKey = JSON.stringify([identifier.trim(), startDate, endDate])
-    setAgentDialerCheck({ status: 'loading', queryKey })
+    setDialerCheck({ status: 'loading', queryKey })
     try {
-      const data = await readymodeApi.agentDialerCounts({
-        agent_name: identifier.trim(),
-        start_date: startDate,
-        end_date: endDate,
-      })
-      setAgentDialerCheck({ status: 'done', queryKey, data })
+      const data = isCampaign
+        ? await readymodeApi.campaignDialerCounts({
+            campaign_name: identifier.trim(),
+            start_date: startDate,
+            end_date: endDate,
+          })
+        : await readymodeApi.agentDialerCounts({
+            agent_name: identifier.trim(),
+            start_date: startDate,
+            end_date: endDate,
+          })
+      setDialerCheck({ status: 'done', queryKey, data })
     } catch (e) {
-      setAgentDialerCheck({
+      setDialerCheck({
         status: 'error',
         queryKey,
         error: e instanceof Error ? e.message : 'Check failed',
       })
     }
-  }, [identifier, startDate, endDate])
+  }, [isCampaign, identifier, startDate, endDate])
 
   const { data: rmStatus } = useQuery({
     queryKey: ['readymode-status'],
@@ -815,8 +786,8 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
   const notConfigured = rmStatus?.status === 'not_configured'
   const needsCustomDuration = durationFilter === 'gt_custom' || durationFilter === 'lt_custom'
   const identifierMissing = !identifier.trim()
-  const currentAgentDialerQueryKey = JSON.stringify([identifier.trim(), startDate, endDate])
-  const agentDialerCheckIsCurrent = agentDialerCheck.queryKey === currentAgentDialerQueryKey
+  const currentDialerCheckQueryKey = JSON.stringify([identifier.trim(), startDate, endDate])
+  const dialerCheckIsCurrent = dialerCheck.queryKey === currentDialerCheckQueryKey
   const disabled = notConfigured || identifierMissing || isRunning
 
   const labelClass = 'text-[10px] font-black uppercase tracking-[0.1em] mb-2 block'
@@ -832,7 +803,6 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
         animate="visible"
         className="flex flex-col gap-8 w-full"
       >
-        {/* Warning banner */}
         {notConfigured && (
           <motion.div variants={itemVariants} className="rounded-lg border border-semantic-warning/30 bg-semantic-warning/10 px-4 py-3 text-sm text-semantic-warning flex items-center gap-2">
             <Settings2 size={16} className="text-semantic-warning shrink-0" />
@@ -840,7 +810,6 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
           </motion.div>
         )}
 
-        {/* Row 1 — Config + Dates (always visible) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-8">
           <motion.section variants={itemVariants}>
             <h2 className={sectionHeaderClass} style={{ color: 'var(--t-primary)' }}>
@@ -888,108 +857,55 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                 />
               </div>
 
-              {isCampaign && (
-                <div>
-                  <Button
-                    variant="secondary"
-                    onClick={runDialerCheck}
-                    disabled={identifierMissing || dialerCheck.status === 'loading' || isRunning}
-                  >
-                    {dialerCheck.status === 'loading' ? 'Checking dialers…' : 'Find busiest dialer'}
-                  </Button>
-                  {dialerCheck.status === 'loading' && <span className="ml-2 align-middle"><Spinner /></span>}
+              <div>
+                <Button
+                  variant="secondary"
+                  onClick={runDialerCheck}
+                  disabled={identifierMissing || dialerCheck.status === 'loading' || isRunning}
+                >
+                  {dialerCheck.status === 'loading' ? 'Checking dialers…' : 'Find busiest dialer'}
+                </Button>
+                {dialerCheck.status === 'loading' && <span className="ml-2 align-middle"><Spinner /></span>}
 
-                  {dialerCheck.status === 'error' && (
-                    <div className="mt-2 text-xs" style={{ color: 'var(--semantic-error)' }}>{dialerCheck.error}</div>
-                  )}
+                {dialerCheckIsCurrent && dialerCheck.status === 'error' && (
+                  <div className="mt-2 text-xs" style={{ color: 'var(--semantic-error)' }}>{dialerCheck.error}</div>
+                )}
 
-                  {dialerCheck.status === 'done' && dialerCheck.data && (
-                    <div className="mt-3 flex flex-col gap-1">
-                      {dialerCheck.data.busiest ? (
-                        <div className="text-xs" style={{ color: 'var(--t-primary)' }}>
-                          ✓ Busiest: <strong>{dialerCheck.data.busiest.dialer}</strong> ({dialerCheck.data.busiest.count} calls)
-                        </div>
-                      ) : (
-                        <div className="text-xs" style={{ color: 'var(--t-muted)' }}>Campaign not found on any dialer.</div>
-                      )}
-                      <div className="flex flex-col gap-1 mt-1">
-                        {dialerCheck.data.results.map((r) => (
-                          <button
-                            key={r.dialer}
-                            type="button"
-                            onClick={() => setDialerUrl(r.url)}
-                            disabled={!r.found}
-                            className="flex items-center justify-between rounded px-2 py-1 text-xs text-left transition-colors disabled:opacity-40 disabled:cursor-default hover:bg-[rgba(0,102,204,0.08)]"
-                            style={{
-                              color: dialerCheck.data!.busiest?.dialer === r.dialer ? 'var(--t-primary)' : 'var(--t-muted)',
-                              fontWeight: dialerCheck.data!.busiest?.dialer === r.dialer ? 700 : 400,
-                            }}
-                          >
-                            <span>{r.dialer}</span>
-                            <span>{r.found ? `${r.count} calls` : 'not found'}</span>
-                          </button>
-                        ))}
+                {dialerCheckIsCurrent && dialerCheck.status === 'done' && dialerCheck.data && (
+                  <div className="mt-3 flex flex-col gap-1">
+                    {dialerCheck.data.busiest ? (
+                      <div className="text-xs" style={{ color: 'var(--t-primary)' }}>
+                        ✓ Busiest: <strong>{dialerCheck.data.busiest.dialer}</strong> ({dialerCheck.data.busiest.count} calls)
                       </div>
-                      {dialerCheck.data.failed.length > 0 && (
-                        <div className="text-xs" style={{ color: 'var(--semantic-error)' }}>
-                          Failed: {dialerCheck.data.failed.join(', ')}
-                        </div>
-                      )}
+                    ) : (
+                      <div className="text-xs" style={{ color: 'var(--t-muted)' }}>{isCampaign ? 'Campaign' : 'Agent'} not found on any dialer.</div>
+                    )}
+                    <div className="flex flex-col gap-1 mt-1">
+                      {dialerCheck.data.results.map((r) => (
+                        <button
+                          key={r.dialer}
+                          type="button"
+                          onClick={() => setDialerUrl(r.url)}
+                          disabled={!r.found}
+                          className="flex items-center justify-between rounded px-2 py-1 text-xs text-left transition-colors disabled:opacity-40 disabled:cursor-default hover:bg-[rgba(0,102,204,0.08)]"
+                          style={{
+                            color: dialerCheck.data!.busiest?.dialer === r.dialer ? 'var(--t-primary)' : 'var(--t-muted)',
+                            fontWeight: dialerCheck.data!.busiest?.dialer === r.dialer ? 700 : 400,
+                          }}
+                        >
+                          <span>{r.dialer}</span>
+                          <span>{r.found ? `${r.count} calls` : 'not found'}</span>
+                        </button>
+                      ))}
                     </div>
-                  )}
-                </div>
-              )}
-              {!isCampaign && (
-                <div>
-                  <Button
-                    variant="secondary"
-                    onClick={runAgentDialerCheck}
-                    disabled={identifierMissing || agentDialerCheck.status === 'loading' || isRunning}
-                  >
-                    {agentDialerCheck.status === 'loading' ? 'Checking dialers…' : 'Find busiest dialer'}
-                  </Button>
-                  {agentDialerCheck.status === 'loading' && <span className="ml-2 align-middle"><Spinner /></span>}
-
-                  {agentDialerCheckIsCurrent && agentDialerCheck.status === 'error' && (
-                    <div className="mt-2 text-xs" style={{ color: 'var(--semantic-error)' }}>{agentDialerCheck.error}</div>
-                  )}
-
-                  {agentDialerCheckIsCurrent && agentDialerCheck.status === 'done' && agentDialerCheck.data && (
-                    <div className="mt-3 flex flex-col gap-1">
-                      {agentDialerCheck.data.busiest ? (
-                        <div className="text-xs" style={{ color: 'var(--t-primary)' }}>
-                          ✓ Busiest: <strong>{agentDialerCheck.data.busiest.dialer}</strong> ({agentDialerCheck.data.busiest.count} calls)
-                        </div>
-                      ) : (
-                        <div className="text-xs" style={{ color: 'var(--t-muted)' }}>Agent not found on any dialer.</div>
-                      )}
-                      <div className="flex flex-col gap-1 mt-1">
-                        {agentDialerCheck.data.results.map((r) => (
-                          <button
-                            key={r.dialer}
-                            type="button"
-                            onClick={() => setDialerUrl(r.url)}
-                            disabled={!r.found}
-                            className="flex items-center justify-between rounded px-2 py-1 text-xs text-left transition-colors disabled:opacity-40 disabled:cursor-default hover:bg-[rgba(0,102,204,0.08)]"
-                            style={{
-                              color: agentDialerCheck.data!.busiest?.dialer === r.dialer ? 'var(--t-primary)' : 'var(--t-muted)',
-                              fontWeight: agentDialerCheck.data!.busiest?.dialer === r.dialer ? 700 : 400,
-                            }}
-                          >
-                            <span>{r.dialer}</span>
-                            <span>{r.found ? `${r.count} calls` : 'not found'}</span>
-                          </button>
-                        ))}
+                    {dialerCheck.data.failed.length > 0 && (
+                      <div className="text-xs" style={{ color: 'var(--semantic-error)' }}>
+                        Failed: {dialerCheck.data.failed.join(', ')}
                       </div>
-                      {agentDialerCheck.data.failed.length > 0 && (
-                        <div className="text-xs" style={{ color: 'var(--semantic-error)' }}>
-                          Failed: {agentDialerCheck.data.failed.join(', ')}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </motion.section>
 
@@ -1010,7 +926,6 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                 <CustomDatePicker value={startDate} onChange={setStartDate} disabled={isRunning} />
               </div>}
 
-              {/* Start Time picker — toggle with a small checkbox */}
               <div>
                 <label
                   className="flex items-center gap-2 cursor-pointer select-none"
@@ -1045,7 +960,6 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
 
                 {useStartTime && (
                   <div className="flex items-center gap-2 mt-2">
-                    {/* Hour */}
                     <input
                       type="number" min={1} max={12}
                       value={startTimeHour}
@@ -1058,7 +972,6 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                       className="rounded-md border shadow-inner disabled:opacity-50"
                     />
                     <span style={{ color: 'var(--t-muted)', fontWeight: 800, fontSize: 16 }}>:</span>
-                    {/* Minute */}
                     <input
                       type="number" min={0} max={59}
                       value={startTimeMinute}
@@ -1070,7 +983,6 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                       style={{ ...inputBase, width: 58, textAlign: 'center', borderRadius: 6, padding: '6px 8px', fontSize: 14, outline: 'none' }}
                       className="rounded-md border shadow-inner disabled:opacity-50"
                     />
-                    {/* AM / PM toggle */}
                     <button
                       type="button"
                       disabled={isRunning}
@@ -1099,7 +1011,6 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
           </motion.section>
         </div>
 
-        {/* Row 2 — Advanced Filter (always visible) */}
         <motion.section variants={itemVariants}>
           <div className="flex items-center gap-2 mb-4 w-full">
             <h2 className="text-3xl font-black tracking-tighter" style={{ color: 'var(--t-primary)' }}>Advanced Filter</h2>
@@ -1162,7 +1073,6 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
           </div>
         </motion.section>
 
-        {/* Row 3 — Processing Parameters OR Progress Bar (swaps on run) */}
         <AnimatePresence mode="wait">
           {showForm ? (
             <motion.section

@@ -26,13 +26,14 @@ const queryClient = new QueryClient({
 })
 
 import { useAuthStore } from '@/store/authStore'
+import { canAccess, type Feature } from '@/utils/permissions'
 
-const TAB_ROLES: Partial<Record<string, string[]>> = {
-  'Users':             ['Owner', 'Admin'],
-  'Scoring':           ['Owner', 'Admin'],
-  'TL Actions':        ['Owner', 'Admin'],
-  'Phrase Management': ['Owner'],
-  'Settings':          ['Owner', 'Admin'],
+const TAB_FEATURE: Partial<Record<string, Feature>> = {
+  'Users':             'users-tab',
+  'Scoring':           'scoring-tab',
+  'TL Actions':        'tl-actions-tab',
+  'Phrase Management': 'phrase-management-tab',
+  'Settings':          'settings-tab',
 }
 
 function InnerApp() {
@@ -57,15 +58,15 @@ function InnerApp() {
 
   useEffect(() => {
     if (role) {
-      const allowedRoles = TAB_ROLES[activeTab]
-      if (allowedRoles && !allowedRoles.includes(role)) {
+      const feature = TAB_FEATURE[activeTab]
+      if (feature && !canAccess(role, feature)) {
         setActiveTab('Dashboard')
       }
     }
   }, [activeTab, role, setActiveTab])
 
-  const allowedRoles = TAB_ROLES[activeTab]
-  if (allowedRoles && role && !allowedRoles.includes(role)) {
+  const feature = TAB_FEATURE[activeTab]
+  if (feature && role && !canAccess(role, feature)) {
     return null
   }
 

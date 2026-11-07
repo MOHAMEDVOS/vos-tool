@@ -49,7 +49,6 @@ class DatabaseHealthMonitor:
         self.slow_query_threshold = slow_query_threshold
         self.max_slow_queries = max_slow_queries
         
-        # Metrics
         self.metrics = {
             'queries_total': 0,
             'queries_success': 0,
@@ -64,7 +63,6 @@ class DatabaseHealthMonitor:
         self.slow_queries = deque(maxlen=max_slow_queries)
         self._lock = threading.Lock()
         
-        # Alert thresholds
         self.alert_thresholds = {
             'pool_usage_warning': 80.0,  # %
             'pool_usage_critical': 95.0,  # %
@@ -95,11 +93,9 @@ class DatabaseHealthMonitor:
             else:
                 self.metrics['queries_failed'] += 1
             
-            # Log slow queries
             if duration >= self.slow_query_threshold:
                 self.metrics['slow_queries_count'] += 1
-                
-                # Truncate query for storage (keep first 200 chars)
+
                 truncated_query = query[:200] + "..." if len(query) > 200 else query
                 
                 query_log = QueryLog(
@@ -127,7 +123,6 @@ class DatabaseHealthMonitor:
         try:
             stats = self.db_manager.get_pool_stats()
             
-            # Add calculated metrics
             if stats.get('max_connections', 0) > 0:
                 stats['health_status'] = self._get_pool_health_status(stats['usage_percent'])
             else:
@@ -184,7 +179,6 @@ class DatabaseHealthMonitor:
             List of slow query log entries
         """
         with self._lock:
-            # Get the most recent slow queries
             recent_queries = list(self.slow_queries)[-limit:]
             return [asdict(q) for q in reversed(recent_queries)]
     
@@ -397,7 +391,6 @@ class DatabaseHealthMonitor:
         logger.info("Health monitor metrics reset")
 
 
-# Global health monitor instance
 _health_monitor: Optional[DatabaseHealthMonitor] = None
 
 

@@ -11,6 +11,7 @@ For each dialer it:
 If resv5's live map is empty, the user's picks get resolved with resva2 ids, and
 those ids point at different dispositions on resv5 (e.g. Voicemail).
 """
+import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -20,8 +21,21 @@ from automation.readymode_http import (
     DISPOSITION_TYPE_IDS,
 )
 
-CREATE_USER = "UserCreation"
-CREATE_PASS = "RES370@370"
+CREATE_USER = os.getenv("READYMODE_USER", "").strip()
+CREATE_PASS = os.getenv("READYMODE_PASSWORD", "").strip()
+if not CREATE_USER or not CREATE_PASS:
+    try:
+        from config import get_user_readymode_credentials
+        owner_email = "mohamedibrahimpayonner@gmail.com"
+        rm_u, rm_p = get_user_readymode_credentials(owner_email)
+        if rm_u and rm_p:
+            CREATE_USER, CREATE_PASS = rm_u, rm_p
+    except Exception as e:
+        print(f"Could not load DB credentials: {e}")
+if not CREATE_USER or not CREATE_PASS:
+    print("ERROR: No ReadyMode credentials found.")
+    print("Set READYMODE_USER and READYMODE_PASSWORD env vars, or ensure the owner account has ReadyMode creds in the DB.")
+    sys.exit(1)
 
 # what the user said they pick on resv5
 WANTED = [

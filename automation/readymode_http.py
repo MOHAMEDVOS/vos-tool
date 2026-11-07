@@ -1,4 +1,5 @@
-"""Pure-HTTP ReadyMode client for call-log and report jobs.
+"""ReadyMode client for call-log and report jobs — plain HTTP for everything it does,
+with one deliberate exception: login can fall back to a real browser.
 
 Agent audits, Campaign audits, scoring, and auxiliary report lookups use this client.
 
@@ -9,6 +10,13 @@ Key facts (see spec for detail):
   * Login = single POST to ``/login_new/?then=/`` with ``logout_other_sessions=on`` and
     browser-like headers (Origin/Referer/Sec-Fetch-*). Success sets the ``stationId`` cookie.
     Without the browser headers the server 500s ("cURL error 3: url malformed").
+  * If that POST comes back behind a Cloudflare challenge instead of a session, ``login()``
+    falls back to a real Playwright/Chromium browser (see
+    ``automation/readymode_browser_login.py``) just long enough to clear the challenge and
+    hand its cookies back to this client's plain ``requests.Session`` — every other method
+    here (report fetch, CSV export, user create/delete/list, agent activity) stays pure
+    HTTP, never browser automation. Toggle with ``READYMODE_BROWSER_FALLBACK=0`` to disable
+    the fallback entirely.
   * The report endpoint returns JSON with ``campaignlist`` / ``userlist`` (name->id maps),
     ``pages`` (total page count) and ``results`` (25 rows/page). Filters are all query params.
 """
@@ -24,7 +32,9 @@ import requests
 import certifi
 import charset_normalizer
 import urllib3
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html import unescape
+from typing import Callable
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
@@ -908,6 +918,107 @@ def resolve_folder_listing_id(create_form_folder_id: str) -> str:
     this prefix relationship holds on every dialer/folder, so treat call sites as
     best-effort, not guaranteed."""
     return (create_form_folder_id or "").split("-")[0]
+
+
+# ── folder-scan + per-dialer fan-out (shared by delete/find_duplicate/find_inactive) ────
+def fetch_all_folder_users(
+    client: "ReadyModeHTTPClient", log: Callable[[str], None] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Every user in every one of this dialer's writable folders, fetched in parallel.
+
+    Returns ``{uid: (name, folder_name)}`` — the raw per-account facts; a uid seen in more
+    than one folder keeps the FIRST folder it was found in (folders are fetched in
+    parallel, so "first" means first to complete, not any particular folder order).
+
+    This is the mechanical part lifted out of three near-identical roster builders
+    (``delete_readymode_users._resolve_by_folder_scan``,
+    ``find_duplicate_readymode_users._build_roster``,
+    ``find_inactive_readymode_users._build_full_roster``) that each called
+    ``get_writable_folders()``, resolved every id via ``resolve_folder_listing_id()``, and
+    fanned a ``ThreadPoolExecutor`` out over ``list_folder_users()`` — only to reshape the
+    same per-account facts into three different result shapes. Each caller still does its
+    own reshaping; this just does the fetch once. Folders are fetched in parallel because
+    each is an independent request against the same session and a folder can be 1000+
+    users worth of HTML to parse — sequential fetching was confirmed live (2026-09-01) as
+    the actual source of scan slowness in all three original implementations.
+
+    Best-effort: a folder (or the folder-list lookup itself) that fails to fetch is skipped
+    and reported via ``log`` — a no-op if ``log`` is omitted — never raised. One broken
+    folder must not fail an entire scan.
+    """
+    notify = log or (lambda msg: None)
+    result: dict[str, tuple[str, str]] = {}
+    try:
+        folders = client.get_writable_folders() or {}
+    except Exception as e:
+        notify(f"WARN  Could not list writable folders: {e}")
+        return result
+
+    listing_ids = [
+        (folder_name, resolve_folder_listing_id(create_form_id))
+        for folder_name, create_form_id in folders.items()
+    ]
+    listing_ids = [(n, lid) for n, lid in listing_ids if lid]
+
+    with ThreadPoolExecutor(max_workers=max(1, len(listing_ids))) as pool:
+        futures = {
+            pool.submit(client.list_folder_users, listing_id): folder_name
+            for folder_name, listing_id in listing_ids
+        }
+        for future in as_completed(futures):
+            folder_name = futures[future]
+            try:
+                for uid, name in future.result().items():
+                    result.setdefault(uid, (name, folder_name))
+            except Exception as e:
+                notify(f"WARN  Could not list folder '{folder_name}': {e}")
+    return result
+
+
+def run_per_dialer(
+    dialer_urls: list[str],
+    worker: Callable[[str], object],
+    on_error: Callable[[str, Exception], object],
+    log_callback: Callable[[str], None] | None = None,
+) -> list:
+    """Fan ``worker(dialer_url)`` out across every url in ``dialer_urls`` in parallel (one
+    thread per dialer — these are independent, I/O-bound HTTP sessions against separate
+    dialers, not CPU work) and collect one result per dialer as each finishes.
+
+    This is the mechanical half of the pattern repeated across
+    ``create_users_multi_dialer``, ``delete_users_multi_dialer``,
+    ``find_duplicate_users_multi_dialer`` and (for its gather step)
+    ``find_inactive_users_multi_dialer``: submit one dialer per thread, walk
+    ``as_completed``, and on failure hand-build a placeholder matching the happy path's own
+    shape rather than losing that dialer's slot. Each caller still decides what "one
+    dialer's result" looks like — a flat list of per-user dicts for create/delete, a single
+    summary dict for the scan modules — via ``worker``'s return value and ``on_error``'s
+    placeholder; this helper never inspects either shape.
+
+    ``worker(dialer_url)`` does one dialer's whole job and returns that dialer's result.
+    If it raises, the error is logged (via ``log_callback``, or ``print`` if none is given)
+    and ``on_error(dialer_url, exception)`` is called to build a same-shaped placeholder for
+    that dialer instead — a crash on one dialer must never drop the others' results or
+    change the caller's result shape.
+
+    Returns one entry per dialer, in COMPLETION order (not request order). Callers that
+    want a flat list (create/delete) flatten it themselves; callers that want one dict per
+    dialer (the scan modules) return it as-is.
+    """
+    def log(msg: str) -> None:
+        (log_callback or print)(msg)
+
+    results = []
+    with ThreadPoolExecutor(max_workers=max(1, len(dialer_urls))) as pool:
+        futures = {pool.submit(worker, url): url for url in dialer_urls}
+        for future in as_completed(futures):
+            url = futures[future]
+            try:
+                results.append(future.result())
+            except Exception as e:
+                log(f"ERROR Unexpected error on {dialer_name_from_url(url)}: {e}")
+                results.append(on_error(url, e))
+    return results
 
 
 # ── lookup window (shared by delete-by-name and duplicate-detection) ────────────────────

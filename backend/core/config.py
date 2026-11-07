@@ -6,15 +6,8 @@ import os
 from typing import List, Optional
 from pathlib import Path
 
-try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict
-    from pydantic import Field, field_validator
-    PYDANTIC_V2 = True
-except ImportError:
-    # Fallback for older pydantic versions
-    from pydantic_settings import BaseSettings
-    from pydantic import Field, validator
-    PYDANTIC_V2 = False
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
 
 from lib.path_utils import get_upload_dir
 from config import FileConfig, ProcessingConfig, SecurityConfig
@@ -26,7 +19,6 @@ def _get_cors_origins() -> List[str]:
     _cors_origins_env = os.getenv("CORS_ORIGINS", "").strip()
     
     if _cors_origins_env:
-        # Support comma-separated list from environment
         return [origin.strip() for origin in _cors_origins_env.split(",") if origin.strip()]
     else:
         return [
@@ -130,157 +122,80 @@ _COMMON_SETTINGS = {
 }
 
 
-if PYDANTIC_V2:
-    class Settings(BaseSettings):
-        """Application settings (Pydantic V2)."""
-        
-        HOST: str = _COMMON_SETTINGS["HOST"]
-        PORT: int = _COMMON_SETTINGS["PORT"]
-        DEBUG: bool = _COMMON_SETTINGS["DEBUG"]
-        CORS_ORIGINS: List[str] = Field(default_factory=_get_cors_origins)
-        SECRET_KEY: str = _COMMON_SETTINGS["SECRET_KEY"]
-        JWT_SECRET: str = _COMMON_SETTINGS["JWT_SECRET"]
-        JWT_ALGORITHM: str = _COMMON_SETTINGS["JWT_ALGORITHM"]
-        JWT_EXPIRATION_HOURS: int = _COMMON_SETTINGS["JWT_EXPIRATION_HOURS"]
-        DB_TYPE: str = _COMMON_SETTINGS["DB_TYPE"]
-        POSTGRES_HOST: str = _COMMON_SETTINGS["POSTGRES_HOST"]
-        POSTGRES_PORT: str = _COMMON_SETTINGS["POSTGRES_PORT"]
-        POSTGRES_DB: str = _COMMON_SETTINGS["POSTGRES_DB"]
-        POSTGRES_USER: str = _COMMON_SETTINGS["POSTGRES_USER"]
-        POSTGRES_PASSWORD: str = _COMMON_SETTINGS["POSTGRES_PASSWORD"]
-        UPLOAD_DIR: Path = _COMMON_SETTINGS["UPLOAD_DIR"]
-        MAX_UPLOAD_SIZE: int = _COMMON_SETTINGS["MAX_UPLOAD_SIZE"]
-        READYMODE_AVAILABLE: bool = _COMMON_SETTINGS["READYMODE_AVAILABLE"]
-        ASSEMBLYAI_API_KEY: str = _COMMON_SETTINGS["ASSEMBLYAI_API_KEY"]
-        ASSEMBLYAI_POLLING_INTERVAL: int = _COMMON_SETTINGS["ASSEMBLYAI_POLLING_INTERVAL"]
-        ASSEMBLYAI_RETRY_ATTEMPTS: int = _COMMON_SETTINGS["ASSEMBLYAI_RETRY_ATTEMPTS"]
-        ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION: bool = _COMMON_SETTINGS["ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION"]
-        ASSEMBLYAI_TRANSCRIPTION_TIMEOUT: int = _COMMON_SETTINGS["ASSEMBLYAI_TRANSCRIPTION_TIMEOUT"]
-        GROQ_API_KEY: str = _COMMON_SETTINGS["GROQ_API_KEY"]
-        GROQ_MODEL: str = _COMMON_SETTINGS["GROQ_MODEL"]
-        GROQ_TEMPERATURE: float = _COMMON_SETTINGS["GROQ_TEMPERATURE"]
-        GROQ_MAX_TOKENS: int = _COMMON_SETTINGS["GROQ_MAX_TOKENS"]
-        GROQ_TIMEOUT: int = _COMMON_SETTINGS["GROQ_TIMEOUT"]
-        LLM_FALLBACK_ENABLED: bool = _COMMON_SETTINGS["LLM_FALLBACK_ENABLED"]
-        LLM_CONFIDENCE_THRESHOLD: float = _COMMON_SETTINGS["LLM_CONFIDENCE_THRESHOLD"]
-        PROCESSING_TIMEOUT_SINGLE_FILE: int = _COMMON_SETTINGS["PROCESSING_TIMEOUT_SINGLE_FILE"]
-        PROCESSING_TIMEOUT_LITE_FILE: int = _COMMON_SETTINGS["PROCESSING_TIMEOUT_LITE_FILE"]
-        ASSEMBLYAI_REBUTTAL_TIMEOUT_SECONDS: int = _COMMON_SETTINGS["ASSEMBLYAI_REBUTTAL_TIMEOUT_SECONDS"]
-        READYMODE_USER: Optional[str] = _COMMON_SETTINGS["READYMODE_USER"]
-        READYMODE_PASSWORD: Optional[str] = _COMMON_SETTINGS["READYMODE_PASSWORD"]
-        ENCRYPTION_KEY: Optional[str] = _COMMON_SETTINGS["ENCRYPTION_KEY"]
-        SESSION_SECRET: Optional[str] = _COMMON_SETTINGS["SESSION_SECRET"]
-        GOOGLE_CLIENT_ID: str = _COMMON_SETTINGS["GOOGLE_CLIENT_ID"]
-        GOOGLE_CLIENT_SECRET: str = _COMMON_SETTINGS["GOOGLE_CLIENT_SECRET"]
-        GOOGLE_REPORT_DRIVE_FOLDER_ID: str = _COMMON_SETTINGS["GOOGLE_REPORT_DRIVE_FOLDER_ID"]
-        GOOGLE_DOC_TEMPLATE_ID: str = _COMMON_SETTINGS["GOOGLE_DOC_TEMPLATE_ID"]
-        GOOGLE_OAUTH_REDIRECT_URI: str = _COMMON_SETTINGS["GOOGLE_OAUTH_REDIRECT_URI"]
+class Settings(BaseSettings):
+    """Application settings (Pydantic V2)."""
+    
+    HOST: str = _COMMON_SETTINGS["HOST"]
+    PORT: int = _COMMON_SETTINGS["PORT"]
+    DEBUG: bool = _COMMON_SETTINGS["DEBUG"]
+    CORS_ORIGINS: List[str] = Field(default_factory=_get_cors_origins)
+    SECRET_KEY: str = _COMMON_SETTINGS["SECRET_KEY"]
+    JWT_SECRET: str = _COMMON_SETTINGS["JWT_SECRET"]
+    JWT_ALGORITHM: str = _COMMON_SETTINGS["JWT_ALGORITHM"]
+    JWT_EXPIRATION_HOURS: int = _COMMON_SETTINGS["JWT_EXPIRATION_HOURS"]
+    DB_TYPE: str = _COMMON_SETTINGS["DB_TYPE"]
+    POSTGRES_HOST: str = _COMMON_SETTINGS["POSTGRES_HOST"]
+    POSTGRES_PORT: str = _COMMON_SETTINGS["POSTGRES_PORT"]
+    POSTGRES_DB: str = _COMMON_SETTINGS["POSTGRES_DB"]
+    POSTGRES_USER: str = _COMMON_SETTINGS["POSTGRES_USER"]
+    POSTGRES_PASSWORD: str = _COMMON_SETTINGS["POSTGRES_PASSWORD"]
+    UPLOAD_DIR: Path = _COMMON_SETTINGS["UPLOAD_DIR"]
+    MAX_UPLOAD_SIZE: int = _COMMON_SETTINGS["MAX_UPLOAD_SIZE"]
+    READYMODE_AVAILABLE: bool = _COMMON_SETTINGS["READYMODE_AVAILABLE"]
+    ASSEMBLYAI_API_KEY: str = _COMMON_SETTINGS["ASSEMBLYAI_API_KEY"]
+    ASSEMBLYAI_POLLING_INTERVAL: int = _COMMON_SETTINGS["ASSEMBLYAI_POLLING_INTERVAL"]
+    ASSEMBLYAI_RETRY_ATTEMPTS: int = _COMMON_SETTINGS["ASSEMBLYAI_RETRY_ATTEMPTS"]
+    ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION: bool = _COMMON_SETTINGS["ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION"]
+    ASSEMBLYAI_TRANSCRIPTION_TIMEOUT: int = _COMMON_SETTINGS["ASSEMBLYAI_TRANSCRIPTION_TIMEOUT"]
+    GROQ_API_KEY: str = _COMMON_SETTINGS["GROQ_API_KEY"]
+    GROQ_MODEL: str = _COMMON_SETTINGS["GROQ_MODEL"]
+    GROQ_TEMPERATURE: float = _COMMON_SETTINGS["GROQ_TEMPERATURE"]
+    GROQ_MAX_TOKENS: int = _COMMON_SETTINGS["GROQ_MAX_TOKENS"]
+    GROQ_TIMEOUT: int = _COMMON_SETTINGS["GROQ_TIMEOUT"]
+    LLM_FALLBACK_ENABLED: bool = _COMMON_SETTINGS["LLM_FALLBACK_ENABLED"]
+    LLM_CONFIDENCE_THRESHOLD: float = _COMMON_SETTINGS["LLM_CONFIDENCE_THRESHOLD"]
+    PROCESSING_TIMEOUT_SINGLE_FILE: int = _COMMON_SETTINGS["PROCESSING_TIMEOUT_SINGLE_FILE"]
+    PROCESSING_TIMEOUT_LITE_FILE: int = _COMMON_SETTINGS["PROCESSING_TIMEOUT_LITE_FILE"]
+    ASSEMBLYAI_REBUTTAL_TIMEOUT_SECONDS: int = _COMMON_SETTINGS["ASSEMBLYAI_REBUTTAL_TIMEOUT_SECONDS"]
+    READYMODE_USER: Optional[str] = _COMMON_SETTINGS["READYMODE_USER"]
+    READYMODE_PASSWORD: Optional[str] = _COMMON_SETTINGS["READYMODE_PASSWORD"]
+    ENCRYPTION_KEY: Optional[str] = _COMMON_SETTINGS["ENCRYPTION_KEY"]
+    SESSION_SECRET: Optional[str] = _COMMON_SETTINGS["SESSION_SECRET"]
+    GOOGLE_CLIENT_ID: str = _COMMON_SETTINGS["GOOGLE_CLIENT_ID"]
+    GOOGLE_CLIENT_SECRET: str = _COMMON_SETTINGS["GOOGLE_CLIENT_SECRET"]
+    GOOGLE_REPORT_DRIVE_FOLDER_ID: str = _COMMON_SETTINGS["GOOGLE_REPORT_DRIVE_FOLDER_ID"]
+    GOOGLE_DOC_TEMPLATE_ID: str = _COMMON_SETTINGS["GOOGLE_DOC_TEMPLATE_ID"]
+    GOOGLE_OAUTH_REDIRECT_URI: str = _COMMON_SETTINGS["GOOGLE_OAUTH_REDIRECT_URI"]
 
-        @field_validator('CORS_ORIGINS', mode='before')
-        @classmethod
-        def parse_cors_origins(cls, v):
-            """Parse CORS_ORIGINS from environment, handling empty strings."""
-            if v is None or (isinstance(v, str) and not v.strip()):
-                return _get_cors_origins()
-            if isinstance(v, str):
-                # Try to parse as comma-separated list
-                origins = [origin.strip() for origin in v.split(",") if origin.strip()]
-                if origins:
-                    return origins
-            if isinstance(v, list):
-                return v
+    @field_validator('CORS_ORIGINS', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS_ORIGINS from environment, handling empty strings."""
+        if v is None or (isinstance(v, str) and not v.strip()):
             return _get_cors_origins()
+        if isinstance(v, str):
+            origins = [origin.strip() for origin in v.split(",") if origin.strip()]
+            if origins:
+                return origins
+        if isinstance(v, list):
+            return v
+        return _get_cors_origins()
 
-        @field_validator('DEBUG', mode='before')
-        @classmethod
-        def parse_debug(cls, v):
-            if isinstance(v, bool):
-                return v
-            if isinstance(v, str):
-                return v.strip().lower() in {"1", "true", "yes", "on", "debug", "dev", "development"}
-            return False
-        
-        model_config = SettingsConfigDict(
-            env_file=".env",
-            case_sensitive=True,
-            extra="ignore",
-            env_ignore_empty=True  # Ignore empty environment variables
-        )
-else:
-    class Settings(BaseSettings):
-        """Application settings (Pydantic V1)."""
-        
-        HOST: str = _COMMON_SETTINGS["HOST"]
-        PORT: int = _COMMON_SETTINGS["PORT"]
-        DEBUG: bool = _COMMON_SETTINGS["DEBUG"]
-        CORS_ORIGINS: List[str] = Field(default_factory=_get_cors_origins)
-        SECRET_KEY: str = _COMMON_SETTINGS["SECRET_KEY"]
-        JWT_SECRET: str = _COMMON_SETTINGS["JWT_SECRET"]
-        JWT_ALGORITHM: str = _COMMON_SETTINGS["JWT_ALGORITHM"]
-        JWT_EXPIRATION_HOURS: int = _COMMON_SETTINGS["JWT_EXPIRATION_HOURS"]
-        DB_TYPE: str = _COMMON_SETTINGS["DB_TYPE"]
-        POSTGRES_HOST: str = _COMMON_SETTINGS["POSTGRES_HOST"]
-        POSTGRES_PORT: str = _COMMON_SETTINGS["POSTGRES_PORT"]
-        POSTGRES_DB: str = _COMMON_SETTINGS["POSTGRES_DB"]
-        POSTGRES_USER: str = _COMMON_SETTINGS["POSTGRES_USER"]
-        POSTGRES_PASSWORD: str = _COMMON_SETTINGS["POSTGRES_PASSWORD"]
-        UPLOAD_DIR: Path = _COMMON_SETTINGS["UPLOAD_DIR"]
-        MAX_UPLOAD_SIZE: int = _COMMON_SETTINGS["MAX_UPLOAD_SIZE"]
-        READYMODE_AVAILABLE: bool = _COMMON_SETTINGS["READYMODE_AVAILABLE"]
-        ASSEMBLYAI_API_KEY: str = _COMMON_SETTINGS["ASSEMBLYAI_API_KEY"]
-        ASSEMBLYAI_POLLING_INTERVAL: int = _COMMON_SETTINGS["ASSEMBLYAI_POLLING_INTERVAL"]
-        ASSEMBLYAI_RETRY_ATTEMPTS: int = _COMMON_SETTINGS["ASSEMBLYAI_RETRY_ATTEMPTS"]
-        ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION: bool = _COMMON_SETTINGS["ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION"]
-        ASSEMBLYAI_TRANSCRIPTION_TIMEOUT: int = _COMMON_SETTINGS["ASSEMBLYAI_TRANSCRIPTION_TIMEOUT"]
-        GROQ_API_KEY: str = _COMMON_SETTINGS["GROQ_API_KEY"]
-        GROQ_MODEL: str = _COMMON_SETTINGS["GROQ_MODEL"]
-        GROQ_TEMPERATURE: float = _COMMON_SETTINGS["GROQ_TEMPERATURE"]
-        GROQ_MAX_TOKENS: int = _COMMON_SETTINGS["GROQ_MAX_TOKENS"]
-        GROQ_TIMEOUT: int = _COMMON_SETTINGS["GROQ_TIMEOUT"]
-        LLM_FALLBACK_ENABLED: bool = _COMMON_SETTINGS["LLM_FALLBACK_ENABLED"]
-        LLM_CONFIDENCE_THRESHOLD: float = _COMMON_SETTINGS["LLM_CONFIDENCE_THRESHOLD"]
-        PROCESSING_TIMEOUT_SINGLE_FILE: int = _COMMON_SETTINGS["PROCESSING_TIMEOUT_SINGLE_FILE"]
-        PROCESSING_TIMEOUT_LITE_FILE: int = _COMMON_SETTINGS["PROCESSING_TIMEOUT_LITE_FILE"]
-        ASSEMBLYAI_REBUTTAL_TIMEOUT_SECONDS: int = _COMMON_SETTINGS["ASSEMBLYAI_REBUTTAL_TIMEOUT_SECONDS"]
-        READYMODE_USER: Optional[str] = _COMMON_SETTINGS["READYMODE_USER"]
-        READYMODE_PASSWORD: Optional[str] = _COMMON_SETTINGS["READYMODE_PASSWORD"]
-        ENCRYPTION_KEY: Optional[str] = _COMMON_SETTINGS["ENCRYPTION_KEY"]
-        SESSION_SECRET: Optional[str] = _COMMON_SETTINGS["SESSION_SECRET"]
-        GOOGLE_CLIENT_ID: str = _COMMON_SETTINGS["GOOGLE_CLIENT_ID"]
-        GOOGLE_CLIENT_SECRET: str = _COMMON_SETTINGS["GOOGLE_CLIENT_SECRET"]
-        GOOGLE_REPORT_DRIVE_FOLDER_ID: str = _COMMON_SETTINGS["GOOGLE_REPORT_DRIVE_FOLDER_ID"]
-        GOOGLE_DOC_TEMPLATE_ID: str = _COMMON_SETTINGS["GOOGLE_DOC_TEMPLATE_ID"]
-        GOOGLE_OAUTH_REDIRECT_URI: str = _COMMON_SETTINGS["GOOGLE_OAUTH_REDIRECT_URI"]
-
-        @validator('CORS_ORIGINS', pre=True)
-        @classmethod
-        def parse_cors_origins(cls, v):
-            """Parse CORS_ORIGINS from environment, handling empty strings."""
-            if v is None or (isinstance(v, str) and not v.strip()):
-                return _get_cors_origins()
-            if isinstance(v, str):
-                # Try to parse as comma-separated list
-                origins = [origin.strip() for origin in v.split(",") if origin.strip()]
-                if origins:
-                    return origins
-            if isinstance(v, list):
-                return v
-            return _get_cors_origins()
-
-        @validator('DEBUG', pre=True)
-        @classmethod
-        def parse_debug(cls, v):
-            if isinstance(v, bool):
-                return v
-            if isinstance(v, str):
-                return v.strip().lower() in {"1", "true", "yes", "on", "debug", "dev", "development"}
-            return False
-        
-        class Config:
-            env_file = ".env"
-            case_sensitive = True
-            extra = "ignore"
-            env_file_encoding = 'utf-8'
+    @field_validator('DEBUG', mode='before')
+    @classmethod
+    def parse_debug(cls, v):
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() in {"1", "true", "yes", "on", "debug", "dev", "development"}
+        return False
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+        extra="ignore",
+        env_ignore_empty=True  # Ignore empty environment variables
+    )
 
 
 settings = Settings()

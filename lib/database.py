@@ -20,7 +20,6 @@ try:
             import logging
             logger = logging.getLogger(__name__)
             logger.warning("⚠️  .env file contains null characters, skipping environment file loading")
-            # Continue without .env file
         else:
             raise
 except ImportError:
@@ -29,7 +28,6 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-# Try to import PostgreSQL adapter
 try:
     import psycopg2
     from psycopg2 import pool
@@ -66,7 +64,6 @@ def retry_on_db_error(max_retries=3, backoff_factor=2):
                     last_exception = e
                     error_str = str(e).lower()
                     
-                    # Check if retryable
                     is_retryable = ('pool' in error_str or 'exhausted' in error_str or 
                                    'timeout' in error_str or 'timed out' in error_str or
                                    ('connection' in error_str and ('refused' in error_str or 'reset' in error_str)))
@@ -152,11 +149,9 @@ class DatabaseManager:
             if not os.getenv('POSTGRES_HOST'):
                 logger.warning("   POSTGRES_HOST is also missing. Defaulting to localhost.")
         
-        # Parse URL for components
         from lib.database import _parse_database_url
         db_url_parts = _parse_database_url(db_url) if db_url else {}
 
-        # Get host from environment, default to localhost
         host = os.getenv('POSTGRES_HOST') or os.getenv('PGHOST') or db_url_parts.get('host') or 'localhost'
 
         # If host is "postgres" (Docker service name) and we're running locally,
@@ -164,7 +159,6 @@ class DatabaseManager:
         if host == 'postgres':
             import socket
             try:
-                # Try to resolve "postgres" hostname
                 socket.gethostbyname('postgres')
                 # If it resolves, we're likely in Docker, use "postgres"
                 logger.info("Detected Docker environment, using 'postgres' as database host")
@@ -246,7 +240,6 @@ class DatabaseManager:
                     raise
         except Exception as e:
             logger.error(f"✗ Failed to create PostgreSQL connection pool: {e}")
-            # Add database URL diagnostics (masked)
             if db_url:
                 try:
                     parsed = urlparse(db_url)
@@ -273,7 +266,7 @@ class DatabaseManager:
             # Implement a blocking wait for connections (P0 FIX)
             # This prevents threads from failing immediately when the pool is full
             import time
-            wait_timeout = 30  # Wait up to 30 seconds
+            wait_timeout = 30
             start_wait = time.time()
             
             while (time.time() - start_wait) < wait_timeout:
@@ -336,17 +329,15 @@ class DatabaseManager:
         
         while retry_count < max_retries:
             try:
-                # CRITICAL: Robust connection acquisition loop
                 conn = None
-                for _ in range(3):  # Try up to 3 connections from the pool
+                for _ in range(3):
                     try:
                         conn = self.get_connection()
                         if self.db_type == 'postgresql':
-                            # Test connection
                             test_cursor = conn.cursor()
                             test_cursor.execute('SELECT 1')
                             test_cursor.close()
-                            break  # Success!
+                            break
                     except Exception as conn_error:
                         logger.warning(f"Retrieved broken connection from pool: {conn_error}")
                         if conn:
@@ -359,22 +350,18 @@ class DatabaseManager:
 
                 if self.db_type == 'postgresql':
                     cursor = conn.cursor(cursor_factory=RealDictCursor)
-                    # Set query timeout (30 seconds default, configurable via env)
                     query_timeout = int(os.getenv('DB_QUERY_TIMEOUT', '30000'))  # milliseconds
                     cursor.execute(f"SET statement_timeout = {query_timeout}")
                 else:
                     cursor = conn.cursor()
-                    # Convert PostgreSQL syntax to SQLite if needed
                     query = self._convert_query_for_sqlite(query)
-                
-                # Execute query
+
                 if params:
                     cursor.execute(query, params)
                 else:
                     cursor.execute(query)
                 
                 if fetchone:
-                    # Fetch single row
                     if self.db_type == 'postgresql':
                         result = cursor.fetchone()
                         return dict(result) if result else None
@@ -384,13 +371,11 @@ class DatabaseManager:
                         row = cursor.fetchone()
                         return dict(zip(columns, row)) if row else None
                 elif fetch:
-                    # Fetch all rows - but only if this is a SELECT query
                     # Check if cursor has results to avoid "no results to fetch" error
                     if cursor.description is None:
                         # No results (UPDATE/INSERT/DELETE), just commit
                         conn.commit()
                         return cursor.rowcount
-                    # SELECT query with results
                     if self.db_type == 'postgresql':
                         results = cursor.fetchall()
                         return [dict(row) for row in results]
@@ -400,19 +385,16 @@ class DatabaseManager:
                         rows = cursor.fetchall()
                         return [dict(zip(columns, row)) for row in rows]
                 else:
-                    # Just execute, don't fetch
                     conn.commit()
                     return cursor.rowcount
-                
+
             except pool.PoolError as e:
-                # Handle connection pool exhaustion with retry
                 if "connection pool exhausted" in str(e).lower() or "pool" in str(e).lower():
                     if retry_count < max_retries - 1:
                         retry_count += 1
                         wait_time = 0.1 * (2 ** (retry_count - 1))  # Exponential backoff: 0.1s, 0.2s, 0.4s
                         logger.warning(f"Connection pool exhausted, retrying in {wait_time:.2f}s (attempt {retry_count}/{max_retries})")
                         time.sleep(wait_time)
-                        # Clean up before retry
                         if cursor:
                             try:
                                 cursor.close()
@@ -431,8 +413,7 @@ class DatabaseManager:
                     conn.rollback()
                 logger.error(f"Database pool error: {e}")
                 logger.error(f"Query: {query[:200]}...")
-                
-                # Log pool exhaustion event
+
                 if self.health_monitor:
                     self.health_monitor.log_pool_exhaustion()
                 
@@ -444,8 +425,7 @@ class DatabaseManager:
                 logger.error(f"Query: {query[:200]}...")
                 if params:
                     logger.error(f"Params: {params}")
-                
-                # Log failed query
+
                 duration = time.time() - start_time
                 if self.health_monitor:
                     self.health_monitor.log_query(query, duration, success=False, error=str(e))
@@ -459,11 +439,9 @@ class DatabaseManager:
                         pass
                 if conn:
                     try:
-                        # Check if connection is still alive before returning
                         is_broken = False
                         if self.db_type == 'postgresql':
                             try:
-                                # Check closed attribute
                                 if getattr(conn, 'closed', 0) != 0:
                                     is_broken = True
                             except:
@@ -480,12 +458,10 @@ class DatabaseManager:
         """Clean up idle connections to prevent pool exhaustion."""
         if self.connection_pool and self.db_type == 'postgresql':
             try:
-                # Get current pool status
                 current_connections = getattr(self.connection_pool, '_pool', [])
-                if len(current_connections) > 5:  # Keep minimum 5 connections
-                    # Close excess idle connections
+                if len(current_connections) > 5:
                     excess_count = len(current_connections) - 5
-                    for _ in range(min(excess_count, 3)):  # Close max 3 at a time
+                    for _ in range(min(excess_count, 3)):
                         try:
                             conn = self.connection_pool.getconn()
                             conn.close()
@@ -498,14 +474,10 @@ class DatabaseManager:
     
     def _convert_query_for_sqlite(self, query: str) -> str:
         """Convert PostgreSQL-specific syntax to SQLite."""
-        # Replace gen_random_uuid() with SQLite equivalent
         query = query.replace('gen_random_uuid()', "(lower(hex(randomblob(16))))")
-        # Replace TIMESTAMP WITH TIME ZONE with TIMESTAMP
         query = query.replace('TIMESTAMP WITH TIME ZONE', 'TIMESTAMP')
-        # Replace INET with TEXT
         query = query.replace(' INET', ' TEXT')
-        # Replace %s placeholders with ? for SQLite
-        # Note: We'll handle this in execute_query instead
+        # Note: %s -> ? placeholder conversion is handled in execute_query instead
         return query
     
     def execute_many(self, query: str, params_list: List[tuple], fetch: bool = False, chunk_size: int = 100) -> int:
@@ -538,7 +510,6 @@ class DatabaseManager:
                 total_rows += self._execute_many_chunk(query, chunk)
             logger.info(f"Completed {total_chunks} chunks, {total_rows} total rows inserted")
         else:
-            # Small batches: execute directly
             total_rows = self._execute_many_chunk(query, params_list)
         
         return total_rows
@@ -549,18 +520,17 @@ class DatabaseManager:
         conn = None
         cursor = None
         start_time = time.time()
-        timeout_seconds = 30  # 30 second timeout per chunk
-        
+        timeout_seconds = 30
+
         try:
             conn = self.get_connection()
-            
-            # Set statement timeout for PostgreSQL
+
             if self.db_type == 'postgresql':
                 cursor = conn.cursor()
                 try:
                     cursor.execute("SET statement_timeout = %s", (timeout_seconds * 1000,))  # milliseconds
                 except Exception:
-                    pass  # Ignore if timeout setting fails
+                    pass
             else:
                 cursor = conn.cursor()
                 query = self._convert_query_for_sqlite(query)
@@ -639,7 +609,6 @@ class DatabaseManager:
             conn = self.get_connection()
             
             with conn.cursor() as cursor:
-                # Use execute_values for optimal batch insert performance
                 execute_values(
                     cursor,
                     query,
@@ -651,11 +620,10 @@ class DatabaseManager:
             conn.commit()
             logger.info(f"✅ Batch inserted {total_rows} rows using execute_values (page_size={page_size})")
             
-            # Record metrics if health monitor is available
             if self.health_monitor:
                 try:
                     self.health_monitor.record_query_execution(
-                        query[:100],  # Truncate query for logging
+                        query[:100],
                         0.0,  # Duration tracked elsewhere
                         success=True
                     )
@@ -668,8 +636,7 @@ class DatabaseManager:
             if conn:
                 conn.rollback()
             logger.error(f"Batch insert failed: {e}")
-            
-            # Record error if health monitor is available
+
             if self.health_monitor:
                 try:
                     self.health_monitor.record_query_execution(
@@ -766,7 +733,6 @@ def get_db_manager() -> Optional[DatabaseManager]:
             return None
     return db_manager
 
-# Initialize on import if DB_TYPE is set
 if os.getenv('DB_TYPE'):
     try:
         db_manager = DatabaseManager()

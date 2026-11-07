@@ -47,20 +47,17 @@ function today(): string {
 }
 
 export function ScoringPage() {
-  // ── gather phase ──
   const [date, setDate] = useState(today())
   const [gathering, setGathering] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [gatherResult, setGatherResult] = useState<GatherResult | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  // ── generate phase ──
   const [names, setNames] = useState('')
   const [generating, setGenerating] = useState(false)
   const [rows, setRows] = useState<ScoreRow[] | null>(null)
   const [skipped, setSkipped] = useState<string[]>([])
 
-  // ── audit-&-score phase (heavy audit per agent) ──
   const [auditing, setAuditing] = useState(false)
   const [auditProgress, setAuditProgress] = useState<AuditProgress | null>(null)
   const auditAbortRef = useRef<AbortController | null>(null)
@@ -178,10 +175,8 @@ export function ScoringPage() {
     <div className="mx-auto max-w-[1600px] px-6 py-6">
       <h1 className="text-2xl font-black tracking-tight mb-4" style={{ color: 'var(--t-primary)' }}>Scoring</h1>
 
-      {/* ── Sticky toolbar: Gather + Names in one slim bar ── */}
       <div className="sticky top-0 z-20 -mx-6 mb-4 border-b border-b-subtle px-6 py-3 bg-c-base">
         <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-          {/* Gather group */}
           <div className="flex items-end gap-2">
             <div>
               <label className={labelClass} style={{ color: 'var(--t-label)' }}>Date</label>
@@ -205,7 +200,6 @@ export function ScoringPage() {
 
           <div className="hidden w-px self-stretch bg-b-subtle md:block" />
 
-          {/* Names group */}
           <div className="flex min-w-[260px] flex-1 items-end gap-2">
             <div className="flex-1">
               <label className={labelClass} style={{ color: 'var(--t-label)' }}>Agent names — one per line</label>
@@ -231,7 +225,6 @@ export function ScoringPage() {
           </div>
         </div>
 
-        {/* audit progress */}
         {auditing && (
           <div className="mt-2 flex items-center gap-2 text-xs" style={{ color: 'var(--t-primary)' }}>
             <Spinner />
@@ -248,7 +241,6 @@ export function ScoringPage() {
           </div>
         )}
 
-        {/* status / hint line */}
         {gatherResult ? (
           <div className="mt-2 text-xs" style={{ color: 'var(--t-primary)' }}>
             ✓ <strong>{gatherResult.agent_count}</strong> agents ({gatherResult.flagged_agent_count} flagged, {gatherResult.total_rows} calls)
@@ -267,7 +259,6 @@ export function ScoringPage() {
         </div>
       )}
 
-      {/* ── Results ── */}
       {rows && (
         <section className="rounded-lg border border-b-subtle bg-c-base">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-b-subtle p-4">

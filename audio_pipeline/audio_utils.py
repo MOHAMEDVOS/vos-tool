@@ -1,8 +1,29 @@
 """Shared audio-channel helpers for the single-file processors."""
 
+import re
 from pathlib import Path
 
 from pydub import AudioSegment
+
+
+def format_agent_name_with_spaces(agent_name: str) -> str:
+    """
+    Convert agent names from formats like 'AbdelrahmanAhmedIbrahimHassan'
+    to 'Abdelrahman Ahmed Ibrahim Hassan' by adding spaces before capital letters.
+    """
+    if ' ' in agent_name:
+        return agent_name
+    return re.sub(r'(?<!^)(?=[A-Z])', ' ', agent_name)
+
+
+def format_timestamp_for_display(timestamp: str) -> str:
+    """
+    Reformat timestamp from ReadyMode format to display format.
+    """
+    if not timestamp or timestamp.strip() == "":
+        return timestamp
+    time_pattern = r'(\d{1,2})_(\d{2})(AM|PM)'
+    return re.sub(time_pattern, r'\1:\2\3', timestamp)
 
 
 def extract_agent_audio(audio: AudioSegment) -> AudioSegment:

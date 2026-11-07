@@ -316,32 +316,6 @@ def debug_audio_analysis(agent_segment, file_name="Unknown"):
         }
 
 
-def run_audit(audio_segment, mode="heavy", file_name="Unknown"):
-    """
-    Run either Heavy or Lite audit based on selected mode.
-    """
-    releasing = releasing_detection(audio_segment)
-    late_hello = late_hello_detection(audio_segment)
-
-    result = {
-        "File Name": file_name,
-        "Releasing Detection": releasing,
-        "Late Hello Detection": late_hello,
-        "Rebuttal Detection": "N/A",
-        "Transcription": "N/A",
-        "Agent Intro": "N/A",
-        "Owner Name": "N/A",
-        "Reason for Calling": "N/A",
-        "Intro Score": "N/A",
-        "Status": "N/A"
-    }
-
-    if mode == "lite":
-        result["Status"] = "Lite Completed"
-
-    return result
-
-
 class IntroductionClassifier:
     """
     Lightweight classifier for call introduction quality.

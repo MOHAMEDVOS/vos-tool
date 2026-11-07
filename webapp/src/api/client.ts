@@ -1,6 +1,3 @@
-// Typed fetch wrapper - all requests go through here
-// Auth header injected from localStorage token
-
 const BACKEND = import.meta.env.VITE_BACKEND_URL ?? ''
 
 export class ApiError extends Error {
@@ -53,7 +50,6 @@ async function request<T>(
     throw new ApiError(res.status, await getErrorDetail(res))
   }
 
-  // 204 No Content
   if (res.status === 204) return undefined as T
 
   return res.json() as Promise<T>

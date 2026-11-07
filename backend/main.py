@@ -8,7 +8,6 @@ import os
 import sys
 from pathlib import Path
 
-# Add parent directory to path to access lib modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastapi import FastAPI, Request
@@ -20,7 +19,6 @@ import logging
 from backend.core.config import settings
 from backend.core.database import init_db
 
-# Configure logging
 from lib.logging_config import setup_backend_logging
 setup_backend_logging()
 logger = logging.getLogger(__name__)
@@ -64,12 +62,10 @@ async def lifespan(app: FastAPI):
     try:
         init_db()
         logger.info("✅ [STARTUP] Database initialized successfully")
-        
-        # Phrase backup restore script removed (data is now persisted in PostgreSQL)
-            
+
         try:
             from lib.phrase_learning import PhraseLearningManager
-            _phrase_manager = PhraseLearningManager()
+            PhraseLearningManager()  # warms the singleton + validates DB connectivity at startup
             logger.info("✅ [STARTUP] Phrase learning manager initialized")
         except Exception as e:
             logger.error(f"❌ [STARTUP] Failed to initialize PhraseLearningManager: {e}")
@@ -113,7 +109,6 @@ app.add_middleware(
 # logger.info("✅ Rate limiting enabled")
 logger.info("⚠️  Rate limiting DISABLED (temporary workaround)")
 
-# Include routers
 from backend.api import health as health_api
 
 app.include_router(health_api.router, tags=["Health"])
@@ -183,7 +178,7 @@ async def detailed_health_check():
         },
         "threading": {
             "active_threads": threading.active_count(),
-            "thread_names": [t.name for t in threading.enumerate()[:10]]  # First 10
+            "thread_names": [t.name for t in threading.enumerate()[:10]]
         },
         "memory": {
             "used_mb": round(psutil.Process().memory_info().rss / 1024 / 1024, 2),

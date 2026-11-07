@@ -1,8 +1,48 @@
 import { create } from 'zustand'
 import { readymodeApi, type DownloadRequest } from '@/api/readymode'
-import { type LogLine, type LogStage, type StreamStatus, type DoneResult, type ProgressState, type AnalysisProgress } from '@/hooks/useAuditStream'
 import { useAuthStore } from './authStore'
 import { getErrorMessage, isAbortError } from '@/utils/errors'
+
+export type LogStage = 'WAIT' | 'SUCCESS' | 'DATE' | 'SEARCH' | 'DOWNLOAD' | 'PAGE' | 'NEXT' | 'CANCELLED' | 'FAILED' | 'INFO'
+
+export interface LogLine {
+  id: number
+  stage: LogStage
+  text: string
+}
+
+export type StreamStatus = 'idle' | 'running' | 'done' | 'cancelled' | 'error'
+
+export interface DoneResult {
+  downloaded: number
+  analyzed: number
+  skipped?: number
+  message: string
+}
+
+export interface ProgressState {
+  downloaded: number
+  total: number
+}
+
+export interface AnalysisProgress {
+  completed: number
+  total: number
+}
+
+// Infer phase strictly by what has been seen — never jumps ahead or falls back randomly.
+// Phases are strictly ordered: idle → login → collecting → analyzing
+// DOWNLOAD stage = files being downloaded (collecting, not analyzing)
+// Analyzing only starts after DOWNLOAD_COMPLETE log line appears
+export function inferPhase(logs: LogLine[]): 'login' | 'collecting' | 'analyzing' | 'idle' {
+  if (logs.length === 0) return 'idle'
+  const hasDownloadComplete = logs.some(l => l.text.includes('DOWNLOAD_COMPLETE') || l.text.includes('files downloaded'))
+  if (hasDownloadComplete) return 'analyzing'
+  const stages = new Set(logs.map(l => l.stage))
+  if (stages.has('DOWNLOAD') || stages.has('SEARCH')) return 'collecting'
+  if (stages.has('WAIT') || stages.has('DATE') || stages.has('PAGE') || stages.has('NEXT') || stages.has('SUCCESS')) return 'login'
+  return 'idle'
+}
 
 interface AuditState {
   status: StreamStatus
@@ -12,8 +52,7 @@ interface AuditState {
   progress: ProgressState | null
   analysisProgress: AnalysisProgress | null
   abortController: AbortController | null
-  
-  // Actions
+
   start: (body: DownloadRequest) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -74,7 +113,6 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     try {
       await readymodeApi.streamFetch(
         body,
-        token,
         (event, data) => {
           if (event === 'log') {
             const { stage, text } = parseStage(data)

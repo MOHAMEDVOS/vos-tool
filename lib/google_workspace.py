@@ -37,10 +37,6 @@ def build_sheets(creds):
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
 
-def build_docs(creds):
-    return build("docs", "v1", credentials=creds, cache_discovery=False)
-
-
 def share_file_with_user(drive, file_id: str, email: str) -> None:
     """Share a file with a user as Editor."""
     drive.permissions().create(
@@ -49,13 +45,6 @@ def share_file_with_user(drive, file_id: str, email: str) -> None:
         sendNotificationEmail=False,
         supportsAllDrives=True,
     ).execute()
-
-
-def copy_template_doc(drive, template_id: str, new_name: str, folder_id: str) -> str:
-    """Copy the template Doc and rename it. Returns new doc_id."""
-    body = {"name": new_name, "parents": [folder_id]}
-    result = drive.files().copy(fileId=template_id, body=body, supportsAllDrives=True).execute()
-    return result["id"]
 
 
 def _rgb(r: int, g: int, b: int) -> dict:
@@ -159,7 +148,6 @@ def create_spreadsheet(
     spreadsheet = drive.files().create(body=body, supportsAllDrives=True).execute()
     sheet_id = spreadsheet["id"]
 
-    # Write data
     sheets.spreadsheets().values().update(
         spreadsheetId=sheet_id,
         range="Sheet1!A1",
@@ -276,103 +264,6 @@ def create_spreadsheet(
     summary_rows = _build_agent_issues_summary(rows)
     if summary_rows:
         _add_summary_sheet(sheets, sheet_id, summary_rows)
-
-    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
-    return sheet_id, sheet_url
-
-
-def create_scoring_spreadsheet(
-    drive,
-    sheets,
-    name: str,
-    rows: List[Dict[str, Any]],
-    folder_id: str,
-) -> Tuple[str, str]:
-    """Create a Google Sheet for the Scoring section (one row per sampled number).
-
-    ``rows`` are the objects returned by ``lib.scoring_sampler.score_agents`` — each has
-    ``agent``, ``phones`` (``[{phone, flags}]``), ``note``, ``red_flag``. The agent name repeats
-    on each of its number rows; ``Note`` / ``Red Flag`` show only on the agent's first row.
-    Returns ``(sheet_id, sheet_url)``.
-    """
-    columns = ["Agent name", "Phone", "Flag", "Note", "Red Flag"]
-    FLAG_I, REDFLAG_I = 2, 4
-
-    data: List[List[str]] = []
-    flag_cells: List[int] = []      # data-row indexes (0-based within data) that carry a flag
-    redflag_cells: List[int] = []   # data-row indexes whose Red Flag == Yes
-    for r in rows:
-        phones = r.get("phones") or [None]
-        first = True
-        for p in phones:
-            phone = (p or {}).get("phone", "") if p else ""
-            flags = (p or {}).get("flags", []) if p else []
-            flag_txt = ", ".join(flags)
-            data.append([
-                r.get("agent", ""),
-                phone,
-                flag_txt,
-                r.get("note", "") if first else "",
-                ("Yes" if r.get("red_flag") else "No") if first else "",
-            ])
-            if flag_txt:
-                flag_cells.append(len(data) - 1)
-            if first and r.get("red_flag"):
-                redflag_cells.append(len(data) - 1)
-            first = False
-
-    body = {
-        "name": f"{name} – scoring",
-        "mimeType": "application/vnd.google-apps.spreadsheet",
-        "parents": [folder_id],
-    }
-    spreadsheet = drive.files().create(body=body, supportsAllDrives=True).execute()
-    sheet_id = spreadsheet["id"]
-
-    sheets.spreadsheets().values().update(
-        spreadsheetId=sheet_id,
-        range="Sheet1!A1",
-        valueInputOption="RAW",
-        body={"values": [columns] + data},
-    ).execute()
-
-    fmt_requests = [
-        {  # header row: dark green, white bold, frozen
-            "repeatCell": {
-                "range": {"sheetId": 0, "startRowIndex": 0, "endRowIndex": 1,
-                          "startColumnIndex": 0, "endColumnIndex": len(columns)},
-                "cell": {"userEnteredFormat": {
-                    "backgroundColor": _HEADER_BG,
-                    "textFormat": {"foregroundColor": _HEADER_FG, "bold": True},
-                    "horizontalAlignment": "CENTER",
-                }},
-                "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
-            }
-        },
-        {"updateSheetProperties": {
-            "properties": {"sheetId": 0, "gridProperties": {"frozenRowCount": 1}},
-            "fields": "gridProperties.frozenRowCount",
-        }},
-    ]
-
-    def _red_cell(row_i: int, col_i: int):
-        return {"repeatCell": {
-            "range": {"sheetId": 0, "startRowIndex": row_i + 1, "endRowIndex": row_i + 2,
-                      "startColumnIndex": col_i, "endColumnIndex": col_i + 1},
-            "cell": {"userEnteredFormat": {
-                "backgroundColor": _RED_BG,
-                "textFormat": {"foregroundColor": _DETECT_FG, "bold": True},
-            }},
-            "fields": "userEnteredFormat(backgroundColor,textFormat)",
-        }}
-
-    fmt_requests += [_red_cell(i, FLAG_I) for i in flag_cells]
-    fmt_requests += [_red_cell(i, REDFLAG_I) for i in redflag_cells]
-
-    if fmt_requests:
-        sheets.spreadsheets().batchUpdate(
-            spreadsheetId=sheet_id, body={"requests": fmt_requests}
-        ).execute()
 
     sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
     return sheet_id, sheet_url
@@ -566,14 +457,12 @@ def restore_scoring_formulas(sheets, spreadsheet_id: str, target_tab: str,
 def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str, str, int, int]]) -> None:
     """Add a second sheet tab 'Agent Issues Summary' with a grouped issue table."""
 
-    # 1. Create the new sheet tab
     add_resp = sheets.spreadsheets().batchUpdate(
         spreadsheetId=spreadsheet_id,
         body={"requests": [{"addSheet": {"properties": {"title": "Agent Issues Summary"}}}]},
     ).execute()
     summary_gid = add_resp["replies"][0]["addSheet"]["properties"]["sheetId"]
 
-    # 2. Build the values: header + grouped data rows
     header = [["Agent Name", "Issue Type", "Total Samples with Issue"]]
     values = []
     fmt = []
@@ -650,7 +539,6 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
             }
         })
 
-    # Auto-resize all 3 columns
     fmt.append({
         "autoResizeDimensions": {
             "dimensions": {"sheetId": summary_gid, "dimension": "COLUMNS",
@@ -669,148 +557,3 @@ def _add_summary_sheet(sheets, spreadsheet_id: str, summary_rows: List[Tuple[str
         spreadsheetId=spreadsheet_id,
         body={"requests": fmt},
     ).execute()
-
-
-def replace_doc_placeholders(docs, doc_id: str, mapping: Dict[str, str]) -> None:
-    """Replace {{placeholder}} strings in the Doc via batchUpdate replaceAllText."""
-    requests = [
-        {
-            "replaceAllText": {
-                "containsText": {"text": placeholder, "matchCase": True},
-                "replaceText": value or "",
-            }
-        }
-        for placeholder, value in mapping.items()
-    ]
-    if requests:
-        docs.documents().batchUpdate(
-            documentId=doc_id,
-            body={"requests": requests},
-        ).execute()
-
-
-def style_report_doc(docs, doc_id: str, sheet_url: str, sheet_name: str) -> None:
-    """
-    Post-process the copied Doc:
-    - Bold all paragraph text
-    - Replace raw {{sheet_url}} link text with a named hyperlink chip
-    - Style header rows (dark green bg, white bold) and data rows (cream bg)
-    """
-    doc = docs.documents().get(documentId=doc_id).execute()
-    content = doc.get("body", {}).get("content", [])
-
-    requests = []
-
-    # Palette
-    header_bg = {"red": 32/255, "green": 73/255, "blue": 37/255}
-    header_fg = {"red": 1.0,    "green": 1.0,    "blue": 1.0}
-    cream_bg  = {"red": 255/255,"green": 255/255, "blue": 204/255}
-
-    # Keywords that mark a header/section row in the Doc
-    _HEADER_KEYWORDS = {
-        "auditing feedback", "issue rating", "action needed",
-        "action points", "campaign summary", "ratios",
-    }
-
-    for element in content:
-        para = element.get("paragraph")
-        if not para:
-            continue
-
-        start = element.get("startIndex", 0)
-        end   = element.get("endIndex", 0)
-        # end - 1 is the content range (excludes trailing newline);
-        # skip if that range would be empty (blank / newline-only paragraphs)
-        if end - 1 <= start:
-            continue
-
-        # Collect plain text of paragraph
-        para_text = "".join(
-            e.get("textRun", {}).get("content", "")
-            for e in para.get("elements", [])
-        ).strip().lower()
-
-        is_header = any(kw in para_text for kw in _HEADER_KEYWORDS)
-
-        # Bold entire paragraph
-        requests.append({
-            "updateTextStyle": {
-                "range": {"startIndex": start, "endIndex": end - 1},
-                "textStyle": {"bold": True, "fontSize": {"magnitude": 11, "unit": "PT"}},
-                "fields": "bold,fontSize",
-            }
-        })
-
-        # Color paragraph background
-        bg = header_bg if is_header else cream_bg
-        fg = header_fg if is_header else {"red": 0.0, "green": 0.0, "blue": 0.0}
-        requests.append({
-            "updateParagraphStyle": {
-                "range": {"startIndex": start, "endIndex": end - 1},
-                "paragraphStyle": {"shading": {"backgroundColor": {"color": {"rgbColor": bg}}}},
-                "fields": "shading",
-            }
-        })
-        if is_header:
-            requests.append({
-                "updateTextStyle": {
-                    "range": {"startIndex": start, "endIndex": end - 1},
-                    "textStyle": {"foregroundColor": {"color": {"rgbColor": fg}}},
-                    "fields": "foregroundColor",
-                }
-            })
-
-    if requests:
-        docs.documents().batchUpdate(
-            documentId=doc_id,
-            body={"requests": requests},
-        ).execute()
-
-    # --- Chip replacement: separate pass so index shifts don't corrupt the batch ---
-    # Re-fetch doc to get post-styling indices
-    doc2 = docs.documents().get(documentId=doc_id).execute()
-    content2 = doc2.get("body", {}).get("content", [])
-
-    chip_requests = []
-    for element in content2:
-        para = element.get("paragraph")
-        if not para:
-            continue
-        for el in para.get("elements", []):
-            tr = el.get("textRun", {})
-            content_text = tr.get("content", "")
-            if "SHEET_LINK_PLACEHOLDER" in content_text:
-                el_start = el.get("startIndex", 0)
-                el_end   = el.get("endIndex", 0)
-                chip_requests.append({
-                    "deleteContentRange": {
-                        "range": {"startIndex": el_start, "endIndex": el_end}
-                    }
-                })
-                chip_requests.append({
-                    "insertText": {
-                        "location": {"index": el_start},
-                        "text": sheet_name,
-                    }
-                })
-                chip_requests.append({
-                    "updateTextStyle": {
-                        "range": {"startIndex": el_start, "endIndex": el_start + len(sheet_name)},
-                        "textStyle": {
-                            "bold": True,
-                            "link": {"url": sheet_url},
-                            "foregroundColor": {"color": {"rgbColor": {"red": 0.07, "green": 0.36, "blue": 0.78}}},
-                            "fontSize": {"magnitude": 11, "unit": "PT"},
-                        },
-                        "fields": "bold,link,foregroundColor,fontSize",
-                    }
-                })
-                break  # only one URL per doc
-        if chip_requests:
-            break
-
-    if chip_requests:
-        docs.documents().batchUpdate(
-            documentId=doc_id,
-            body={"requests": chip_requests},
-        ).execute()

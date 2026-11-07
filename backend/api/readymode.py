@@ -3,12 +3,12 @@ ReadyMode API endpoints — blocking download + SSE streaming variant.
 """
 
 from fastapi import APIRouter, HTTPException, status, Depends
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date as _date
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import sys, io, threading, queue, json, uuid, asyncio
+import sys, io, threading, json, uuid, asyncio
 
 # ── Thread-local stdout router ────────────────────────────────────────────────
 # Each worker thread registers its own QueueWriter here so concurrent audits
@@ -42,7 +42,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from automation.download_readymode_calls import (
-    MIN_CALL_DURATION_S,
     download_all_call_recordings,
     ReadyModeLoginError,
     ReadyModeNoCallsError,
@@ -62,6 +61,7 @@ from backend.services.readymode_recording_metadata import (
     recording_rows_from_dataframe as _recording_rows_from_dataframe,
 )
 from backend.core.dependencies import get_current_user, get_current_admin_user
+from backend.core.sse import SSEEmitter, run_sse_stream
 import logging
 
 logger = logging.getLogger(__name__)
@@ -273,7 +273,6 @@ def _run_agent_call_length_scan(
         client = ReadyModeHTTPClient(dialer_url.rstrip("/"))
         client.login(rm_user, rm_pass)
 
-        # CSV with exact duration + agent / disposition / phone / id.
         csv_bytes = client.export_call_log_csv(
             time_from=_fmt(start_date_str),
             time_to=_fmt(end_date_str),
@@ -329,12 +328,6 @@ def _run_agent_call_length_scan(
     except Exception as exc:
         logger.error(f"Long VM/dead scan failed (non-fatal): {exc}", exc_info=True)
         return None
-
-
-# ── SSE helper ────────────────────────────────────────────────────────────────
-def _sse(event: str, data: str) -> str:
-    payload = json.dumps({"event": event, "data": data})
-    return f"data: {payload}\n\n"
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -464,17 +457,14 @@ async def stream_readymode_audit(
     with _registry_lock:
         _active_runs.setdefault(username, []).append(run_entry)
 
-    log_q: queue.Queue[Optional[str]] = queue.Queue()
-    result_box: dict = {}
-
-    def worker():
+    def worker(emitter: SSEEmitter):
         """Run download + analysis in thread, stream stdout to this user's queue only."""
         class QueueWriter(io.TextIOBase):
             def write(self, s: str):
                 for line in s.splitlines():
                     line = line.strip()
                     if line:
-                        log_q.put(("log", line))
+                        emitter.send("log", line)
                 return len(s)
             def flush(self): pass
 
@@ -486,7 +476,7 @@ async def stream_readymode_audit(
                 return cancel_event.is_set()
 
             def on_progress(downloaded: int, total: int):
-                log_q.put(("progress", json.dumps({"downloaded": downloaded, "total": total})))
+                emitter.send("progress", json.dumps({"downloaded": downloaded, "total": total}))
 
             download_result = download_all_call_recordings(
                 dialer_url=dialer_url,
@@ -513,25 +503,33 @@ async def stream_readymode_audit(
 
             if cancel_event.is_set():
                 _release_manifest_recordings(download_result, username)
-                result_box["cancelled"] = True
+                emitter.send("cancelled", "Audit cancelled by user")
                 return
 
             downloaded_count, analyzed_count, _, skipped_count = _count_and_analyze(
                 download_result, request, current_user, audit_type
             )
-            result_box["downloaded"] = downloaded_count
-            result_box["analyzed"]   = analyzed_count
-            result_box["skipped"] = skipped_count
+            dl, an, skipped = downloaded_count, analyzed_count, skipped_count
+            emitter.send("done", json.dumps({
+                "downloaded": dl,
+                "analyzed": an,
+                "skipped": skipped,
+                "message": (
+                    f"Downloaded {dl} calls, analyzed {an} rows; "
+                    f"skipped {skipped} previously processed or in-progress calls"
+                ),
+            }))
         except KeyboardInterrupt:
-            result_box["cancelled"] = True
+            emitter.send("cancelled", "Audit cancelled by user")
         except ReadyModeLoginError as e:
-            result_box["error"] = f"Login failed: {e}"
+            emitter.send("error", f"Login failed: {e}")
         except ReadyModeNoCallsError as e:
-            result_box["no_calls"] = str(e)
+            emitter.send("done", json.dumps({"downloaded": 0, "analyzed": 0,
+                                             "skipped": 0, "message": str(e)}))
         except Exception as e:
             if "download_result" in locals():
                 _release_manifest_recordings(download_result, username)
-            result_box["error"] = str(e)
+            emitter.send("error", str(e))
         finally:
             _release_dialer_locks(readymode_user, dialer_urls)
             with _registry_lock:
@@ -542,67 +540,13 @@ async def stream_readymode_audit(
                     _active_runs.pop(username, None)
             # Unregister this thread's writer so the thread is clean if reused
             _thread_local.queue_writer = None
-            log_q.put(None)  # sentinel — signals event_stream to stop
 
-    t = threading.Thread(target=worker, daemon=True)
-    t.start()
-
-    async def event_stream():
-        import asyncio
-        try:
-            yield _sse("start", "Audit started")
-            while True:
-                try:
-                    item = log_q.get_nowait()
-                except queue.Empty:
-                    await asyncio.sleep(0.2)
-                    yield ": ping\n\n"   # keep-alive
-                    continue
-
-                if item is None:          # sentinel — worker done
-                    break
-
-                event_type, data = item
-                yield _sse(event_type, data)
-
-            # Final result event
-            if result_box.get("cancelled"):
-                yield _sse("cancelled", "Audit cancelled by user")
-            elif "error" in result_box:
-                yield _sse("error", result_box["error"])
-            elif "no_calls" in result_box:
-                yield _sse("done", json.dumps({"downloaded": 0, "analyzed": 0,
-                                               "skipped": 0,
-                                               "message": result_box["no_calls"]}))
-            else:
-                dl = result_box.get("downloaded", 0)
-                an = result_box.get("analyzed", 0)
-                skipped = result_box.get("skipped", 0)
-                yield _sse("done", json.dumps({
-                    "downloaded": dl,
-                    "analyzed": an,
-                    "skipped": skipped,
-                    "message": (
-                        f"Downloaded {dl} calls, analyzed {an} rows; "
-                        f"skipped {skipped} previously processed or in-progress calls"
-                    ),
-                }))
-        except asyncio.CancelledError:
-            cancel_event.set()
-            logger.info(f"SSE client disconnected (cancelled) for user {username}, cancelling worker")
-            raise
-        except (GeneratorExit, Exception):
-            # Client disconnected — signal the worker to stop
-            cancel_event.set()
-            logger.info(f"SSE client disconnected for user {username}, cancelling worker")
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",    # disable nginx buffering
-        },
+    return run_sse_stream(
+        worker,
+        start=("start", "Audit started"),
+        cancel_event=cancel_event,
+        disconnect_log=lambda: logger.info(
+            f"SSE client disconnected for user {username}, cancelling worker"),
     )
 
 

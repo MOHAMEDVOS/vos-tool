@@ -9,7 +9,6 @@ import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any, Union
 
-# Import database manager
 try:
     from lib.database import get_db_manager
     _DB_IMPORT_SUCCESS = True
@@ -57,7 +56,6 @@ class TranscriptionCacheManager:
             return
             
         try:
-            # Create table if it doesn't exist
             # Using JSONB for raw_response to store flexible provider data
             create_table_query = """
             CREATE TABLE IF NOT EXISTS transcription_cache (
@@ -179,7 +177,6 @@ class TranscriptionCacheManager:
                 raw_response = EXCLUDED.raw_response
             """
             
-            # Ensure raw_response is JSON serializable
             json_response = json.dumps(raw_response) if raw_response else '{}'
             
             self.db_manager.execute_query(

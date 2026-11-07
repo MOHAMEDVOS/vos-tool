@@ -51,8 +51,7 @@ async def get_agent_audit_data(
             end_date,
             agent_name
         )
-        
-        # Convert to AuditRecord format
+
         audit_records = []
         for record in records:
             audit_records.append(AuditRecord(

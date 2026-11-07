@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { DateRangePicker } from '@/components/ui/DateRangePicker'
 import { Spinner } from '@/components/ui/Spinner'
 import { useAuthStore } from '@/store/authStore'
+import { canAccess } from '@/utils/permissions'
 import { tlActionsApi, type TlActionsReconciliation, type TlActionResult } from '@/api/tlActions'
 
 type ActionFieldName =
@@ -141,7 +142,7 @@ function MissingActionCard({
 
 export function TlActionsPage() {
   const role = useAuthStore((state) => state.role)
-  const isOwner = role === 'Owner'
+  const isOwner = canAccess(role, 'tl-owner-actions')
   const today = new Date()
   const yesterday = new Date(today)
   yesterday.setDate(today.getDate() - 1)
@@ -223,7 +224,7 @@ export function TlActionsPage() {
   }
 
   useEffect(() => {
-    if (role === 'Owner' || role === 'Admin') void refreshPodioStatus()
+    if (canAccess(role, 'podio-connection')) void refreshPodioStatus()
   }, [role])
 
   useEffect(() => {
@@ -469,7 +470,7 @@ export function TlActionsPage() {
         </Button>
       </section>
 
-      {(isOwner || role === 'Admin') && !podioStatus?.connected && <section aria-label="Podio confirmation setup" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-b-medium bg-surface-card px-5 py-4 shadow-card">
+      {canAccess(role, 'podio-connection') && !podioStatus?.connected && <section aria-label="Podio confirmation setup" className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-b-medium bg-surface-card px-5 py-4 shadow-card">
         <div>
           <h2 className="text-sm font-bold text-t-primary">Podio submission confirmation</h2>
           <p className="mt-1 text-sm text-t-secondary">

@@ -4,11 +4,8 @@ Streams per-item results as SSE-style JSON lines.
 """
 
 import sys
-import json
-import threading
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import StreamingResponse
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -19,18 +16,11 @@ from backend.models.schemas import (
     FindInactiveUsersRequest,
 )
 from backend.core.dependencies import get_current_user, get_current_admin_user
-
-# Reuse the thread-local stdout proxy already installed by readymode.py at import time.
-# (importing readymode ensures the proxy is installed before we start worker threads)
-import backend.api.readymode  # noqa: F401 — side-effect: installs _ThreadLocalStdout
+from backend.core.sse import SSEEmitter, run_sse_stream
 
 import logging
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def _sse(event: str, data) -> str:
-    return f"data: {json.dumps({'event': event, 'data': data})}\n\n"
 
 
 def _resolve_readymode_credentials(current_user: dict) -> tuple[str, str]:
@@ -59,12 +49,10 @@ async def bulk_create_users(
     users_dicts = [u.model_dump() for u in request.users]
     dialer_urls = request.dialer_urls
 
-    result_queue: "queue.Queue[str | None]" = __import__("queue").Queue()
+    def worker(emitter: SSEEmitter):
+        def log_callback(msg: str):
+            emitter.send("log", msg.rstrip())
 
-    def log_callback(msg: str):
-        result_queue.put(_sse("log", msg.rstrip()))
-
-    def worker():
         try:
             from automation.create_readymode_users import create_users_multi_dialer
             results = create_users_multi_dialer(
@@ -74,23 +62,12 @@ async def bulk_create_users(
                 readymode_pass=create_pass,
                 log_callback=log_callback,
             )
-            result_queue.put(_sse("done", results))
+            emitter.send("done", results)
         except Exception as e:
             logger.error(f"bulk_create_users worker error: {e}", exc_info=True)
-            result_queue.put(_sse("error", str(e)))
-        finally:
-            result_queue.put(None)  # sentinel
+            emitter.send("error", str(e))
 
-    threading.Thread(target=worker, daemon=True).start()
-
-    def create_stream():
-        while True:
-            item = result_queue.get()
-            if item is None:
-                break
-            yield item
-
-    return StreamingResponse(create_stream(), media_type="text/event-stream")
+    return run_sse_stream(worker, keepalive=False)
 
 
 @router.post("/delete")
@@ -127,12 +104,10 @@ async def bulk_delete_users(
     targets = [u.model_dump() for u in request.users]
     dialer_urls = request.dialer_urls
 
-    result_queue: "queue.Queue[str | None]" = __import__("queue").Queue()
+    def worker(emitter: SSEEmitter):
+        def log_callback(msg: str):
+            emitter.send("log", msg.rstrip())
 
-    def log_callback(msg: str):
-        result_queue.put(_sse("log", msg.rstrip()))
-
-    def worker():
         try:
             from automation.delete_readymode_users import delete_users_multi_dialer
             results = delete_users_multi_dialer(
@@ -142,23 +117,12 @@ async def bulk_delete_users(
                 readymode_pass=create_pass,
                 log_callback=log_callback,
             )
-            result_queue.put(_sse("done", results))
+            emitter.send("done", results)
         except Exception as e:
             logger.error(f"bulk_delete_users worker error: {e}", exc_info=True)
-            result_queue.put(_sse("error", str(e)))
-        finally:
-            result_queue.put(None)  # sentinel
+            emitter.send("error", str(e))
 
-    threading.Thread(target=worker, daemon=True).start()
-
-    def delete_stream():
-        while True:
-            item = result_queue.get()
-            if item is None:
-                break
-            yield item
-
-    return StreamingResponse(delete_stream(), media_type="text/event-stream")
+    return run_sse_stream(worker, keepalive=False)
 
 
 @router.post("/duplicates")
@@ -181,12 +145,10 @@ async def find_duplicate_users(
 
     dialer_urls = request.dialer_urls
 
-    result_queue: "queue.Queue[str | None]" = __import__("queue").Queue()
+    def worker(emitter: SSEEmitter):
+        def log_callback(msg: str):
+            emitter.send("log", msg.rstrip())
 
-    def log_callback(msg: str):
-        result_queue.put(_sse("log", msg.rstrip()))
-
-    def worker():
         try:
             from automation.find_duplicate_readymode_users import find_duplicate_users_multi_dialer
             results = find_duplicate_users_multi_dialer(
@@ -195,23 +157,12 @@ async def find_duplicate_users(
                 readymode_pass=create_pass,
                 log_callback=log_callback,
             )
-            result_queue.put(_sse("done", results))
+            emitter.send("done", results)
         except Exception as e:
             logger.error(f"find_duplicate_users worker error: {e}", exc_info=True)
-            result_queue.put(_sse("error", str(e)))
-        finally:
-            result_queue.put(None)  # sentinel
+            emitter.send("error", str(e))
 
-    threading.Thread(target=worker, daemon=True).start()
-
-    def duplicates_stream():
-        while True:
-            item = result_queue.get()
-            if item is None:
-                break
-            yield item
-
-    return StreamingResponse(duplicates_stream(), media_type="text/event-stream")
+    return run_sse_stream(worker, keepalive=False)
 
 
 @router.post("/inactive")
@@ -241,12 +192,10 @@ async def find_inactive_users(
     max_days_active = request.max_days_active
     lookback_days = request.lookback_days
 
-    result_queue: "queue.Queue[str | None]" = __import__("queue").Queue()
+    def worker(emitter: SSEEmitter):
+        def log_callback(msg: str):
+            emitter.send("log", msg.rstrip())
 
-    def log_callback(msg: str):
-        result_queue.put(_sse("log", msg.rstrip()))
-
-    def worker():
         try:
             from automation.find_inactive_readymode_users import find_inactive_users_multi_dialer
             results = find_inactive_users_multi_dialer(
@@ -257,20 +206,9 @@ async def find_inactive_users(
                 lookback_days=lookback_days,
                 log_callback=log_callback,
             )
-            result_queue.put(_sse("done", results))
+            emitter.send("done", results)
         except Exception as e:
             logger.error(f"find_inactive_users worker error: {e}", exc_info=True)
-            result_queue.put(_sse("error", str(e)))
-        finally:
-            result_queue.put(None)  # sentinel
+            emitter.send("error", str(e))
 
-    threading.Thread(target=worker, daemon=True).start()
-
-    def inactive_stream():
-        while True:
-            item = result_queue.get()
-            if item is None:
-                break
-            yield item
-
-    return StreamingResponse(inactive_stream(), media_type="text/event-stream")
+    return run_sse_stream(worker, keepalive=False)

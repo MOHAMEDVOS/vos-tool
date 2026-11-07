@@ -53,7 +53,6 @@ export function Tabs({ tabs, active, onChange, variant = 'primary' }: Props) {
               )}
             </span>
 
-            {/* Underline indicator — primary tabs only */}
             {!isSub && isActive && (
               <motion.div
                 layoutId="activeTab"

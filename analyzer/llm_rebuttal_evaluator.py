@@ -91,7 +91,7 @@ class GroqClient:
             "messages": messages,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
-            "response_format": {"type": "json_object"}  # Force JSON response
+            "response_format": {"type": "json_object"}
         }
         
         last_error = None
@@ -159,7 +159,6 @@ class GroqClient:
 class RebuttalPromptBuilder:
     """Constructs context-aware prompts for LLM evaluation."""
     
-    # Objection category to human-readable mapping
     OBJECTION_MAP = {
         "not_interested": "customer said they are not interested",
         "busy_time": "customer said they are busy or it's a bad time",
@@ -248,7 +247,6 @@ Return valid JSON only:
             f"customer objection: {objection_category}"
         )
         
-        # Use dialogue if available for full context, otherwise fallback to transcript
         conversation_text = dialogue if dialogue else transcript
         
         prompt = f"""FULL CONVERSATION:
@@ -271,7 +269,6 @@ Pay special attention to (most commonly missed):
 
 """
         
-        # Add learned phrases as examples if available
         if objection_category in self.learned_phrases:
             category_phrases = self.learned_phrases[objection_category]
             if category_phrases and len(category_phrases) > 0:
@@ -282,7 +279,6 @@ Pay special attention to (most commonly missed):
 
 """
         
-        # Add semantic hints if provided
         if semantic_hints:
             prompt += f"""POSSIBLE REBUTTAL CANDIDATES (low confidence — need your judgment):
 {chr(10).join(f'- "{hint}"' for hint in semantic_hints[:3])}
@@ -330,7 +326,6 @@ class LLMRebuttalEvaluator:
             self.cache_ttl = timedelta(minutes=5)
             self.cache_timestamps = {}
             
-            # Load learned phrases using class-level cache (P0 FIX)
             self.learned_phrases = self._get_cached_learned_phrases()
             self.prompt_builder = RebuttalPromptBuilder(learned_phrases=self.learned_phrases)
             
@@ -344,12 +339,10 @@ class LLMRebuttalEvaluator:
         """Get learned phrases from class-level cache or load if expired."""
         with self._cache_lock:
             now = time.time()
-            # 5-minute cache TTL for learned phrases
             if self._learned_phrases_cache is not None and (now - self._learned_phrases_loaded_at) < 300:
                 logger.debug("Using class-level cache for learned phrases")
                 return self._learned_phrases_cache
             
-            # Cache expired or not loaded, load from DB
             logger.info("Class-level cache empty or expired, loading learned phrases from DB")
             self._learned_phrases_cache = self._load_learned_phrases_from_db()
             self._learned_phrases_loaded_at = now
@@ -368,7 +361,6 @@ class LLMRebuttalEvaluator:
                 logger.warning("Database not available, LLM will not have learned phrase examples")
                 return {}
             
-            # Query repository_phrases table for approved learned phrases
             query = """
                 SELECT category, phrase, usage_count, effectiveness_score
                 FROM repository_phrases
@@ -385,7 +377,6 @@ class LLMRebuttalEvaluator:
                 logger.info("No learned phrases found in database")
                 return {}
             
-            # Organize by category
             learned_phrases = {}
             for row in results:
                 category = row['category']
@@ -416,7 +407,6 @@ class LLMRebuttalEvaluator:
                 logger.debug(f"Cache hit for key: {cache_key[:8]}...")
                 return self.cache[cache_key]
             else:
-                # Expired, remove from cache
                 del self.cache[cache_key]
                 del self.cache_timestamps[cache_key]
         
@@ -451,7 +441,6 @@ class LLMRebuttalEvaluator:
                 - matched_phrase (str or None)
                 - source (str): 'llm_evaluation'
         """
-        # Check cache first (use dialogue if available for cache key)
         cache_text = dialogue if dialogue else transcript
         cache_key = self._get_cache_key(cache_text, objection_category)
         cached_result = self._check_cache(cache_key)
@@ -459,7 +448,6 @@ class LLMRebuttalEvaluator:
             return cached_result
         
         try:
-            # Extract semantic hints if provided
             semantic_hints = None
             if semantic_candidates:
                 semantic_hints = [
@@ -468,13 +456,12 @@ class LLMRebuttalEvaluator:
                     if match.get('phrase')
                 ]
             
-            # Build prompt with dialogue context
             system_prompt = self.prompt_builder.get_system_prompt()
             user_prompt = self.prompt_builder.build_user_prompt(
                 transcript=transcript,
                 objection_category=objection_category,
                 semantic_hints=semantic_hints,
-                dialogue=dialogue  # Pass full conversation for context
+                dialogue=dialogue
             )
             
             messages = [
@@ -482,7 +469,6 @@ class LLMRebuttalEvaluator:
                 {"role": "user", "content": user_prompt}
             ]
             
-            # Call GroqCloud API
             logger.debug(f"Calling GroqCloud API for objection: {objection_category}")
             start_time = time.time()
             
@@ -491,20 +477,16 @@ class LLMRebuttalEvaluator:
             elapsed = time.time() - start_time
             logger.debug(f"GroqCloud API completed in {elapsed:.2f}s")
             
-            # Parse response
             content = response['choices'][0]['message']['content']
             result = json.loads(content)
             
-            # Validate response format
             if not self._validate_response(result):
                 logger.error(f"Invalid LLM response format: {result}")
                 return self._fallback_response()
             
-            # Add metadata
             result['source'] = 'llm_evaluation'
             result['api_latency'] = elapsed
-            
-            # Cache the result
+
             self._save_to_cache(cache_key, result)
             
             logger.info(f"LLM evaluation: {objection_category} -> {result['rebuttal_detected']} (confidence: {result['confidence']:.2f})")

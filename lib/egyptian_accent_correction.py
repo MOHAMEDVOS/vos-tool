@@ -94,7 +94,6 @@ class EgyptianAccentCorrection:
         corrections_made = []
         original_text = text
 
-        # Apply corrections using class attribute
         for egyptian_pattern, english_word in self.corrections.items():
             if egyptian_pattern in text:
                 text = text.replace(egyptian_pattern, english_word)

@@ -11,7 +11,6 @@ from contextlib import contextmanager
 from typing import List, Dict, Any, Union
 from datetime import datetime
 
-# Import database manager
 try:
     from lib.database import get_db_manager
     DB_AVAILABLE = True
@@ -49,19 +48,15 @@ class PhraseLearningManager:
         self.use_postgresql = True
 
         logger.info("Using PostgreSQL for phrase management")
-        
-        # Cache for settings and performance stats
+
         self._settings_cache = {}
         self._category_thresholds = {}
         self._last_threshold_update = None
-        
-        # Initialize database tables
+
         self._init_database()
-        
-        # Load settings from DB
+
         self._load_settings()
-        
-        # Cache for performance optimization
+
         self._quality_score_cache = {}
         self._canonical_form_cache = {}
         self._similarity_cache = {}
@@ -84,7 +79,6 @@ class PhraseLearningManager:
             'auto_approve_threshold': 0.80 # Auto-approve above this confidence (Updated to 80%)
         }
         
-        # Initialize with defaults first
         self.confidence_threshold = default_settings['confidence_threshold']
         self.frequency_threshold = default_settings['frequency_threshold']
         self.auto_approve_threshold = default_settings['auto_approve_threshold']
@@ -110,7 +104,6 @@ class PhraseLearningManager:
                     logger.info(f"Loaded settings from DB: confidence={self.confidence_threshold}, "
                                f"frequency={self.frequency_threshold}, auto_approve={self.auto_approve_threshold}")
                 else:
-                    # Save defaults to DB if empty
                     self._save_settings()
                     logger.info("Initialized default settings in database")
                 cursor.close()
@@ -159,10 +152,8 @@ class PhraseLearningManager:
         
         try:
             with self._db_connection() as conn:
-                # Get all pending phrases with confidence >= min_confidence
                 cursor = conn.cursor()
-                
-                # First, get the count of phrases that will be auto-approved
+
                 cursor.execute("""
                     SELECT COUNT(*) 
                     FROM pending_phrases 
@@ -179,11 +170,6 @@ class PhraseLearningManager:
                         'stats': stats
                     }
                 
-                # Check if source column exists (just in case schema update failed)
-                # But in pure PG environment created by Init DB, it should exist.
-                # Simplified to just try selecting it, catch error if needed? 
-                # Better: Just select simplified columns for now, assuming standard schema.
-                
                 cursor.execute("""
                     SELECT id, phrase, confidence, category
                     FROM pending_phrases 
@@ -192,7 +178,6 @@ class PhraseLearningManager:
                 """, (min_confidence,))
                 phrases = [(row[0], row[1], row[3]) for row in cursor.fetchall()]
                 
-                # Process each phrase
                 for phrase_id, phrase_text, category in phrases:
                     try:
                         # Add to repository (will skip if already exists, but that's OK)
@@ -201,8 +186,7 @@ class PhraseLearningManager:
                             category=category or 'general',
                             source='auto_approved'
                         )
-                        
-                        # Update status to approved
+
                         cursor.execute("""
                             UPDATE pending_phrases 
                             SET status = 'approved'
@@ -410,14 +394,12 @@ class PhraseLearningManager:
                            context: str = "", similar_to: str = "", existing_conn=None):
         """Track a semantic match for potential learning."""
         try:
-            # Skip if confidence is too low
             if confidence < self.confidence_threshold:
                 return
 
             clean_phrase = (phrase or "").lower().strip()
             clean_category = (category or "").strip()
 
-            # Basic validation: non-empty and minimum length
             if not clean_phrase or len(clean_phrase) < 3:
                 return
 
@@ -451,17 +433,14 @@ class PhraseLearningManager:
             if any(k in lower for k in closing_keywords) and not any(k in lower for k in content_keywords):
                 return
 
-            # Enforce maximum length for auto-learned phrases
             words = clean_phrase.split()
             if len(words) > 20 or len(clean_phrase) > 200:
                 words = words[:20]
                 clean_phrase = " ".join(words)[:200].strip()
 
-            # Skip if phrase is blacklisted
             if self._is_blacklisted(clean_phrase, clean_category, existing_conn=existing_conn):
                 return
-            
-            # Skip if phrase already exists in repository
+
             if self._phrase_exists_in_repository(clean_phrase, clean_category, existing_conn=existing_conn):
                 return
             
@@ -507,7 +486,6 @@ class PhraseLearningManager:
 
                     new_count = int(count) + 1
                     new_confidence = max(float(existing_conf), float(confidence))
-                    # Merge contexts
                     existing_context = existing_ctx or ""
                     new_context = context[:500] or ""
                     if existing_context and new_context:
@@ -516,9 +494,8 @@ class PhraseLearningManager:
                         merged_context = existing_context
                     else:
                         merged_context = new_context
-                    merged_context = merged_context[:500]  # Limit to 500 chars
-                    
-                    # Calculate quality score for merged phrase
+                    merged_context = merged_context[:500]
+
                     merged_phrase_data = {
                         'id': phrase_id,
                         'confidence': new_confidence,
@@ -538,8 +515,7 @@ class PhraseLearningManager:
                             canonical_form = %s
                         WHERE id = %s
                     """, (new_count, new_confidence, merged_context, quality_score, canonical_form, phrase_id))
-                    
-                    # Check if it should be auto-approved (use merged confidence)
+
                     # High Priority (confidence ≥ threshold): Auto-approve immediately, no frequency requirement
                     if quality_score >= self.auto_approve_threshold or confidence >= self.auto_approve_threshold:
                         self._auto_approve_phrase(phrase_id, clean_phrase, clean_category, existing_conn=conn)
@@ -561,19 +537,17 @@ class PhraseLearningManager:
             db_ctx = self._db_connection() if existing_conn is None else nullcontext(existing_conn)
             
             with db_ctx as conn:
-                # Move to approved status
                 cursor = conn.cursor()
                 cursor.execute(
                     "UPDATE pending_phrases SET status = 'auto_approved' WHERE id = %s",
                     (phrase_id,),
                 )
-                
+
                 # Only commit if we opened the connection
                 if existing_conn is None:
                     conn.commit()
                 cursor.close()
-                
-                # Add to repository
+
                 self._add_to_repository(phrase, category, source='auto_learned', existing_conn=conn)
                 
                 logger.info(f"Auto-approved phrase: '{phrase}' in {category}")
@@ -586,39 +560,32 @@ class PhraseLearningManager:
         Create canonical form by removing filler words.
         Performance: ~1-2ms, cached for reuse.
         """
-        # Check cache first
         cache_key = phrase.lower().strip()
         if cache_key in self._canonical_form_cache:
             return self._canonical_form_cache[cache_key]
-        
+
         # Remove common fillers (be careful not to remove important words)
         # Only remove standalone filler words, not words that are part of meaningful phrases
-        filler_words = {'okay', 'ok', 'well', 'so', 'um', 'uh', 'like', 'actually', 
+        filler_words = {'okay', 'ok', 'well', 'so', 'um', 'uh', 'like', 'actually',
                        'basically', 'literally', 'really', 'very', 'just'}
-        # Handle filler phrases (remove these complete phrases)
         filler_phrases = ['you know', 'i mean']
-        
-        # First remove multi-word filler phrases
+
         text = phrase.lower().strip()
         for filler_phrase in filler_phrases:
             # Replace with space to maintain word boundaries
             text = text.replace(filler_phrase, ' ')
-        
-        # Then remove single-word fillers (only if standalone, not part of phrase)
+
         words = text.split()
         canonical = []
         for word in words:
             # Remove punctuation for comparison
             clean_word = word.strip('.,!?;:')
-            # Only skip if it's a filler word
             if clean_word not in filler_words:
                 canonical.append(word)
-        
+
         canonical_form = ' '.join(canonical).strip()
-        # Clean up extra spaces
         canonical_form = ' '.join(canonical_form.split())
-        
-        # Cache result
+
         self._canonical_form_cache[cache_key] = canonical_form
         return canonical_form
     
@@ -633,14 +600,12 @@ class PhraseLearningManager:
         - Recency (15%): Time since last detection
         - Context Quality (10%): Richness of sample contexts
         """
-        # Check cache first (TTL: 1 hour)
         cache_key = f"{phrase_data.get('id', 'new')}_{phrase_data.get('confidence', 0)}"
         if cache_key in self._quality_score_cache:
             cached_score, cached_time = self._quality_score_cache[cache_key]
             if (datetime.now() - cached_time).total_seconds() < 3600:  # 1 hour TTL
                 return cached_score
-        
-        # Extract factors
+
         confidence = phrase_data.get('confidence', 0.0)
         detection_count = phrase_data.get('detection_count', 1)
         last_detected = phrase_data.get('last_detected')
@@ -660,17 +625,14 @@ class PhraseLearningManager:
         # Normalize frequency (0-1 scale, max at 10 detections)
         frequency_score = min(detection_count / 10.0, 1.0)
         
-        # Calculate recency score (0-1 scale)
         recency_score = 1.0
         if last_detected:
             try:
                 if isinstance(last_detected, str):
-                    # Handle ISO format strings
                     last_detected_str = last_detected.replace('Z', '+00:00')
                     try:
                         last_detected_dt = datetime.fromisoformat(last_detected_str)
                     except:
-                        # Fallback for different formats
                         last_detected_dt = datetime.strptime(last_detected.split('.')[0], '%Y-%m-%d %H:%M:%S')
                 else:
                     last_detected_dt = last_detected
@@ -686,7 +648,6 @@ class PhraseLearningManager:
                 logger.debug(f"Recency calculation failed: {e}")
                 recency_score = 1.0  # Default to fresh if parsing fails
         
-        # Context quality (0-1 scale, based on length)
         context_quality = min(len(sample_contexts) / 500.0, 1.0) if sample_contexts else 0.0
         
         # Weighted formula (no ML, just smart weights)
@@ -697,9 +658,8 @@ class PhraseLearningManager:
             context_quality * 0.10    # Rich context = better understanding
         )
         
-        quality_score = min(quality_score, 1.0)  # Cap at 1.0
-        
-        # Cache result
+        quality_score = min(quality_score, 1.0)
+
         self._quality_score_cache[cache_key] = (quality_score, datetime.now())
         
         return quality_score
@@ -723,7 +683,6 @@ class PhraseLearningManager:
         Get adaptive threshold for category based on historical performance.
         Performance: ~0.1ms (cached lookup)
         """
-        # Check cache first (TTL: 1 week)
         if category in self._category_thresholds_cache:
             cached_threshold, cached_time = self._category_thresholds_cache[category]
             if (datetime.now() - cached_time).total_seconds() < 604800:  # 1 week
@@ -737,8 +696,7 @@ class PhraseLearningManager:
         }
         
         base_threshold = base_thresholds.get(category, 0.85)
-        
-        # Adjust based on historical performance (if available)
+
         try:
             with self._db_connection() as conn:
                 if self.use_postgresql:
@@ -771,16 +729,14 @@ class PhraseLearningManager:
                     except Exception:
                         avg_quality = None
 
-                    # Adjust threshold based on performance
                     if approval_rate and approval_rate > 0.95:
                         base_threshold -= 0.02  # Lower threshold (high accuracy)
                     elif approval_rate and approval_rate < 0.80:
                         base_threshold += 0.02  # Raise threshold (low accuracy)
         except Exception as e:
             logger.debug(f"Adaptive threshold lookup failed: {e}")
-            pass  # Use base threshold if lookup fails
-        
-        # Cache result
+            pass
+
         self._category_thresholds_cache[category] = (base_threshold, datetime.now())
         
         return base_threshold
@@ -856,7 +812,6 @@ class PhraseLearningManager:
             with db_ctx as conn:
                 cursor = conn.cursor()
                 try:
-                    # Update repository_phrases
                     cursor.execute(
                         "SELECT id FROM repository_phrases WHERE phrase = %s AND category = %s",
                         (clean_phrase, category),
@@ -896,7 +851,6 @@ class PhraseLearningManager:
 
             logger.info(f"Added phrase to repository: '{clean_phrase}' in {category}")
 
-            # Reload semantic embeddings
             try:
                 from models import reload_semantic_embeddings
                 reload_semantic_embeddings()
@@ -1043,8 +997,6 @@ class PhraseLearningManager:
         
         def _background_worker():
             try:
-                # Capture phrases locally because disable_deferred_mode clears the list
-                # Actually, flush_deferred_phrases handles the clearing
                 logger.info("🚀 Starting background phrase flush...")
                 result = self.flush_deferred_phrases()
                 stats = result.get('stats', {})
@@ -1058,22 +1010,8 @@ class PhraseLearningManager:
         # Start daemon thread (won't block program exit)
         t = threading.Thread(target=_background_worker, daemon=True, name="PhraseFlushWorker")
         t.start()
-        
-        # Disable deferred mode immediately in main thread (reset state)
-        # Note: We need to preserve the list for the worker before clearing,
-        # but flush_deferred_phrases reads self._deferred_phrases.
-        # So we DON'T clear it here if flushing; the worker does it.
-        # But we DO need to set deferred_mode to False so new adds go to DB?
-        # Actually, let's keep it simple: Just disable the mode flag, 
-        # let the worker flush the queue.
-        
-        # Wait... if we set deferred_mode=False, flush_deferred_phrases checks this flag and returns error!
-        # So we must keep deferred_mode=True until the worker runs?
-        # OR we modify flush_deferred_phrases to not check the flag?
-        # Better option: The worker calls 'flush_deferred_phrases', which clears the queue.
-        # We just need to manage the flag.
-        
-        self.deferred_mode = False  # Disable mode for future calls
+
+        self.deferred_mode = False
         logger.info("📦 Deferred mode disabled (flush running in background)")
     
     def _auto_cleanup_duplicates_lightweight(self):
@@ -1090,14 +1028,12 @@ class PhraseLearningManager:
                 """)
                 phrases = cursor.fetchall()
 
-                # Group by normalized phrase
                 phrase_groups = {}
                 for row in phrases:
-                    # Normalized: lower case, stripped
                     norm_phrase = row[1].lower().strip()
                     if norm_phrase not in phrase_groups:
                         phrase_groups[norm_phrase] = []
-                    
+
                     phrase_groups[norm_phrase].append({
                         'id': row[0],
                         'phrase': row[1],
@@ -1105,47 +1041,41 @@ class PhraseLearningManager:
                         'detection_count': row[3],
                         'contexts': row[4]
                     })
-                
-                # Find duplicates
+
                 duplicates_to_remove = []
                 phrases_to_update = []
-                
+
                 for norm_phrase, duplicates in phrase_groups.items():
                     if len(duplicates) > 1:
-                        # Sort by detection count (desc) then confidence (desc)
                         duplicates.sort(key=lambda x: (x['detection_count'], x['confidence']), reverse=True)
-                        
+
                         best_phrase = duplicates[0]
                         total_detections = best_phrase['detection_count']
                         all_contexts = [best_phrase['contexts']] if best_phrase['contexts'] else []
-                        
-                        # Merge others
+
                         for dup in duplicates[1:]:
                             total_detections += dup['detection_count']
                             if dup['contexts']:
                                 all_contexts.append(dup['contexts'])
                             duplicates_to_remove.append(dup['id'])
-                        
-                        # Update the best phrase with merged data
+
                         merged_contexts = " | ".join([c for c in all_contexts if c])[:500]
                         phrases_to_update.append({
                             'id': best_phrase['id'],
                             'detection_count': total_detections,
                             'contexts': merged_contexts
                         })
-                
-                # Update phrases with merged data
+
                 for update_data in phrases_to_update:
                     try:
                         cursor.execute("""
-                            UPDATE pending_phrases 
+                            UPDATE pending_phrases
                             SET detection_count = %s, sample_contexts = %s
                             WHERE id = %s
                         """, (update_data['detection_count'], update_data['contexts'], update_data['id']))
                     except Exception as e:
                         logger.warning(f"Error updating phrase ID {update_data['id']} during auto-cleanup: {e}")
-                
-                # Delete duplicate phrases
+
                 if duplicates_to_remove:
                     placeholders = ','.join(['%s'] * len(duplicates_to_remove))
                     cursor.execute(f"""
@@ -1169,7 +1099,6 @@ class PhraseLearningManager:
     
     def get_pending_phrases(self, status: str = 'pending') -> List[Dict[str, Any]]:
         """Get pending phrases for review. Automatically cleans duplicates before returning."""
-        # Auto-cleanup duplicates before returning
         self._auto_cleanup_duplicates_lightweight()
         
         conn = None
@@ -1265,8 +1194,7 @@ class PhraseLearningManager:
                 return False
             
             phrase, category = result
-            
-            # Update status
+
             cursor.execute(
                 "UPDATE pending_phrases SET status = 'approved' WHERE id = %s",
                 (phrase_id,)
@@ -1274,8 +1202,7 @@ class PhraseLearningManager:
             conn.commit()
             cursor.close()
             self._return_db_connection(conn)
-            
-            # Add to repository
+
             self._add_to_repository(phrase, category, source='admin_approved')
             
             logger.info(f"Approved phrase: '{phrase}' in {category}")
@@ -1337,8 +1264,7 @@ class PhraseLearningManager:
                             category=category or 'general',
                             source='auto_approved'
                         )
-                        
-                        # Update status to approved regardless
+
                         cursor.execute("""
                             UPDATE pending_phrases 
                             SET status = 'approved'
@@ -1437,11 +1363,10 @@ class PhraseLearningManager:
         
         try:
             with self._db_connection() as conn:
-                # Get all pending phrases
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT id, phrase, category
-                    FROM pending_phrases 
+                    FROM pending_phrases
                     WHERE status = 'pending'
                     ORDER BY id
                 """)
@@ -1463,14 +1388,13 @@ class PhraseLearningManager:
                             category=category or 'general',
                             source='admin_approved'
                         )
-                        
-                        # Update status to approved
+
                         cursor.execute("""
-                            UPDATE pending_phrases 
+                            UPDATE pending_phrases
                             SET status = 'approved'
                             WHERE id = %s
                         """, (phrase_id,))
-                        
+
                         if success:
                             stats['total_approved'] += 1
                             logger.info(f"Approved phrase: '{phrase_text}' in {category or 'general'}")
@@ -1506,10 +1430,9 @@ class PhraseLearningManager:
         """
         try:
             with self._db_connection() as conn:
-                # Find phrase in repository
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT id, usage_count, successful_detections 
+                    SELECT id, usage_count, successful_detections
                     FROM repository_phrases 
                     WHERE phrase = %s AND category = %s
                 """, (phrase.lower().strip(), category))
@@ -1548,16 +1471,15 @@ class PhraseLearningManager:
         
         try:
             with self._db_connection() as conn:
-                # Get all pending phrases
                 cursor = conn.cursor()
                 cursor.execute("""
                     SELECT id, phrase, confidence, detection_count, sample_contexts
-                    FROM pending_phrases 
+                    FROM pending_phrases
                     WHERE status = 'pending'
                     ORDER BY confidence DESC, detection_count DESC
                 """)
                 phrases = cursor.fetchall()
-                
+
                 if not phrases:
                     cursor.close()
                     return {
@@ -1565,8 +1487,7 @@ class PhraseLearningManager:
                         'message': 'No pending phrases found',
                         'stats': stats
                     }
-                
-                # Group by normalized phrase
+
                 phrase_groups = {}
                 for row in phrases:
                     phrase_id, phrase, confidence, detection_count, contexts = row
@@ -1582,20 +1503,16 @@ class PhraseLearningManager:
                             'contexts': contexts or ""
                         })
                 
-                # Process groups with duplicates
                 duplicates_to_remove = []
                 phrases_to_update = []
-                
+
                 for _, phrases in phrase_groups.items():
                     if len(phrases) > 1:
-                        # Sort by confidence (desc) then detection_count (desc)
                         phrases.sort(key=lambda x: (x['confidence'], x['detection_count']), reverse=True)
-                        
-                        # Keep the best one (first after sorting)
+
                         best_phrase = phrases[0]
                         duplicates = phrases[1:]
-                        
-                        # Merge data: sum detection counts, combine contexts
+
                         total_detections = best_phrase['detection_count']
                         all_contexts = [best_phrase['contexts']] if best_phrase['contexts'] else []
                         
@@ -1604,29 +1521,26 @@ class PhraseLearningManager:
                             if dup['contexts']:
                                 all_contexts.append(dup['contexts'])
                             duplicates_to_remove.append(dup['id'])
-                        
-                        # Update the best phrase with merged data
+
                         merged_contexts = " | ".join([c for c in all_contexts if c])[:500]
                         phrases_to_update.append({
                             'id': best_phrase['id'],
                             'detection_count': total_detections,
                             'contexts': merged_contexts
                         })
-                        
+
                         stats['phrases_merged'] += len(duplicates)
-                
-                # Update phrases with merged data
+
                 for update_data in phrases_to_update:
                     try:
                         cursor.execute("""
-                            UPDATE pending_phrases 
+                            UPDATE pending_phrases
                             SET detection_count = %s, sample_contexts = %s
                             WHERE id = %s
                         """, (update_data['detection_count'], update_data['contexts'], update_data['id']))
                     except Exception as e:
                         logger.warning(f"Error updating phrase ID {update_data['id']}: {e}")
-                
-                # Delete duplicate phrases
+
                 if duplicates_to_remove:
                     placeholders = ','.join(['%s'] * len(duplicates_to_remove))
                     cursor.execute(f"""
@@ -1655,7 +1569,6 @@ class PhraseLearningManager:
     def add_phrase_manually(self, phrase: str, category: str) -> dict:
         """Add a phrase manually to the repository with validation."""
         try:
-            # Clean and validate input
             clean_phrase = phrase.lower().strip()
             clean_category = category.strip().upper()
             
@@ -1668,13 +1581,11 @@ class PhraseLearningManager:
             if len(clean_phrase) < 3:
                 return {"success": False, "message": "Phrase must be at least 3 characters long"}
             
-            # Check if phrase already exists in repository
             current_phrases = self.get_repository_phrases()
             for cat, phrases in current_phrases.items():
                 if clean_phrase in phrases:
                     return {"success": False, "message": f"Phrase already exists in category '{cat}'"}
-            
-            # Add to repository
+
             self._add_to_repository(clean_phrase, clean_category, source='manual_admin')
             
             logger.info(f"Manually added phrase: '{clean_phrase}' to {clean_category}")
@@ -1693,27 +1604,24 @@ class PhraseLearningManager:
         """Reject a pending phrase and add to blacklist."""
         try:
             with self._db_connection() as conn:
-                # Get phrase details
                 cursor = conn.cursor()
                 cursor.execute(
                     "SELECT phrase, category FROM pending_phrases WHERE id = %s",
                     (phrase_id,),
                 )
                 result = cursor.fetchone()
-                
+
                 if not result:
                     cursor.close()
                     return False
-                
+
                 phrase, category = result
-                
-                # Update status
+
                 cursor.execute(
                     "UPDATE pending_phrases SET status = 'rejected' WHERE id = %s",
                     (phrase_id,),
                 )
-                
-                # Add to blacklist
+
                 cursor.execute(
                     """
                     INSERT INTO phrase_blacklist (phrase, category, reason)
@@ -1797,7 +1705,6 @@ class PhraseLearningManager:
         """Get all phrases from repository."""
         conn = None
         try:
-            # Get phrases from PostgreSQL
             conn = self._get_db_connection()
             cursor = conn.cursor()
             
@@ -1873,7 +1780,6 @@ class PhraseLearningManager:
                 settings_changed = True
         
         if settings_changed:
-            # Save settings to file for persistence
             self._save_settings()
             logger.info(
                 f"Updated and saved learning settings: confidence={self.confidence_threshold}, "
@@ -1883,7 +1789,6 @@ class PhraseLearningManager:
             logger.debug("No settings changes detected")
 
 
-# Global instance
 _phrase_learning_manager = None
 
 def get_phrase_learning_manager() -> PhraseLearningManager:

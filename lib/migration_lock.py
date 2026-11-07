@@ -30,7 +30,7 @@ MIGRATION_LOCK_FILE = LOCK_FILE_DIR / ".migration_lock"
 MIGRATION_STATUS_FILE = LOCK_FILE_DIR / ".migration_status.json"
 
 # PostgreSQL advisory lock IDs (must be unique)
-MIGRATION_ADVISORY_LOCK_ID = 1234567890  # Unique ID for migration lock
+MIGRATION_ADVISORY_LOCK_ID = 1234567890
 
 
 class MigrationLock:
@@ -47,10 +47,8 @@ class MigrationLock:
         
     def is_migration_in_progress(self) -> bool:
         """Check if migration is currently in progress."""
-        # Check lock file
         if self.lock_file.exists():
             try:
-                # Check if lock file is stale (older than 1 hour)
                 lock_age = time.time() - self.lock_file.stat().st_mtime
                 if lock_age > 3600:  # 1 hour
                     logger.warning(f"Stale lock file detected (age: {lock_age:.0f}s), removing")
@@ -77,12 +75,9 @@ class MigrationLock:
     def acquire_file_lock(self) -> bool:
         """Acquire file-based lock (Unix/Windows compatible)."""
         try:
-            # Ensure directory exists
             self.lock_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Try to create and lock the file
+
             if os.name == 'nt':  # Windows
-                # On Windows, use exclusive file creation
                 try:
                     self.lock_fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_RDWR)
                     return True
@@ -100,7 +95,6 @@ class MigrationLock:
                         self.lock_fd = None
                         return False
                 else:
-                    # Fallback for systems without fcntl
                     try:
                         self.lock_fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_RDWR)
                         return True
@@ -127,7 +121,6 @@ class MigrationLock:
             except Exception as e:
                 logger.error(f"Error releasing file lock: {e}")
         
-        # Remove lock file
         try:
             if self.lock_file.exists():
                 self.lock_file.unlink()
@@ -188,23 +181,19 @@ class MigrationLock:
     
     def acquire_all_locks(self, db_conn) -> bool:
         """Acquire both file and database locks."""
-        # First check if migration is already in progress
         if self.is_migration_in_progress():
             logger.error("Migration is already in progress (lock file exists)")
             return False
-        
-        # Try to acquire file lock
+
         if not self.acquire_file_lock():
             logger.error("Failed to acquire file lock (another migration may be running)")
             return False
-        
-        # Try to acquire database lock
+
         if not self.acquire_db_lock(db_conn):
             self.release_file_lock()
             logger.error("Failed to acquire database lock (another migration may be running)")
             return False
-        
-        # Update status
+
         self.update_status('running', {'stage': 'initializing'})
         
         logger.info("All locks acquired successfully")

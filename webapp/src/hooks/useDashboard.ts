@@ -53,7 +53,6 @@ export function useCampaignDisposition(params?: { campaign?: string; start_date?
   })
 }
 
-// Polls badge count every 60 s and syncs to Zustand
 export function useFlaggedBadge() {
   const setFlaggedCount = useBadgeStore((s) => s.setFlaggedCount)
   const result = useQuery({

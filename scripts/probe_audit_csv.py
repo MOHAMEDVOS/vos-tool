@@ -80,7 +80,6 @@ try:
     if all_keys:
         print(f"  Found {len(all_keys)} field keys:")
         for fk in all_keys:
-            # find matching label if available
             lbl = next((l for k, l in labels if k == fk), "")
             print(f"    {fk:<40}  {lbl.strip()}")
     else:
@@ -142,13 +141,11 @@ try:
     )
     print(f"  ✓ CSV downloaded ({len(csv_bytes)} bytes)")
 
-    # Save to file
     out_path = Path(__file__).parent.parent / "scratch" / "probe_audit_output.csv"
     out_path.parent.mkdir(exist_ok=True)
     out_path.write_bytes(csv_bytes)
     print(f"  Saved to: {out_path}")
 
-    # Print first 10 rows
     import csv, io
     text = csv_bytes.decode("utf-8", errors="replace")
     rows = list(csv.reader(io.StringIO(text)))

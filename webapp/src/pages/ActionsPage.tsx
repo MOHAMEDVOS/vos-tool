@@ -10,7 +10,7 @@ import { RefreshCw, Search, Check, Copy, ArrowUp, ArrowDown, Trash2 } from 'luci
 import { CustomSelect } from '@/components/ui/Select'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CountUp, Metric } from '@/components/ui/Metric'
-import { dedupeLongCallRows, isLongCallFlagged, isFairRebuttalMiss } from '@/utils/audit'
+import { dedupeLongCallRows, isLongCallFlagged, isFairRebuttalMiss, getCallIssues, buildAgentDeductions } from '@/utils/audit'
 
 type FlagTypeFilter = 'All Flags' | 'Releasing' | 'Late Hello' | 'No Rebuttal' | 'Wrong Dispo' | 'Long VM/Dead'
 
@@ -77,14 +77,12 @@ export function AgentDeductionsTable({
       let va = a[sortCol]
       let vb = b[sortCol]
       
-      // Handle array/boolean types for sorting
       if (Array.isArray(va)) va = va.join(', ')
       if (Array.isArray(vb)) vb = vb.join(', ')
-      
+
       const sa = String(va ?? '').toLowerCase()
       const sb = String(vb ?? '').toLowerCase()
-      
-      // Try numeric sort for numeric fields
+
       if (typeof va === 'number' && typeof vb === 'number') {
         return sortDir === 'asc' ? va - vb : vb - va
       }
@@ -265,24 +263,7 @@ export function ActionsPage() {
   }
 
   // Build the human issue labels for one flagged call (shared by the list + Copy All).
-  const callIssues = (c: FlaggedCall): string[] => {
-    const issues: string[] = []
-    if (c['Releasing Detection'] === 'Yes') issues.push('Releasing')
-    if (c['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
-    if (isFairRebuttalMiss(c)) issues.push('No Rebuttal')
-    if (c['Wrong Dispo Detection'] === 'Yes') {
-      const reason = c['Wrong Dispo Reason']
-      issues.push(reason ? `Wrong Dispo ${reason}` : 'Wrong Dispo')
-    }
-    const lc = c['Long VM/Dead Detection']
-    if (isLongCallFlagged(lc)) {
-      const s = String(lc).toLowerCase()
-      if (s.startsWith('voicemail')) issues.push('voicemail above 15 sec')
-      else if (s.startsWith('dead call')) issues.push('Dead call above 15 sec')
-      else issues.push('Long VM/Dead')
-    }
-    return issues
-  }
+  const callIssues = getCallIssues
 
   const isLoading = flaggedLoading || auditsLoading || liteLoading
   const isError = flaggedError
@@ -321,29 +302,10 @@ export function ActionsPage() {
   // Long VM/Dead rows duplicate on repeat audits (deterministic from CSV) — dedupe before use.
   const dedupedCalls = useMemo<FlaggedCall[]>(() => dedupeLongCallRows(flaggedCalls ?? []), [flaggedCalls])
 
-  const agentDeductions = useMemo<AgentDeductionRow[]>(() => {
-    const calls: FlaggedCall[] = dedupedCalls
-    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; wrongDispo: number; dialerNames: Set<string> }>()
-    for (const call of calls) {
-      const name = (call['Agent Name'] ?? 'Unknown').trim()
-      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, longCall: 0, wrongDispo: 0, dialerNames: new Set() })
-      const entry = agentMap.get(name)!
-      entry.flagged.push(call)
-      if (call['Releasing Detection'] === 'Yes') entry.releasing++
-      if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
-      if (isFairRebuttalMiss(call)) entry.noRebuttals++
-      if (isLongCallFlagged(call['Long VM/Dead Detection'])) entry.longCall++
-      if (call['Wrong Dispo Detection'] === 'Yes') entry.wrongDispo++
-      const dialer = call['Dialer Name'] as string | undefined
-      if (dialer) entry.dialerNames.add(dialer)
-    }
-    return [...agentMap.entries()].map(([agentName, data]) => ({
-      agentName, totalCalls: totalCallsMap.get(agentName) ?? data.flagged.length,
-      flaggedCalls: data.flagged.length, releasing: data.releasing, lateHello: data.lateHello,
-      noRebuttals: data.noRebuttals, longCall: data.longCall, wrongDispo: data.wrongDispo,
-      dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
-    })).sort((a, b) => b.flaggedCalls - a.flaggedCalls)
-  }, [dedupedCalls, totalCallsMap])
+  const agentDeductions = useMemo<AgentDeductionRow[]>(
+    () => buildAgentDeductions(dedupedCalls, totalCallsMap),
+    [dedupedCalls, totalCallsMap],
+  )
 
   const summary = useMemo(() => {
     const all = dedupedCalls
@@ -464,7 +426,6 @@ export function ActionsPage() {
 
       {activeAgent && (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8">
-          {/* Detailed Flagged Calls */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3 ml-1">
@@ -480,7 +441,6 @@ export function ActionsPage() {
             </div>
 
             <div className="rounded-2xl bg-surface-card border border-b-strong shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl">
-              {/* Copy-all header */}
               {filteredAgentCalls.length > 0 && (
                 <div className="flex items-center justify-between px-4 py-2.5 border-b border-b-subtle bg-c-raised/50">
                   <span className="text-[10px] font-black uppercase tracking-widest text-vos-500">{filteredAgentCalls.length} calls</span>
@@ -527,7 +487,6 @@ export function ActionsPage() {
             </div>
           </div>
 
-          {/* Audited Dialers */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3 ml-1">
               <div className="w-1 h-4 bg-dev-blue rounded-full" />

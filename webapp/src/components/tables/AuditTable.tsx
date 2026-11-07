@@ -14,7 +14,7 @@ interface Props {
   excludeColumns?: string[]
 }
 
-export function AuditTable({ rows, leftActions, excludeColumns = [] }: Props) {
+export function AuditTable({ rows, leftActions, excludeColumns = [], getRowClassName }: Props) {
   const [sortCol, setSortCol] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -108,7 +108,7 @@ export function AuditTable({ rows, leftActions, excludeColumns = [] }: Props) {
             </thead>
             <tbody className="divide-y divide-b-subtle">
               {rowData.map((row, idx) => (
-                <tr key={idx} className="hover:bg-c-raised/50 transition-colors group/row">
+                <tr key={idx} className={`hover:bg-c-raised/50 transition-colors group/row ${getRowClassName ? getRowClassName(row, idx) : ''}`}>
                   {columns.map((col) => {
                     const val = row[col]
                     const isDetection = DETECTION_COLS.has(col)

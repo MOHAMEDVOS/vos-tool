@@ -19,7 +19,6 @@ export function TopLoadingBar() {
     let timeout: ReturnType<typeof setTimeout>
 
     if (isActive) {
-      /* race toward 82% — slows as it approaches */
       let current = 0
       function tick() {
         const remaining = 82 - current
@@ -34,7 +33,6 @@ export function TopLoadingBar() {
         tick()
       })
     } else {
-      /* snap to 100% then fade out */
       timeout = setTimeout(() => {
         setVisible(false)
         setProgress(0)
@@ -59,10 +57,8 @@ export function TopLoadingBar() {
           className="fixed top-0 left-0 right-0 z-[9999] h-[2px] pointer-events-none"
           style={{ background: 'transparent' }}
         >
-          {/* Track */}
           <div className="absolute inset-0 bg-transparent" />
 
-          {/* Bar */}
           <motion.div
             className="absolute left-0 top-0 h-full rounded-r-full"
             style={{
@@ -77,7 +73,6 @@ export function TopLoadingBar() {
             }}
           />
 
-          {/* Leading glow dot */}
           {progress < 100 && (
             <motion.div
               className="absolute top-1/2 -translate-y-1/2 w-[5px] h-[5px] rounded-full"

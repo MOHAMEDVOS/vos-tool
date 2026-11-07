@@ -49,7 +49,6 @@ class FastAudioProcessor:
         
         agent_name, phone_number, timestamp, disposition = extract_basic_file_metadata(file_path)
 
-        # Validate audio file
         if not self._is_valid_audio_file(file_path):
             logger.warning(f"Invalid audio file: {file_path}")
             return {
@@ -65,7 +64,6 @@ class FastAudioProcessor:
                 'transcription_error': 'invalid_file'
             }
         
-        # Load audio
         try:
             audio = self.load_audio_file(file_path)
         except Exception as e:
@@ -83,7 +81,6 @@ class FastAudioProcessor:
                 'transcription_error': 'load_failed'
             }
         
-        # Extract agent audio
         agent_audio = self._extract_agent_audio(audio)
         
         if len(agent_audio) < 1000:  # Less than 1 second
@@ -101,7 +98,6 @@ class FastAudioProcessor:
                 'transcription_error': 'too_short'
             }
         
-        # Fast parallel processing: transcription + basic detections
         try:
             result = self._process_fast_parallel(
                 agent_audio, file_path, agent_name, phone_number, 

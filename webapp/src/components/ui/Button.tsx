@@ -7,14 +7,13 @@ type NativeButtonProps = Omit<
 >
 
 interface Props extends NativeButtonProps {
-  variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'action' | 'destroy'
+  variant?: 'primary' | 'secondary' | 'danger' | 'action'
   size?: 'sm' | 'md'
 }
 
 /* Vercel button system:
    primary   = dark fill (#171717 light / #ededed dark), 6px radius
    secondary = white/dark fill + shadow-as-border ring
-   ghost     = transparent, text only, subtle hover bg
    danger    = workflow red tint
    action    = pill-shaped, uppercase, heavy tracking (dashboard buttons) */
 
@@ -41,10 +40,6 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
         'shadow-[var(--btn-secondary-shadow)] ' +
         'hover:bg-[var(--hover-overlay)]',
 
-      ghost:
-        'bg-transparent text-t-muted ' +
-        'hover:bg-[var(--hover-overlay)] hover:text-t-primary',
-
       danger:
         'bg-[var(--semantic-error)] text-white ' +
         'hover:opacity-90 shadow-lg',
@@ -53,12 +48,6 @@ export const Button = forwardRef<HTMLButtonElement, Props>(
         'bg-[var(--btn-heavy-bg)] text-[var(--btn-heavy-text)] ' +
         'font-black uppercase tracking-[0.2em] ' +
         'hover:bg-[var(--btn-heavy-hover)] shadow-xl',
-
-      destroy:
-        'bg-[#c0392b] text-white ' +
-        'font-black uppercase tracking-[0.2em] rounded-full ' +
-        'hover:bg-[#e74c3c] shadow-[0_4px_20px_rgba(192,57,43,0.45)] ' +
-        'hover:shadow-[0_4px_28px_rgba(231,76,60,0.6)] transition-shadow',
     }
 
     const sizes = {

@@ -7,26 +7,19 @@ import time
 import logging
 import os
 import json
-import re  # Required for regex operations in transcription quality assessment
-import threading  # For thread-safe model initialization
+import re
+import threading
 from typing import Dict, List, Any, Optional, Tuple
-from pydub import AudioSegment
-import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
 from models import (
     get_semantic_model as _model_get_semantic_model,
-    reload_semantic_embeddings as _model_reload_semantic_embeddings,
     # get_whisper_model removed - using AssemblyAI only
 )
 
 
 def _get_semantic_model():
     return _model_get_semantic_model()
-
-
-def reload_semantic_embeddings():
-    return _model_reload_semantic_embeddings()
 
 
 # _get_whisper_model removed - using AssemblyAI only
@@ -45,1306 +38,6 @@ LLAMA_AVAILABLE = False
 llama_rebuttal_detection = None
 logger.info("🚫 LLaMA classifier disabled (removed - experimental feature)")
 
-class DataIngestionLayer:
-    """Handles input validation and preprocessing."""
-
-    def __init__(self):
-        self.min_duration_seconds = 1.0
-        self.max_duration_seconds = 300.0
-
-    def validate_input(self, audio_segment: AudioSegment) -> Dict[str, Any]:
-        """Validate input audio segment."""
-        if not isinstance(audio_segment, AudioSegment):
-            return {"is_valid": False, "errors": ["Input must be AudioSegment"]}
-
-        duration_seconds = len(audio_segment) / 1000.0
-        if duration_seconds < self.min_duration_seconds:
-            return {"is_valid": False, "errors": [f"Audio too short: {duration_seconds:.1f}s"]}
-
-        if duration_seconds > self.max_duration_seconds:
-            return {"is_valid": False, "errors": [f"Audio too long: {duration_seconds:.1f}s"]}
-
-        return {"is_valid": True, "errors": [], "metadata": {"duration_seconds": duration_seconds}}
-
-
-class PreprocessingPipeline:
-    """Audio preprocessing and quality validation."""
-
-    def __init__(self):
-        self.min_duration_seconds = 1.0
-
-    def extract_agent_channel(self, audio_segment: AudioSegment) -> AudioSegment:
-        """Extract agent audio channel."""
-        if audio_segment.channels == 2:
-            return audio_segment.split_to_mono()[0]
-        return audio_segment
-
-    def split_channels(self, audio_segment: AudioSegment) -> Tuple[AudioSegment, AudioSegment, bool]:
-        """Split stereo audio into agent and owner channels.
-        Returns: (agent_audio, owner_audio, is_stereo)
-        """
-        if audio_segment.channels == 2:
-            channels = audio_segment.split_to_mono()
-            return channels[0], channels[1], True  # Left=agent, Right=owner
-        else:
-            # For mono, treat as agent channel, create empty owner
-            return audio_segment, AudioSegment.empty(), False
-
-    def normalize_for_transcription(self, audio_segment: AudioSegment) -> AudioSegment:
-        """
-        Enhanced normalization for transcription with quality improvements.
-        Whisper requires 16kHz, mono, 16-bit PCM audio.
-        """
-        try:
-            # Apply enhanced preprocessing for better transcription quality
-            enhanced = self._apply_enhanced_preprocessing(audio_segment)
-            logger.debug(f"Audio enhanced and normalized: {enhanced.frame_rate}Hz, {enhanced.channels}ch, {enhanced.sample_width*8}bit")
-            return enhanced
-            
-        except Exception as e:
-            logger.warning(f"Enhanced preprocessing failed: {e}, using basic normalization")
-            # Fallback to basic normalization
-            return self._basic_normalization(audio_segment)
-    
-    def _apply_enhanced_preprocessing(self, audio_segment: AudioSegment) -> AudioSegment:
-        """Apply enhanced preprocessing for better transcription quality."""
-        from pydub.effects import normalize, compress_dynamic_range
-        
-        enhanced = audio_segment
-        
-        # Step 1: Extract agent channel if stereo
-        if enhanced.channels == 2:
-            enhanced = enhanced.split_to_mono()[0]  # Use left channel (typically agent)
-        
-        # Step 2: Normalize volume
-        enhanced = normalize(enhanced)
-        
-        # Step 3: Apply dynamic range compression for phone calls
-        enhanced = compress_dynamic_range(enhanced, threshold=-25.0, ratio=3.0, attack=5.0, release=50.0)
-        
-        # Step 4: Resample to 16kHz
-        if enhanced.frame_rate != 16000:
-            enhanced = enhanced.set_frame_rate(16000)
-        
-        # Step 5: Ensure 16-bit
-        enhanced = enhanced.set_sample_width(2)
-        
-        # Step 6: Basic noise reduction for phone calls
-        enhanced = self._apply_phone_noise_reduction(enhanced)
-        
-        return enhanced
-    
-    def _apply_phone_noise_reduction(self, audio_segment: AudioSegment) -> AudioSegment:
-        """Apply noise reduction optimized for phone call recordings."""
-        try:
-            samples = np.array(audio_segment.get_array_of_samples())
-            
-            if len(samples) > 100:
-                # Simple high-pass filter for phone line noise
-                window_size = min(30, len(samples) // 20)
-                if window_size > 1:
-                    moving_avg = np.convolve(samples, np.ones(window_size)/window_size, mode='same')
-                    samples = samples - moving_avg * 0.2  # Reduce low-frequency noise
-                    
-                    # Prevent clipping
-                    max_val = max(abs(samples.min()), abs(samples.max()))
-                    if max_val > 32767:
-                        samples = samples * (32767 / max_val)
-                    
-                    samples = samples.astype(np.int16)
-            
-            return audio_segment._spawn(samples.tobytes())
-            
-        except Exception as e:
-            logger.warning(f"Phone noise reduction failed: {e}")
-            return audio_segment
-    
-    def _basic_normalization(self, audio_segment: AudioSegment) -> AudioSegment:
-        """Basic normalization as fallback."""
-        # Convert to 16kHz sample rate (required by Whisper)
-        audio_16khz = audio_segment.set_frame_rate(16000)
-        
-        # Convert to mono (should already be mono from extract_agent_channel, but ensure it)
-        if audio_16khz.channels > 1:
-            audio_16khz = audio_16khz.set_channels(1)
-        
-        # Convert to 16-bit sample width (required by Whisper)
-        audio_16bit = audio_16khz.set_sample_width(2)  # 2 bytes = 16 bits
-        
-        # Normalize volume
-        normalized = audio_16bit.normalize()
-        
-        return normalized
-
-    def quality_validation(self, audio_segment: AudioSegment) -> Dict[str, Any]:
-        """Validate audio quality and detect potential Whisper hallucinations."""
-        duration_ms = len(audio_segment)
-
-        # Continue processing even if recording is short; only skip extremely short clips (<1s)
-        if duration_ms < 1000:
-            logger.info(f"Recording too short for rebuttal detection: {duration_ms/1000:.1f}s (minimum 1s required)")
-            return {"audio_quality_ok": False, "skipped_reason": "too_short"}
-
-        if duration_ms < 20000:
-            logger.info(f"Recording shorter than 20 seconds: {duration_ms/1000:.1f}s - proceeding with caution")
-            return {"audio_quality_ok": True, "short_audio": True}
-
-        # Enhanced quality checks
-        audio_array = np.array(audio_segment.get_array_of_samples())
-
-        # Check for very quiet audio
-        max_amplitude = np.max(np.abs(audio_array))
-        if max_amplitude < 500:  # Very quiet threshold
-            logger.info(f"Audio too quiet for reliable transcription: max amplitude {max_amplitude}")
-            return {"audio_quality_ok": False, "skipped_reason": "too_quiet"}
-
-        # Calculate signal-to-noise ratio approximation
-        mean_amplitude = np.mean(np.abs(audio_array))
-        if mean_amplitude > 0:
-            snr_estimate = max_amplitude / mean_amplitude
-            if snr_estimate < 2.0:  # Poor SNR indicating noisy audio
-                logger.info(f"Poor audio quality detected: SNR estimate {snr_estimate:.2f}")
-                return {"audio_quality_ok": False, "skipped_reason": "poor_quality"}
-
-        # Check for excessive silence or uniform audio (potential recording issues)
-        std_amplitude = np.std(audio_array)
-        if std_amplitude < 100:  # Very uniform audio
-            logger.info(f"Audio too uniform (possible recording issue): std {std_amplitude}")
-            return {"audio_quality_ok": False, "skipped_reason": "uniform_audio"}
-
-        return {"audio_quality_ok": True}
-
-
-
-class TranscriptionEngine:
-    """
-    AssemblyAI-based transcription engine.
-    Uses AssemblyAI API exclusively for cloud-based speech-to-text transcription.
-    """
-
-    def __init__(self, api_key: Optional[str] = None):
-        """
-        Initialize transcription engine with AssemblyAI API.
-        
-        Args:
-            api_key: AssemblyAI API key. If not provided, reads from environment.
-        
-        Raises:
-            ValueError: If API key is not available.
-        """
-        try:
-            from lib.assemblyai_transcription import AssemblyAITranscriptionEngine
-            self.assemblyai_engine = AssemblyAITranscriptionEngine(api_key)
-            logger.info("TranscriptionEngine initialized with AssemblyAI API")
-        except ValueError as e:
-            logger.error(f"AssemblyAI API key required: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Failed to initialize AssemblyAI transcription engine: {e}")
-            raise
-
-    def transcribe_audio(self, audio_segment: AudioSegment) -> str:
-        """
-        Transcribe audio using AssemblyAI API.
-        
-        Args:
-            audio_segment: pydub AudioSegment to transcribe
-            
-        Returns:
-            Transcript text
-        """
-        logger.debug(f"Starting transcription of {len(audio_segment)}ms audio with AssemblyAI")
-        
-        try:
-            import tempfile
-            
-            # Export audio segment to temp file
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                audio_segment.export(tmp.name, format="wav")
-                tmp_path = tmp.name
-            
-            logger.debug("Transcribing with AssemblyAI API")
-            # Disable language detection to avoid failures on low/zero-speech clips
-            result = self.assemblyai_engine.transcribe_file(
-                tmp_path,
-                enable_speaker_diarization=False,  # Disable for single-segment transcription
-                options={
-                    "language_detection": False,
-                    "language_code": "en"
-                }
-            )
-            
-            # Clean up temp file
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
-            
-            transcript = result.get("transcript", "").strip()
-            if transcript:
-                logger.debug(f"AssemblyAI transcription successful: {len(transcript)} characters")
-                return transcript
-            else:
-                logger.warning("AssemblyAI returned empty transcript")
-                return ""
-                
-        except Exception as e:
-            logger.error(f"AssemblyAI transcription failed: {e}")
-            raise
-
-    def transcribe_dual_channels(self, agent_audio: AudioSegment, owner_audio: AudioSegment) -> Tuple[List[Dict], List[Dict]]:
-        """
-        Transcribe both agent and owner channels using AssemblyAI API.
-        Uses speaker diarization to separate speakers.
-        """
-        logger.debug("Starting dual channel transcription with AssemblyAI")
-
-        agent_segments = []
-        owner_segments = []
-
-        try:
-            import tempfile
-
-            # Combine both channels into a single file for transcription with speaker diarization
-            # AssemblyAI will identify speakers automatically
-            combined_audio = AudioSegment.from_mono_audiosegments(agent_audio, owner_audio)
-            
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                combined_audio.export(tmp.name, format="wav")
-                combined_path = tmp.name
-            
-            try:
-                # Transcribe with speaker diarization
-                result = self.assemblyai_engine.transcribe_file(
-                    combined_path,
-                    enable_speaker_diarization=True
-                )
-                
-                # Process utterances to separate by speaker
-                utterances = result.get("utterances", [])
-                
-                # For now, assign first speaker as agent, second as owner
-                # This can be enhanced with speaker identification logic
-                speakers = result.get("speakers", [])
-                
-                for utterance in utterances:
-                    speaker = utterance.get("speaker", "")
-                    text = utterance.get("text", "").strip()
-                    start = utterance.get("start", 0)
-                    end = utterance.get("end", 0)
-                    
-                    if text and len(text) > 1:
-                        segment = {
-                            'start': start / 1000.0 if start else 0,  # Convert ms to seconds
-                            'end': end / 1000.0 if end else 0,
-                            'text': text.lower()
-                        }
-                        
-                        # Assign to agent or owner based on speaker label
-                        # Default: first speaker (A) = agent, second speaker (B) = owner
-                        if speaker == "A" or (speakers and speaker == speakers[0]):
-                            agent_segments.append(segment)
-                        else:
-                            owner_segments.append(segment)
-                
-                logger.debug(f"Dual transcription completed: {len(agent_segments)} agent segments, {len(owner_segments)} owner segments")
-                
-            finally:
-                # Clean up temp file
-                try:
-                    os.unlink(combined_path)
-                except:
-                    pass
-            
-            return agent_segments, owner_segments
-
-        except Exception as e:
-            logger.error(f"Dual transcription failed: {e}", exc_info=True)
-            return [], []
-
-
-def merge_segments_to_dialogue(agent_segments: List[Dict], owner_segments: List[Dict]) -> str:
-    """Merge agent and owner segments chronologically into dialogue format.
-    
-    Args:
-        agent_segments: List of agent segment dicts with 'start', 'end', 'text'
-        owner_segments: List of owner segment dicts with 'start', 'end', 'text'
-        
-    Returns:
-        Formatted dialogue string like:
-        Agent: hello there
-        Owner: who is this
-        Agent: this is mark calling about your property
-    """
-    # Combine all segments with speaker labels
-    all_segments = []
-    
-    for segment in agent_segments:
-        if segment['text'].strip():  # Only include non-empty segments
-            all_segments.append({
-                'start': segment['start'],
-                'speaker': 'Agent',
-                'text': segment['text'].strip()
-            })
-    
-    for segment in owner_segments:
-        if segment['text'].strip():  # Only include non-empty segments
-            all_segments.append({
-                'start': segment['start'],
-                'speaker': 'Owner',
-                'text': segment['text'].strip()
-            })
-    
-    # Sort by start time
-    all_segments.sort(key=lambda x: x['start'])
-    
-    # Group consecutive segments by the same speaker
-    if not all_segments:
-        return ""
-    
-    merged_segments = []
-    current_speaker = all_segments[0]['speaker']
-    current_text = all_segments[0]['text']
-    
-    for segment in all_segments[1:]:
-        if segment['speaker'] == current_speaker:
-            # Merge with previous segment
-            current_text += " " + segment['text']
-        else:
-            # Save previous segment and start new one
-            merged_segments.append({
-                'speaker': current_speaker,
-                'text': current_text
-            })
-            current_speaker = segment['speaker']
-            current_text = segment['text']
-    
-    # Add the last segment
-    merged_segments.append({
-        'speaker': current_speaker,
-        'text': current_text
-    })
-    
-    # Format as dialogue
-    dialogue_lines = []
-    for segment in merged_segments:
-        dialogue_lines.append(f"{segment['speaker']}: {segment['text']}")
-    
-    return "\n".join(dialogue_lines)
-
-
-class PhoneticAdaptationLayer:
-    """Accent correction and normalization for Egyptian English."""
-
-    def __init__(self):
-        # Comprehensive Egyptian accent phonetic corrections library (800+ corrections)
-        self.PHONETIC_CORRECTIONS = {
-            # Property & Real Estate (Multiple Variations)
-            "proberty": "property",
-            "broberty": "property",
-            "probirty": "property",
-            "brobirty": "property",
-            "propirty": "property",
-            "ril": "real",
-            "reel": "real",
-            "ryal": "real",
-            "istate": "estate",
-            "estat": "estate",
-            "esteyt": "estate",
-            "isteit": "estate",
-            "seling": "selling",
-            "sellink": "selling",
-            "sillink": "selling",
-            "filling": "selling",
-            "silence": "selling",  # NEW: Corrects "silence soon" → "selling soon"
-            "sellling": "selling",  # NEW: Corrects "sellling" → "selling" (triple 'l')
-            "baying": "buying",
-            "bayink": "buying",
-            "byink": "buying",
-
-            # THE (Most Important - Multiple Variations)
-            "ze": "the",
-            "de": "the",
-            "da": "the",
-            "di": "the",
-            "za": "the",
-            "d": "the",
-            "z": "the",
-
-            # Common Verbs - HAVE (Multiple Variations)
-            "haf": "have",
-            "hav": "have",
-            "haff": "have",
-            "hafe": "have",
-            "hef": "have",
-
-            # Common Verbs - Other (Multiple Variations)
-            "tink": "think",
-            "sink": "think",
-            "fink": "think",
-            "teenk": "think",
-            "sank": "thank",
-            "tank": "thank",
-            "fank": "thank",
-            "shank": "thank",
-            "tenk": "thank",
-            "sru": "through",
-            "tru": "through",
-            "fru": "through",
-            "thru": "through",
-            "srough": "through",
-            "trough": "through",
-            "nid": "need",
-            "nead": "need",
-            "niid": "need",
-            "ned": "need",
-            "tek": "take",
-            "taik": "take",
-            "teyk": "take",
-            "tayk": "take",
-            "giv": "give",
-            "gif": "give",
-            "geev": "give",
-            "gief": "give",
-            "geif": "give",
-            "bay": "pay",
-            "bey": "pay",
-            "pey": "pay",
-            "bi": "pay",
-            "bi": "buy",
-            "bai": "buy",
-            "bey": "buy",
-            "sel": "sell",
-            "sil": "sell",
-            "sal": "sell",
-            "rimember": "remember",
-            "remimber": "remember",
-            "rememper": "remember",
-            "rimemper": "remember",
-            "belif": "believe",
-            "bilive": "believe",
-            "beleef": "believe",
-            "bileef": "believe",
-            "believ": "believe",
-            "anderstand": "understand",
-            "ondirstand": "understand",
-            "andarstand": "understand",
-            "understend": "understand",
-            "ofer": "offer",
-            "ofir": "offer",
-            "offar": "offer",
-            "ofar": "offer",
-            "rebresent": "represent",
-            "reprezent": "represent",
-            "ripresent": "represent",
-            "rebrizent": "represent",
-
-            # THIS/THAT/THESE/THOSE (Multiple Variations)
-            "zis": "this",
-            "dis": "this",
-            "thiss": "this",
-            "ziss": "this",
-            "diss": "this",
-            "zat": "that",
-            "dat": "that",
-            "det": "that",
-            "zet": "that",
-            "ziz": "these",
-            "diz": "these",
-            "deez": "these",
-            "zeez": "these",
-            "zoz": "those",
-            "doz": "those",
-            "doze": "those",
-            "zoze": "those",
-            "dos": "those",
-            "zey": "they",
-            "dey": "they",
-            "thay": "they",
-            "day": "they",
-            "zay": "they",
-            "zeir": "their",
-            "deir": "their",
-            "der": "their",
-            "zair": "their",
-            "dair": "their",
-            "zem": "them",
-            "dem": "them",
-            "thim": "them",
-            "dim": "them",
-            "zim": "them",
-            "zer": "there",
-            "der": "there",
-            "dere": "there",
-            "zere": "there",
-            "dare": "there",
-
-            # OTHER/ANOTHER (Multiple Variations)
-            "uzzer": "other",
-            "uzer": "other",
-            "odder": "other",
-            "othir": "other",
-            "azzer": "other",
-            "anuzzer": "another",
-            "anuther": "another",
-            "anudder": "another",
-            "anozzer": "another",
-            "anadder": "another",
-
-            # WITH/WITHIN (Multiple Variations)
-            "wiz": "with",
-            "wid": "with",
-            "weeth": "with",
-            "weth": "with",
-            "wit": "with",
-            "wizin": "within",
-            "widin": "within",
-            "witheen": "within",
-            "withen": "within",
-
-            # YOU/YOUR (Multiple Variations)
-            "yu": "you",
-            "yoo": "you",
-            "ya": "you",
-            "ye": "you",
-            "yor": "your",
-            "yur": "your",
-            "yoor": "your",
-            "yar": "your",
-            "yur": "you're",
-            "yor": "you're",
-            "yoor": "you're",
-            "yar": "you're",
-
-            # NOT/NO (Multiple Variations)
-            "nat": "not",
-            "nawt": "not",
-            "naat": "not",
-            "nott": "not",
-            "noo": "no",
-            "na": "no",
-            "now": "no",
-
-            # PERFECT/PROBLEM (Multiple Variations)
-            "berfect": "perfect",
-            "pirfect": "perfect",
-            "parfect": "perfect",
-            "berfict": "perfect",
-            "perfict": "perfect",
-            "broblem": "problem",
-            "probelem": "problem",
-            "brobelem": "problem",
-            "problim": "problem",
-
-            # FUTURE/EVEN (Multiple Variations)
-            "fuchure": "future",
-            "fyucher": "future",
-            "fucher": "future",
-            "fewcher": "future",
-            "fyutcher": "future",
-            "efen": "even",
-            "ifen": "even",
-            "efin": "even",
-            "ifin": "even",
-            "eeven": "even",
-
-            # ABOUT (Multiple Variations)
-            "abot": "about",
-            "abut": "about",
-            "abowt": "about",
-            "aboat": "about",
-            "abaut": "about",
-
-            # IMPORTANT/INTEREST (Multiple Variations)
-            "imbertan": "important",
-            "importan": "important",
-            "importent": "important",
-            "imbortan": "important",
-            "embortant": "important",
-            "interes": "interest",
-            "intrist": "interest",
-            "enterest": "interest",
-            "interist": "interest",
-
-            # BECAUSE (Multiple Variations)
-            "becuz": "because",
-            "bicuz": "because",
-            "becoz": "because",
-            "bikuz": "because",
-            "bcuz": "because",
-
-            # GOOD/WOULD/SHOULD (Multiple Variations)
-            "gud": "good",
-            "goud": "good",
-            "gead": "good",
-            "goad": "good",
-            "wud": "would",
-            "wuld": "would",
-            "wood": "would",
-            "woud": "would",
-            "shud": "should",
-            "shuld": "should",
-            "shoud": "should",
-            "shod": "should",
-
-            # MAYBE/SOMETHING/EVERYTHING (Multiple Variations)
-            "meybi": "maybe",
-            "maybi": "maybe",
-            "meyby": "maybe",
-            "mabe": "maybe",
-            "somting": "something",
-            "sumting": "something",
-            "somtink": "something",
-            "samthing": "something",
-            "everyting": "everything",
-            "evryting": "everything",
-            "evrything": "everything",
-            "ivriting": "everything",
-            "anyting": "anything",
-            "enyting": "anything",
-            "anytink": "anything",
-            "inithing": "anything",
-
-            # WHEN/WHERE/WHAT/WHY/HOW (Multiple Variations)
-            "wen": "when",
-            "win": "when",
-            "wan": "when",
-            "whin": "when",
-            "wer": "where",
-            "were": "where",
-            "wair": "where",
-            "whir": "where",
-            "wat": "what",
-            "wot": "what",
-            "waat": "what",
-            "wut": "what",
-            "wai": "why",
-            "wi": "why",
-            "way": "why",
-            "whi": "why",
-            "haw": "how",
-            "houw": "how",
-            "hou": "how",
-            "hu": "how",
-
-            # MUCH/SUCH (Multiple Variations)
-            "mach": "much",
-            "mouch": "much",
-            "moch": "much",
-            "mutch": "much",
-            "sach": "such",
-            "souch": "such",
-            "soch": "such",
-            "sutch": "such",
-
-            # TIME WORDS (Multiple Variations)
-            "taim": "time",
-            "tym": "time",
-            "tyme": "time",
-            "teim": "time",
-            "minit": "minute",
-            "minut": "minute",
-            "minet": "minute",
-            "meenit": "minute",
-            "sun": "soon",
-            "soun": "soon",
-            "sune": "soon",
-            "sean": "soon",
-            "naw": "now",
-            "nou": "now",
-            "naow": "now",
-
-            # MONTHS/YEARS/PERIODS (Multiple Variations)
-            "manthz": "months",
-            "monthes": "months",
-            "manths": "months",
-            "munths": "months",
-            "yirz": "years",
-            "yeers": "years",
-            "yeerz": "years",
-            "yarz": "years",
-            "biryod": "period",
-            "piriod": "period",
-            "beriod": "period",
-            "piriad": "period",
-
-            # LEASE TERMS (Multiple Variations)
-            "liz": "lease",
-            "lees": "lease",
-            "lis": "lease",
-            "liez": "lease",
-            "rint": "rent",
-            "rant": "rent",
-            "rient": "rent",
-            "yirly": "yearly",
-            "yerly": "yearly",
-            "yirley": "yearly",
-            "yerley": "yearly",
-            "montly": "monthly",
-            "mantly": "monthly",
-            "manthly": "monthly",
-            "munthly": "monthly",
-            "exbair": "expire",
-            "exbire": "expire",
-            "exbayr": "expire",
-            "ixpire": "expire",
-            "expayer": "expire",
-
-            # VACANT/OCCUPIED (Multiple Variations)
-            "fakant": "vacant",
-            "vekent": "vacant",
-            "vaykent": "vacant",
-            "fekant": "vacant",
-            "vaceint": "vacant",
-            "okubaid": "occupied",
-            "occubied": "occupied",
-            "okyupied": "occupied",
-            "ockupayd": "occupied",
-            "okupaid": "occupied",
-
-            # PROPERTY FEATURES (Multiple Variations)
-            "rof": "roof",
-            "ruf": "roof",
-            "rouf": "roof",
-            "roff": "roof",
-            "bids": "beds",
-            "badz": "beds",
-            "bedz": "beds",
-            "bathes": "baths",
-            "bass": "baths",
-            "bethz": "baths",
-            "abgrades": "upgrades",
-            "upgradez": "upgrades",
-            "upgreds": "upgrades",
-            "abgredz": "upgrades",
-            "ribayrz": "repairs",
-            "repairz": "repairs",
-            "ripayrz": "repairs",
-            "repayrz": "repairs",
-            "florink": "flooring",
-            "floring": "flooring",
-            "floorenk": "flooring",
-            "paintink": "painting",
-            "beinting": "painting",
-            "peinting": "painting",
-
-            # AGE/SIZE (Multiple Variations)
-            "ej": "age",
-            "aij": "age",
-            "ayj": "age",
-            "ayge": "age",
-            "saiz": "size",
-            "sise": "size",
-            "seyz": "size",
-            "syz": "size",
-            "skwer": "square",
-            "skware": "square",
-            "skwair": "square",
-            "squir": "square",
-            "fit": "feet",
-            "fiet": "feet",
-            "feit": "feet",
-            "ekerz": "acres",
-            "acrez": "acres",
-            "aykres": "acres",
-            "akars": "acres",
-
-            # BUSY/MINUTE (TIME) (Multiple Variations)
-            "bizy": "busy",
-            "bisy": "busy",
-            "bezy": "busy",
-            "bezi": "busy",
-            "kwik": "quick",
-            "quik": "quick",
-            "kwick": "quick",
-            "queek": "quick",
-
-            # INTERESTED (Multiple Variations)
-            "intrested": "interested",
-            "intersted": "interested",
-            "intiristed": "interested",
-            "interisted": "interested",
-            "interestted": "interested",  # NEW: Corrects "interestted" → "interested" (double 't')
-            "intterested": "interested",  # NEW: Corrects "intterested" → "interested" (double 't')
-
-            # CONVENIENCE/BENEFITS (Multiple Variations)
-            "convinyence": "convenience",
-            "confinience": "convenience",
-            "conviniens": "convenience",
-            "konvinience": "convenience",
-            "binifits": "benefits",
-            "benifits": "benefits",
-            "binefits": "benefits",
-            "benefets": "benefits",
-
-            # CASH/COSTS/CLOSING (Multiple Variations)
-            "kash": "cash",
-            "kesh": "cash",
-            "cesh": "cash",
-            "kostz": "costs",
-            "costes": "costs",
-            "kosts": "costs",
-            "klozing": "closing",
-            "closink": "closing",
-            "klosing": "closing",
-            "klozink": "closing",
-            "komishonz": "commissions",
-            "comishons": "commissions",
-            "comissionz": "commissions",
-            "komisshonz": "commissions",
-
-            # BOTTOM LINE (Multiple Variations)
-            "botom": "bottom",
-            "bottum": "bottom",
-            "bottem": "bottom",
-            "batom": "bottom",
-            "lain": "line",
-            "layn": "line",
-            "lyn": "line",
-            "lien": "line",
-
-            # COMPLETELY/AS IS (Multiple Variations)
-            "kombletely": "completely",
-            "combletly": "completely",
-            "completly": "completely",
-            "kompletly": "completely",
-            "sent": "cent",
-            "sint": "cent",
-            "cint": "cent",
-            "sент": "cent",
-
-            # INFORMATION/CONFIRM (Multiple Variations)
-            "informashon": "information",
-            "informeshon": "information",
-            "infermation": "information",
-            "informetion": "information",
-            "konform": "confirm",
-            "canfirm": "confirm",
-            "comfirm": "confirm",
-            "konfirm": "confirm",
-
-            # PARTNER/PART (Multiple Variations)
-            "bartner": "partner",
-            "partnar": "partner",
-            "bertner": "partner",
-            "partener": "partner",
-            "bart": "part",
-            "pert": "part",
-            "peart": "part",
-            "paart": "part",
-
-            # SUPPOSE/BEST (Multiple Variations)
-            "subboze": "suppose",
-            "sapose": "suppose",
-            "supose": "suppose",
-            "sepose": "suppose",
-            "bist": "best",
-            "bast": "best",
-            "biest": "best",
-
-            # FIT/SORTED (Multiple Variations)
-            "fet": "fit",
-            "fiet": "fit",
-            "fitt": "fit",
-            "sortid": "sorted",
-            "soarted": "sorted",
-            "serted": "sorted",
-
-            # REACH/BACK/CALLBACK (Multiple Variations)
-            "rich": "reach",
-            "reech": "reach",
-            "ritch": "reach",
-            "riach": "reach",
-            "bak": "back",
-            "beck": "back",
-            "bek": "back",
-            "baak": "back",
-            "kolbak": "callback",
-            "callbak": "callback",
-            "kolback": "callback",
-            "kalbek": "callback",
-
-            # AUTHORIZED/SIGNED (Multiple Variations)
-            "osorized": "authorized",
-            "athorized": "authorized",
-            "osoreyzed": "authorized",
-            "autherized": "authorized",
-            "sained": "signed",
-            "syned": "signed",
-            "seined": "signed",
-            "signet": "signed",
-            "kontract": "contract",
-            "contrak": "contract",
-            "kentract": "contract",
-            "contrect": "contract",
-
-            # REALTOR/LISTED (Multiple Variations)
-            "riltor": "realtor",
-            "reeltor": "realtor",
-            "rialtor": "realtor",
-            "realter": "realtor",
-            "listed": "listed",
-            "lest": "listed",
-            "listid": "listed",
-            "leested": "listed",
-            "lestid": "listed",
-
-            # EXPERT/AREA (Multiple Variations)
-            "eksbert": "expert",
-            "exbert": "expert",
-            "exburt": "expert",
-            "ekspurt": "expert",
-            "aria": "area",
-            "erya": "area",
-            "arya": "area",
-            "areya": "area",
-
-            # BUSINESS/TYPE/RESTAURANT (Multiple Variations)
-            "bisnes": "business",
-            "bizness": "business",
-            "besnes": "business",
-            "besniss": "business",
-            "taib": "type",
-            "tayp": "type",
-            "tipe": "type",
-            "taype": "type",
-            "restorant": "restaurant",
-            "resturant": "restaurant",
-            "ristorant": "restaurant",
-            "restrant": "restaurant",
-
-            # MULTIPLE/LOCAL/TEAMS (Multiple Variations)
-            "multibel": "multiple",
-            "maltibel": "multiple",
-            "multibul": "multiple",
-            "multipel": "multiple",
-            "lokal": "local",
-            "lokul": "local",
-            "locul": "local",
-            "loucal": "local",
-            "timz": "teams",
-            "teemz": "teams",
-            "tiems": "teams",
-            "teamz": "teams",
-
-            # UTILITIES/ZONING (Multiple Variations)
-            "yutilities": "utilities",
-            "utilitees": "utilities",
-            "yutiliteez": "utilities",
-            "uteleties": "utilities",
-            "watar": "water",
-            "woter": "water",
-            "weter": "water",
-            "wadir": "water",
-            "elektrisity": "electricity",
-            "electrisity": "electricity",
-            "ilektrisity": "electricity",
-            "elektricity": "electricity",
-            "zound": "zoned",
-            "zonet": "zoned",
-            "zouned": "zoned",
-            "agrikulcher": "agriculture",
-            "agreekulture": "agriculture",
-            "agrikulchur": "agriculture",
-            "agreculture": "agriculture",
-            "indastrial": "industrial",
-            "endestrial": "industrial",
-            "industriyal": "industrial",
-            "rezidential": "residential",
-            "residenshal": "residential",
-            "rezedential": "residential",
-            "residenchul": "residential",
-            "komershal": "commercial",
-            "commerchul": "commercial",
-            "komercial": "commercial",
-            "comercial": "commercial",
-
-            # ACCESS (Multiple Variations)
-            "akses": "access",
-            "aksess": "access",
-            "exess": "access",
-            "aксess": "access",
-
-            # NUMBERS (Multiple Variations)
-            "tu": "two",
-            "tew": "two",
-            "too": "two",
-            "sree": "three",
-            "tree": "three",
-            "thri": "three",
-            "tri": "three",
-            "foor": "four",
-            "feur": "four",
-            "fife": "five",
-            "faiv": "five",
-            "fiv": "five",
-            "fayv": "five",
-            "siks": "six",
-            "seex": "six",
-            "seks": "six",
-
-            # CONTRACTIONS - I/I'LL/I'M (Multiple Variations)
-            "ay": "I",
-            "ai": "I",
-            "aye": "I",
-            "a": "I",
-            "ayl": "I'll",
-            "ail": "I'll",
-            "ale": "I'll",
-            "al": "I'll",
-            "am": "I'm",
-            "aim": "I'm",
-            "aym": "I'm",
-            "em": "I'm",
-
-            # CONTRACTIONS - IT/IT'S (Multiple Variations)
-            "et": "it",
-            "itt": "it",
-            "eet": "it",
-            "its": "it's",
-            "ets": "it's",
-            "itz": "it's",
-
-            # CONTRACTIONS - WE/WE'RE (Multiple Variations)
-            "wi": "we",
-            "wee": "we",
-            "way": "we",
-            "wir": "we're",
-            "weer": "we're",
-            "wer": "we're",
-            "wire": "we're",
-
-            # CONTRACTIONS - DON'T/WON'T/WOULDN'T (Multiple Variations)
-            "dont": "don't",
-            "doun't": "don't",
-            "dunt": "don't",
-            "doant": "don't",
-            "wont": "won't",
-            "wount": "won't",
-            "wunt": "won't",
-            "woant": "won't",
-            "wudnt": "wouldn't",
-            "wudent": "wouldn't",
-            "wuldent": "wouldn't",
-            "woodent": "wouldn't",
-
-            # IS/ARE/WAS/WERE (Multiple Variations)
-            "iz": "is",
-            "ees": "is",
-            "ezz": "is",
-            "ar": "are",
-            "arr": "are",
-            "er": "are",
-            "waz": "was",
-            "woz": "was",
-            "wes": "was",
-            "wer": "were",
-            "war": "were",
-            "wir": "were",
-            "haz": "has",
-            "hez": "has",
-            "hess": "has",
-            "hev": "have",
-            "heff": "have",
-            "daz": "does",
-            "duz": "does",
-            "doz": "does",
-
-            # BEEN/DONE (Multiple Variations)
-            "bin": "been",
-            "ben": "been",
-            "bein": "been",
-            "bean": "been",
-            "dan": "done",
-            "dun": "done",
-            "daun": "done",
-            "doan": "done",
-
-            # JUST/ONLY (Multiple Variations)
-            "jast": "just",
-            "jas": "just",
-            "jost": "just",
-            "jest": "just",
-            "ounly": "only",
-            "onley": "only",
-            "unly": "only",
-            "onli": "only",
-
-            # MORE/THAN (Multiple Variations)
-            "mor": "more",
-            "mour": "more",
-            "moar": "more",
-            "moor": "more",
-            "zan": "than",
-            "dan": "than",
-            "zen": "than",
-            "den": "than",
-
-            # ANY/EVERY/SOME (Multiple Variations)
-            "eny": "any",
-            "ani": "any",
-            "inny": "any",
-            "ainy": "any",
-            "evry": "every",
-            "ivery": "every",
-            "everi": "every",
-            "efery": "every",
-            "sum": "some",
-            "som": "some",
-            "sam": "some",
-            "soum": "some",
-
-            # KNOW/NOW (Multiple Variations)
-            "no": "know",
-            "nou": "know",
-            "knaw": "know",
-            "naw": "now",
-            "nou": "now",
-            "naow": "now",
-
-            # ALL/ALWAYS (Multiple Variations)
-            "ol": "all",
-            "oll": "all",
-            "awl": "all",
-            "al": "all",
-            "olways": "always",
-            "olweys": "always",
-            "alwayz": "always",
-            "olweyz": "always",
-
-            # RIGHT/ALRIGHT/GREAT/OKAY (Multiple Variations)
-            "rayt": "right",
-            "rait": "right",
-            "reit": "right",
-            "riet": "right",
-            "olrait": "alright",
-            "alrayt": "alright",
-            "olright": "alright",
-            "arait": "alright",
-            "gret": "great",
-            "greit": "great",
-            "graat": "great",
-            "grayt": "great",
-            "okey": "okay",
-            "okai": "okay",
-            "oke": "okay",
-            "okeh": "okay",
-
-            # GOT/GET (Multiple Variations)
-            "gat": "got",
-            "gott": "got",
-            "gutt": "got",
-            "git": "get",
-            "gat": "get",
-            "gett": "get",
-
-            # WELL (Multiple Variations)
-            "wel": "well",
-            "will": "well",
-            "wil": "well",
-            "wal": "well",
-
-            # SEE/SAY (Multiple Variations)
-            "si": "see",
-            "sy": "see",
-            "sie": "see",
-            "sea": "see",
-            "sey": "say",
-            "sai": "say",
-            "se": "say",
-            "sae": "say",
-
-            # TALK/TELL (Multiple Variations)
-            "tok": "talk",
-            "tawk": "talk",
-            "tolk": "talk",
-            "taulk": "talk",
-            "tel": "tell",
-            "till": "tell",
-            "tal": "tell",
-            "teal": "tell",
-
-            # LIKE/LOOK (Multiple Variations)
-            "laik": "like",
-            "lyk": "like",
-            "lik": "like",
-            "leik": "like",
-            "luk": "look",
-            "louk": "look",
-            "loock": "look",
-            "lok": "look",
-
-            # MOVE/GOING/GO (Multiple Variations)
-            "mouf": "move",
-            "muv": "move",
-            "moov": "move",
-            "moof": "move",
-            "goink": "going",
-            "goin": "going",
-            "guink": "going",
-            "gouing": "going",
-            "gou": "go",
-            "gow": "go",
-            "goo": "go",
-
-            # WRONG/NUMBER (Multiple Variations)
-            "rong": "wrong",
-            "ronk": "wrong",
-            "wraung": "wrong",
-            "wrang": "wrong",
-            "namber": "number",
-            "nomber": "number",
-            "nember": "number",
-            "numbir": "number",
-
-            # SORRY (Multiple Variations)
-            "sory": "sorry",
-            "sary": "sorry",
-            "sorrey": "sorry",
-            "sorey": "sorry",
-
-            # FLEXIBLE/WORKING (Multiple Variations)
-            "flexibel": "flexible",
-            "flexeble": "flexible",
-            "flixible": "flexible",
-            "flexibul": "flexible",
-            "workink": "working",
-            "warking": "working",
-            "workeng": "working",
-
-            # AROUND/HOLDING (Multiple Variations)
-            "arownd": "around",
-            "araund": "around",
-            "erround": "around",
-            "arond": "around",
-            "holdink": "holding",
-            "houlding": "holding",
-            "hoaldink": "holding",
-            "houldenk": "holding",
-
-            # NEVER/EVER (Multiple Variations)
-            "nifer": "never",
-            "nefer": "never",
-            "nevir": "never",
-            "nevar": "never",
-            "efer": "ever",
-            "iver": "ever",
-            "efir": "ever",
-            "evar": "ever"
-        }
-
-    def apply_corrections(self, transcript: str) -> Tuple[str, Dict[str, str]]:
-        """Apply phonetic corrections to transcript."""
-        corrections_made = {}
-        corrected = transcript
-
-        for wrong, correct in self.PHONETIC_CORRECTIONS.items():
-            if wrong in corrected:
-                corrected = corrected.replace(wrong, correct)
-                corrections_made[wrong] = correct
-
-        return corrected, corrections_made
-
 
 class KeywordRepository:
     """Repository of rebuttal phrases organized by category."""
@@ -1353,7 +46,7 @@ class KeywordRepository:
     _learned_phrases_cache = None
     _learned_phrases_timestamp = None
     _learned_phrases_loaded_at = None
-    _cache_is_full_db_load = False # Track if cache includes DB data
+    _cache_is_full_db_load = False
     _cache_lock = threading.Lock()
     
     def __init__(self, skip_database: bool = False):
@@ -1896,7 +589,6 @@ class KeywordRepository:
                 ):
                     return self._learned_phrases_cache
 
-            # Try to load from database first (unless skip_database is True)
             if not self._skip_database:
                 try:
                     logger.info("Attempting to load phrases from database...")
@@ -1923,7 +615,6 @@ class KeywordRepository:
                                     learned_phrases[category] = []
                                 learned_phrases[category].append(phrase)
                             
-                            # Cache the result
                             with self._cache_lock:
                                 self._learned_phrases_cache = learned_phrases
                                 self._learned_phrases_timestamp = None  # Database doesn't have mtime
@@ -1939,17 +630,13 @@ class KeywordRepository:
                     # Fallback to JSON - this ensures we can still load hardcoded phrases even if DB fails
                     pass
             
-            # Fallback to JSON file
             from pathlib import Path
-            
-            # Path to the phrase learning repository JSON file
+
             repository_path = Path("dashboard_data") / "rebuttal_repository.json"
-            
-            # Check if file exists and get its modification time
+
             if not repository_path.exists():
                 return {}
-            
-            # Check file modification time for cache invalidation
+
             current_mtime = os.path.getmtime(repository_path)
             
             # Check cache again before file read (P0 FIX)
@@ -1958,18 +645,16 @@ class KeywordRepository:
                     self._learned_phrases_timestamp == current_mtime):
                     return self._learned_phrases_cache
             
-            # Load the repository file
             with open(repository_path, 'r', encoding='utf-8') as f:
                 repository_data = json.load(f)
-            
+
             learned_phrases = repository_data.get("categories", {})
-            
-            # Update cache with lock
+
             with self._cache_lock:
                 self._learned_phrases_cache = learned_phrases
                 self._learned_phrases_timestamp = current_mtime
                 self._learned_phrases_loaded_at = time.time()
-                self._cache_is_full_db_load = False # Mark as partial (JSON only)
+                self._cache_is_full_db_load = False
             
             logger.debug(f"Loaded {sum(len(p) for p in learned_phrases.values())} learned phrases from repository")
             return learned_phrases
@@ -1980,21 +665,18 @@ class KeywordRepository:
 
     def get_all_phrases(self) -> Dict[str, List[str]]:
         """Get all rebuttal phrases organized by category, merging hardcoded with learned phrases."""
-        # Start with hardcoded phrases
         merged_phrases = {}
         
         # Copy hardcoded phrases (deep copy to avoid modifying original)
         for category, phrases in self.REBUTTAL_PHRASES.items():
             merged_phrases[category] = list(phrases)
         
-        # Load and merge learned phrases
         learned_phrases = self._load_learned_phrases()
-        
+
         for category, phrases in learned_phrases.items():
             if category not in merged_phrases:
                 merged_phrases[category] = []
-            
-            # Add learned phrases that aren't already in the hardcoded list
+
             # Use lowercase comparison to avoid duplicates
             existing_lower = {p.lower().strip() for p in merged_phrases[category]}
             for phrase in phrases:
@@ -2037,10 +719,8 @@ class SemanticDetectionEngine:
                 logger.warning("Failed to load semantic threshold from settings; using default 0.68")
         self.semantic_threshold = max(0.5, min(self.semantic_threshold, 0.9))
         
-        # Load regex patterns for advanced detection
         self.regex_patterns = self.keyword_repo.get_compiled_regex_patterns()
 
-        # Initialize LLM evaluator for fallback (lazy loading)
         self.llm_evaluator = None
         self.llm_fallback_enabled = os.getenv("LLM_FALLBACK_ENABLED", "true").lower() == "true"
         self.llm_confidence_threshold = float(os.getenv("LLM_CONFIDENCE_THRESHOLD", "0.70"))
@@ -2072,18 +752,14 @@ class SemanticDetectionEngine:
         IMPORTANT: If the singleton model is still loading in another thread,
         this will return None but we should retry on next call.
         """
-        # Always try to get the model if we don't have it yet
         if self.semantic_model is not None:
             return  # Already have the model
-        
-        # Only log "initializing" on first attempt
+
         if not self._initialization_attempted:
             logger.info("Lazily initializing semantic detection engine with singleton model...")
             self._initialization_attempted = True
-        
+
         try:
-            # Use singleton pattern to get the semantic model
-            # This may return None if another thread is still downloading
             self.semantic_model, self.phrase_embeddings = _get_semantic_model()
 
             if self.semantic_model is None:
@@ -2109,7 +785,7 @@ class SemanticDetectionEngine:
             
         logger.debug(f"🔍 Starting rebuttal detection on transcript: '{transcript[:100]}...'")
         matches = []
-        feedback_metadata = {}  # Initialize feedback container
+        feedback_metadata = {}
         transcript_lower = transcript.lower()
 
         # 1. Primary: Exact matching (fastest)
@@ -2117,7 +793,6 @@ class SemanticDetectionEngine:
         exact_matches = self._detect_exact_matches(transcript_lower)
         matches.extend(exact_matches)
 
-        # Calculate current best confidence
         best_confidence = max([m['confidence'] for m in matches], default=0.0)
         
         # 1.5 NEW: Regex matching (flexible patterns with Context Awareness)
@@ -2140,14 +815,11 @@ class SemanticDetectionEngine:
         elif self.semantic_model is not None:
             logger.debug("Running semantic AI matching...")
             semantic_matches = self._detect_semantic_matches(transcript)
-            # Filter out semantic matches that are too similar to exact matches
             filtered_semantic_matches = self._filter_duplicate_matches(exact_matches, semantic_matches)
             matches.extend(filtered_semantic_matches)
-            
-            # Track semantic matches for phrase learning
+
             self._track_semantic_matches_for_learning(filtered_semantic_matches, transcript)
-            
-            # Update best confidence after semantic matching
+
             best_confidence = max([m['confidence'] for m in matches], default=0.0)
         else:
             logger.warning("❌ Semantic model not available, using exact matching only")
@@ -2158,24 +830,28 @@ class SemanticDetectionEngine:
         if self.llm_fallback_enabled and self.llm_evaluator and best_confidence < self.llm_confidence_threshold:
             logger.info(f"🤖 LLM fallback triggered (confidence: {best_confidence:.2f} < {self.llm_confidence_threshold:.2f})")
             
-            # For fallback, use the category from the best match if available, otherwise default
             objection_category = 'not_interested'  # Default
             if matches:
-                # Sort matches to get the best one
                 temp_matches = sorted(matches, key=lambda x: x['confidence'], reverse=True)
                 objection_category = temp_matches[0].get('category', 'not_interested')
-            
+
             try:
-                # Call LLM evaluator with full dialogue context
                 llm_result = self.llm_evaluator.evaluate_rebuttal(
                     transcript=transcript,
                     objection_category=objection_category,
                     semantic_candidates=matches if matches else None,
-                    dialogue=dialogue  # Pass full conversation for context
+                    dialogue=dialogue
                 )
-                
-                # If LLM detected a rebuttal, add it to matches
-                if llm_result.get('rebuttal_detected', False):
+
+                if llm_result.get('source') == 'llm_evaluation_failed':
+                    # Infrastructure failure (Groq error, timeout, bad JSON) - not a real
+                    # "no rebuttal" verdict. Keep whatever semantic candidates we already had
+                    # instead of letting an API failure veto them.
+                    logger.warning(
+                        f"⚠️ LLM evaluation unavailable ({llm_result.get('reasoning', 'unknown error')}); "
+                        f"keeping {len(matches)} existing semantic candidate(s) instead of vetoing"
+                    )
+                elif llm_result.get('rebuttal_detected', False):
                     llm_match = {
                         'phrase': llm_result.get('matched_phrase', transcript[:100]),
                         'category': objection_category,
@@ -2190,8 +866,7 @@ class SemanticDetectionEngine:
                     # LLM explicitly said no rebuttal
                     reason = llm_result.get('reasoning', 'No reason provided')
                     logger.info(f"❌ LLM did not detect rebuttal: {reason}")
-                    
-                    # Store reasoning for feedback
+
                     feedback_metadata['feedback'] = reason
                     feedback_metadata['llm_reasoning'] = reason # Keep for compatibility
                     feedback_metadata['llm_confidence'] = llm_result.get('confidence', 0.0)
@@ -2206,13 +881,11 @@ class SemanticDetectionEngine:
                 logger.error(f"LLM fallback evaluation failed: {e}")
         elif best_confidence >= self.llm_confidence_threshold:
             logger.debug(f"⏭️ Skipping LLM fallback (confidence {best_confidence:.2f} >= {self.llm_confidence_threshold:.2f})")
-        
-        # Log confidence for debugging
+
         best_confidence_final = max([m['confidence'] for m in matches], default=0.0)
         if len(matches) == 0 or best_confidence_final < 0.70:
             logger.debug(f"ℹ️ Final confidence: {best_confidence_final:.2f}")
-        
-        # Sort by confidence score (highest first)
+
         matches.sort(key=lambda x: x['confidence'], reverse=True)
 
         if matches:
@@ -2251,7 +924,6 @@ class SemanticDetectionEngine:
                 feedback_metadata['feedback'] = "No rebuttal detected. No matching keywords or LLM-identified objections found."
                 feedback_metadata['llm_reasoning'] = feedback_metadata['feedback']
 
-        # Return matches AND feedback metadata (new tuple return)
         return matches, feedback_metadata
 
 
@@ -2315,7 +987,6 @@ class SemanticDetectionEngine:
             context_windows = []
             if len(valid_sentences) >= 2:
                 for i in range(len(valid_sentences) - 1):
-                    # Create 2-sentence windows
                     window = valid_sentences[i] + " " + valid_sentences[i + 1]
                     if len(window.strip()) >= 10:  # Only meaningful windows
                         context_windows.append(window)
@@ -2330,7 +1001,6 @@ class SemanticDetectionEngine:
             all_texts_to_match = list(valid_sentences)
             if context_windows:
                 all_texts_to_match.extend(context_windows)
-            # Add full transcript if it's reasonably short (under 500 chars)
             if len(transcript.strip()) < 500 and len(transcript.strip()) > 10:
                 all_texts_to_match.append(transcript.strip())
             
@@ -2345,18 +1015,15 @@ class SemanticDetectionEngine:
             text_embeddings = self.semantic_model.encode(all_texts_to_match, batch_size=8, show_progress_bar=False)
             logger.debug("Encoding completed")
             
-            # Calculate similarities for all texts at once
             similarities = cosine_similarity(text_embeddings, self.phrase_embeddings['embeddings'])
-            
-            # Find matches above threshold
+
             best_similarities = {}  # Track best match per phrase to avoid duplicates
             for text_idx, text_segment in enumerate(all_texts_to_match):
                 for emb_idx, similarity in enumerate(similarities[text_idx]):
                     if similarity >= self.semantic_threshold:
                         phrase_info = self.phrase_embeddings['metadata'][emb_idx]
                         phrase_key = (phrase_info['phrase'], phrase_info['category'])
-                        
-                        # Keep the best similarity score for each phrase
+
                         if phrase_key not in best_similarities or similarity > best_similarities[phrase_key]['confidence']:
                             best_similarities[phrase_key] = {
                                 'phrase': phrase_info['phrase'],
@@ -2366,18 +1033,16 @@ class SemanticDetectionEngine:
                                 'matched_sentence': text_segment.strip()
                             }
             
-            # Convert to list and log matches
             matches = list(best_similarities.values())
             if matches:
                 logger.debug(f"✅ Semantic matching found {len(matches)} matches (threshold: {self.semantic_threshold:.2f})")
-                for match in matches[:3]:  # Log top 3 matches
+                for match in matches[:3]:
                     logger.debug(f"  - '{match['phrase']}' (confidence: {match['confidence']:.3f})")
             else:
                 logger.debug(f"ℹ️ No semantic matches above threshold {self.semantic_threshold:.2f}")
-                # Log the highest similarity found for debugging
                 if similarities.size > 0:
                     max_sim = similarities.max()
-                    if max_sim > 0.5:  # Log if there was a reasonable match below threshold
+                    if max_sim > 0.5:
                         logger.debug(f"Highest similarity found: {max_sim:.3f} (below threshold {self.semantic_threshold:.2f})")
             
         except Exception as e:
@@ -2392,8 +1057,7 @@ class SemanticDetectionEngine:
         """
         segments = []
         source_text = dialogue if dialogue else transcript
-        
-        # If no dialogue structure, treat whole transcript as one segment (fallback)
+
         if not dialogue and "Agent:" not in source_text:
             return [transcript]
 
@@ -2432,14 +1096,12 @@ class SemanticDetectionEngine:
             text = text.strip()
             speaker = speaker.strip().capitalize()
             
-            # Check if OWNER shows denial
             if speaker == "Owner" and not denial_found:
                 for pattern in compiled_denials:
                     if pattern.search(text):
                         denial_found = True
                         break
-            
-            # After denial, collect AGENT segments
+
             elif speaker == "Agent" and denial_found and text:
                 segments.append(text)
         
@@ -2461,8 +1123,7 @@ class SemanticDetectionEngine:
             segments_or_text: List of strings (segments) or single string (transcript)
         """
         matches = []
-        
-        # Normalize input to list of strings
+
         if isinstance(segments_or_text, str):
             segments = [segments_or_text]
         else:
@@ -2473,13 +1134,11 @@ class SemanticDetectionEngine:
                 continue
                 
             segment_lower = segment.lower()
-            
-            # Check against all regex categories
+
             for category, patterns in self.regex_patterns.items():
                 for pattern in patterns:
                      match = pattern.search(segment_lower)
                      if match:
-                         # Found a match!
                          matches.append({
                              "phrase": match.group(0),
                              "confidence": 0.95,  # High confidence for regex
@@ -2494,7 +1153,6 @@ class SemanticDetectionEngine:
 
     def _split_into_sentences(self, text: str) -> List[str]:
         """Split text into sentences for better semantic analysis, preserving rebuttal context."""
-        # First, split on major punctuation
         sentences = re.split(r'[.!?]+', text)
 
         # Also try to preserve question sequences that might be rebuttals
@@ -2506,7 +1164,6 @@ class SemanticDetectionEngine:
             if not sentence:
                 continue
 
-            # If this is a question and we have a current chunk, add it to preserve context
             if sentence.endswith('?') or '?' in sentence:
                 if current_chunk:
                     current_chunk += " " + sentence
@@ -2515,7 +1172,6 @@ class SemanticDetectionEngine:
                 all_sentences.append(current_chunk)
                 current_chunk = ""
             else:
-                # For non-questions, group them but don't let chunks get too long
                 if current_chunk and len((current_chunk + " " + sentence).split()) > 50:
                     all_sentences.append(current_chunk)
                     current_chunk = sentence
@@ -2524,15 +1180,13 @@ class SemanticDetectionEngine:
                 else:
                     current_chunk = sentence
 
-        # Add any remaining chunk
         if current_chunk:
             all_sentences.append(current_chunk)
 
-        # Clean and filter sentences
         cleaned_sentences = []
         for sentence in all_sentences:
             cleaned = sentence.strip()
-            if len(cleaned) > 3:  # Only keep meaningful sentences
+            if len(cleaned) > 3:
                 cleaned_sentences.append(cleaned)
 
         return cleaned_sentences
@@ -2672,12 +1326,11 @@ class SemanticDetectionEngine:
         try:
             # Import here to avoid circular imports
             from lib.phrase_learning import get_phrase_learning_manager
-            
+
             learning_manager = get_phrase_learning_manager()
-            
+
             for match in matches:
                 if match['match_type'] == 'semantic':
-                    # Extract the matched sentence or use the original phrase
                     matched_sentence = match.get('matched_sentence', match['phrase'])
                     base_phrase = match['phrase']
                     candidate_phrase = self._extract_candidate_phrase(base_phrase, matched_sentence)
@@ -2685,17 +1338,16 @@ class SemanticDetectionEngine:
                         continue
                     if len(candidate_phrase.split()) > 15 or len(candidate_phrase) > 160:
                         continue
-                    
-                    # Track this semantic match for potential learning
+
                     context_text = matched_sentence if matched_sentence else transcript
                     learning_manager.track_semantic_match(
                         phrase=candidate_phrase,
                         category=match['category'],
                         confidence=match['confidence'],
-                        context=context_text[:500],  # First 500 chars as context
+                        context=context_text[:500],
                         similar_to=base_phrase  # The original repository phrase it matched
                     )
-                    
+
         except Exception as e:
             logger.debug(f"Failed to track semantic matches for learning: {e}")
             # Don't let learning failures affect detection
@@ -2714,53 +1366,6 @@ class SemanticDetectionEngine:
         return min(1.0, overlap / total_phrase_words)
 
 
-class ValidationFramework:
-    """Accuracy testing and edge case handling."""
-
-    def __init__(self, detection_engine: SemanticDetectionEngine):
-        self.detection_engine = detection_engine
-
-    def run_unit_tests(self) -> Dict[str, Any]:
-        """Run comprehensive unit tests."""
-        test_cases = [
-            ("Do you have any other properties?", True, "OTHER_PROPERTY_FAMILY"),
-            ("Not even in the future", True, "NOT_EVEN_FUTURE_FAMILY"),
-            ("When is the best time to call you back", True, "CALLBACK_SCHEDULE_FAMILY"),
-            ("Thank you for calling", False, None),
-            ("", False, None),
-        ]
-
-        results = {
-            "total_tests": len(test_cases),
-            "passed": 0,
-            "failed": 0,
-            "details": []
-        }
-
-        for transcript, expected_result, expected_category in test_cases:
-            matches, _ = self.detection_engine.detect_rebuttals(transcript)
-            actual_result = len(matches) > 0
-
-            passed = (actual_result == expected_result)
-            if passed and expected_category:
-                categories = [m['category'] for m in matches]
-                passed = expected_category in categories
-
-            if passed:
-                results["passed"] += 1
-            else:
-                results["failed"] += 1
-
-            results["details"].append({
-                "transcript": transcript,
-                "expected": expected_result,
-                "actual": actual_result,
-                "passed": passed
-            })
-
-        return results
-
-
 class OutputFormatter:
     """Standardized result schema formatting."""
 
@@ -2777,7 +1382,6 @@ class OutputFormatter:
         if metadata is None:
             metadata = {}
 
-        # If this is an error result, include error information
         result_dict = {
             "result": result,
             "confidence_score": confidence_score,
@@ -2789,7 +1393,7 @@ class OutputFormatter:
                 "processing_time_ms": processing_time_ms,
                 "audio_quality_score": metadata.get("audio_quality_score", 0.0),
                 "vosk_confidence": metadata.get("vosk_confidence", 0.0),
-                "feedback": metadata.get("feedback", None),  # Expose feedback in metadata
+                "feedback": metadata.get("feedback", None),
                 **metadata
             },
             "validation_flags": {
@@ -2799,7 +1403,6 @@ class OutputFormatter:
             }
         }
 
-        # Add error information if provided
         if error_type or error_message:
             result_dict["error"] = {
                 "type": error_type,
@@ -2807,260 +1410,3 @@ class OutputFormatter:
             }
 
         return result_dict
-
-
-class RebuttalDetectionModule:
-    """Main rebuttal detection module focusing on agent speech analysis."""
-
-    def __init__(self):
-        self.data_ingestion = DataIngestionLayer()
-        self.preprocessing = PreprocessingPipeline()
-        self.transcription = TranscriptionEngine()
-        self.phonetic_adaptation = PhoneticAdaptationLayer()
-        self.keyword_repo = KeywordRepository()
-        self.detection_engine = SemanticDetectionEngine(self.keyword_repo)
-        self.output_formatter = OutputFormatter()
-        self.accent_correction_enabled = True
-        if persistent_app_settings is not None:
-            try:
-                self.accent_correction_enabled = persistent_app_settings.is_accent_correction_enabled()
-            except Exception:
-                pass
-
-    def _assess_transcription_quality(self, transcript: str) -> Dict[str, Any]:
-        """Assess transcription quality to identify potential false negatives."""
-        issues = []
-        quality_score = 1.0
-
-        # Check for very short transcript
-        if len(transcript.split()) < 5:
-            issues.append("very_short_transcript")
-            quality_score -= 0.3
-
-        # Check for excessive repetition (transcription artifacts)
-        words = transcript.lower().split()
-        if len(words) > 10:
-            word_counts = {}
-            for word in words:
-                word_counts[word] = word_counts.get(word, 0) + 1
-
-            # Check if any word is repeated more than 30% of the time
-            max_repetition = max(word_counts.values()) / len(words)
-            if max_repetition > 0.3:
-                issues.append("excessive_repetition")
-                quality_score -= 0.2
-
-        # Check for nonsensical sequences (common Whisper artifacts)
-        nonsensical_patterns = [
-            r'\b(um|uh|ah|er)\b.{0,5}\1',  # Repeated fillers
-            r'\b(thank you|thanks).{0,20}\1',  # Repeated phrases
-            r'\b(yes|yeah|okay|alright).{0,10}\1',  # Repeated acknowledgments
-        ]
-
-        for pattern in nonsensical_patterns:
-            if re.search(pattern, transcript.lower()):
-                issues.append("repetitive_artifacts")
-                quality_score -= 0.1
-                break
-
-        # Check for lack of punctuation (poor sentence structure)
-        sentence_count = len(re.split(r'[.!?]+', transcript))
-        word_count = len(words)
-        if word_count > 20 and sentence_count < 2:
-            issues.append("lack_of_punctuation")
-            quality_score -= 0.1
-
-        # Ensure quality score doesn't go below 0
-        quality_score = max(0.0, quality_score)
-
-        return {
-            "quality_score": quality_score,
-            "issues": issues,
-            "word_count": word_count,
-            "sentence_count": sentence_count
-        }
-
-    def detect_rebuttals(self, audio_segment: AudioSegment) -> Dict[str, Any]:
-        """Main detection method following the hierarchical decision tree for agent-only analysis."""
-        start_time = time.time()
-        logger.debug(f"Starting rebuttal detection for audio segment of length {len(audio_segment)}ms")
-
-        try:
-            # 1. Data Ingestion & Validation
-            logger.debug("Step 1: Data ingestion and validation")
-            validation = self.data_ingestion.validate_input(audio_segment)
-            if not validation["is_valid"]:
-                logger.warning(f"Input validation failed: {validation['errors']}")
-                return self.output_formatter.format_result(
-                    "Error",
-                    error_type="InputValidationError",
-                    error_message="; ".join(validation["errors"])
-                )
-
-            total_duration_ms = len(audio_segment)
-            if total_duration_ms < 20000:
-                logger.info(f"Full recording shorter than 20 seconds: {total_duration_ms/1000:.1f}s - skipping rebuttal detection")
-                return self.output_formatter.format_result(
-                    "No",
-                    metadata={
-                        "skipped": True,
-                        "skip_reason": "recording_too_short",
-                        "audio_duration_seconds": total_duration_ms / 1000
-                    }
-                )
-
-            # 2. Process agent channel only
-            logger.debug("Step 2: Processing agent channel")
-            agent_channel = self.preprocessing.extract_agent_channel(audio_segment)
-            is_mono = audio_segment.channels == 1
-            logger.debug(f"Audio channels: extracted agent channel, mono={is_mono}")
-
-            # Normalize agent channel for analysis
-            normalized_agent = self.preprocessing.normalize_for_transcription(agent_channel)
-            logger.debug("Agent channel normalized")
-
-            quality_check = self.preprocessing.quality_validation(normalized_agent)
-            logger.debug(f"Quality check result: {quality_check}")
-            if not quality_check["audio_quality_ok"]:
-                skip_reason = quality_check.get("skipped_reason", "quality_check_failed")
-                logger.info(f"Audio quality check failed (reason: {skip_reason}), skipping rebuttal detection")
-                return self.output_formatter.format_result(
-                    "No",
-                    metadata={
-                        "skipped": True,
-                        "skip_reason": skip_reason,
-                        "audio_duration_seconds": len(normalized_agent) / 1000
-                    }
-                )
-
-            # 3. Single Channel Transcription (Agent Only)
-            logger.debug("Step 3: Agent transcription")
-            trans_start = time.time()
-
-            # Transcribe agent channel only
-            agent_text = self.transcription.transcribe_audio(normalized_agent)
-
-            trans_time = time.time() - trans_start
-            logger.debug(f"Agent transcription completed in {trans_time:.2f}s")
-            logger.debug(f"Generated agent transcript: {len(agent_text)} characters")
-
-            # Create simple dialogue format (agent only)
-            dialogue_transcript = f"Agent: {agent_text}" if agent_text else ""
-
-            # Check if we have valid agent transcript
-            if not agent_text:
-                logger.debug("No agent transcript generated, returning 'No'")
-                return self.output_formatter.format_result(
-                    "No",
-                    transcript=dialogue_transcript,
-                    raw_transcript=agent_text
-                )
-
-            # Validate transcription quality - check for common transcription artifacts
-            transcription_quality = self._assess_transcription_quality(agent_text)
-            if transcription_quality["quality_score"] < 0.3:
-                logger.warning(f"Poor transcription quality detected (score: {transcription_quality['quality_score']:.2f}): {transcription_quality['issues']}")
-                # Still attempt detection but log the quality concerns
-
-            # Use raw transcript (advanced phonetic corrections were corrupting transcripts)
-            cleaned_agent_text = agent_text
-            logger.debug("Using raw agent transcript (advanced phonetic corrections disabled)")
-
-            corrected_transcript = cleaned_agent_text
-            corrections_made = []
-
-            # 4. Phonetic Adaptation (ENABLED with safety checks)
-            if self.accent_correction_enabled:
-                logger.debug("Step 4: Applying phonetic corrections with safety checks")
-                try:
-                    corrected_transcript, corrections_made = self.phonetic_adaptation.apply_corrections(cleaned_agent_text)
-
-                    # Safety check: ensure corrections don't drastically change the transcript length
-                    original_length = len(cleaned_agent_text.split())
-                    corrected_length = len(corrected_transcript.split())
-
-                    # Only use corrections if they don't change word count by more than 20%
-                    length_ratio = corrected_length / original_length if original_length > 0 else 1.0
-                    if 0.8 <= length_ratio <= 1.2 and len(corrections_made) <= 10:  # Max 10 corrections
-                        logger.debug(f"Applied {len(corrections_made)} phonetic corrections safely")
-                    else:
-                        logger.warning(f"Phonetic corrections too aggressive (ratio: {length_ratio:.2f}, corrections: {len(corrections_made)}), using raw transcript")
-                        corrected_transcript = cleaned_agent_text
-                        corrections_made = []
-
-                except Exception as phonetic_error:
-                    logger.warning(f"Phonetic corrections failed: {phonetic_error}, using raw transcript")
-                    corrected_transcript = cleaned_agent_text
-                    corrections_made = []
-
-            # 5. Semantic Detection (on agent transcript only, but with dialogue context if available)
-            logger.debug("Step 5: Semantic detection")
-            matches, feedback_metadata = self.detection_engine.detect_rebuttals(corrected_transcript, dialogue=dialogue_transcript)
-            logger.debug(f"Found {len(matches)} rebuttal matches")
-
-            # 6. Determine Result
-            if matches:
-                best_match = max(matches, key=lambda x: x['confidence'])
-                result = "Yes"
-                confidence_score = best_match['confidence']
-                logger.debug(f"Rebuttal detected with confidence {confidence_score:.2f}")
-            else:
-                result = "No"
-                confidence_score = 0.0
-                logger.debug("No rebuttals detected")
-
-            # 7. Format Output
-            processing_time_ms = int((time.time() - start_time) * 1000)
-            logger.info(f"Total processing time: {processing_time_ms}ms")
-
-            return self.output_formatter.format_result(
-                result=result,
-                confidence_score=confidence_score,
-                matched_phrases=matches,
-                transcript=dialogue_transcript,  # Return dialogue format
-                raw_transcript=agent_text,      # Raw agent transcript for analysis
-                corrections_made=corrections_made,
-                processing_time_ms=processing_time_ms,
-                metadata={
-                    "audio_quality_score": 0.85 if quality_check["audio_quality_ok"] else 0.5,
-                    "vosk_confidence": 0.78,
-                    "single_channel": True,
-                    "audio_duration_seconds": len(normalized_agent) / 1000,
-                    "feedback": feedback_metadata.get('llm_reasoning') if feedback_metadata else None,
-                    **validation["metadata"]
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Rebuttal detection failed: {e}", exc_info=True)
-            return self.output_formatter.format_result(
-                "Error",
-                error_type="ProcessingError",
-                error_message=str(e)
-            )
-
-
-# global instance to reuse across requests (P0 FIX)
-_detection_module = None
-_module_lock = threading.Lock()
-
-def rebuttal_detection(audio_segment: AudioSegment) -> Dict[str, Any]:
-    """
-    Convenience function to detect rebuttals in audio.
-    Uses a global singleton to avoid expensive re-initialization.
-
-    Args:
-        audio_segment: Pydub AudioSegment containing call recording
-
-    Returns:
-        Detection result dictionary
-    """
-    global _detection_module
-    
-    if _detection_module is None:
-        with _module_lock:
-            if _detection_module is None:
-                logger.info("Initializing global RebuttalDetectionModule singleton")
-                _detection_module = RebuttalDetectionModule()
-                
-    return _detection_module.detect_rebuttals(audio_segment)

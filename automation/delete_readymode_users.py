@@ -1,4 +1,7 @@
-"""Bulk user deletion orchestrator — pure HTTP, no browser.
+"""Bulk user deletion orchestrator — HTTP throughout, except that
+ReadyModeHTTPClient.login() can launch a real browser if a dialer puts up a Cloudflare
+challenge (see automation/readymode_http.py's module docstring). Nothing else here
+touches a browser.
 
 Login once per dialer, then delete each target either by exact uid (when the caller
 already knows it — e.g. from a duplicate scan) or by resolving a name to a uid. Name
@@ -12,7 +15,6 @@ line per user consumed by the SSE stream in backend/api/readymode_users.py.
 """
 
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Optional
 
 from automation.readymode_http import (
@@ -21,40 +23,26 @@ from automation.readymode_http import (
     ReadyModeUserDeleteError,
     resolve_agent_id,
     lookup_date_range,
-    resolve_folder_listing_id,
+    fetch_all_folder_users,
     dialer_name_from_url,
+    run_per_dialer,
 )
 
 
-def _resolve_by_folder_scan(client: "ReadyModeHTTPClient", name: str, folder_cache: dict) -> tuple[str | None, str | None]:
+def _resolve_by_folder_scan(
+    client: "ReadyModeHTTPClient", name: str, folder_cache: dict,
+    log: Callable[[str], None] | None = None,
+) -> tuple[str | None, str | None]:
     """Fallback for when userlist (call-log-derived) doesn't have the name — scans every
-    writable folder's live listing instead (see ReadyModeHTTPClient.list_folder_users()),
-    which isn't limited to accounts with recent call activity. `folder_cache` is a plain
-    dict the caller keeps across targets so each folder is only fetched once per dialer,
-    not once per target. Folders are fetched in parallel — each is an independent HTTP
-    request against the same session, and a folder can return 1000+ users worth of HTML
-    to parse, so scanning ~6 folders sequentially was the actual source of slowness
-    (confirmed live 2026-09-01). Returns (uid, matched_name) or (None, None)."""
+    writable folder's live listing instead (see
+    automation.readymode_http.fetch_all_folder_users()), which isn't limited to accounts
+    with recent call activity. `folder_cache` is a plain dict the caller keeps across
+    targets so the scan only happens once per dialer, not once per target. Returns
+    (uid, matched_name) or (None, None)."""
     if not folder_cache.get("_loaded"):
         folder_cache["_loaded"] = True
-        folders = (client.get_writable_folders() or {}).items()
-        listing_ids = [
-            (folder_name, resolve_folder_listing_id(create_form_id))
-            for folder_name, create_form_id in folders
-        ]
-        listing_ids = [(n, lid) for n, lid in listing_ids if lid]
-
-        with ThreadPoolExecutor(max_workers=max(1, len(listing_ids))) as pool:
-            futures = {
-                pool.submit(client.list_folder_users, listing_id): folder_name
-                for folder_name, listing_id in listing_ids
-            }
-            for future in as_completed(futures):
-                try:
-                    for uid, label in future.result().items():
-                        folder_cache.setdefault(label.strip().lower(), (uid, label.strip()))
-                except Exception:
-                    continue  # best effort — a broken folder scan shouldn't fail the whole batch
+        for uid, (name_, _folder) in fetch_all_folder_users(client, log).items():
+            folder_cache.setdefault(name_.strip().lower(), (uid, name_.strip()))
     hit = folder_cache.get(name.strip().lower())
     return hit if hit else (None, None)
 
@@ -132,7 +120,7 @@ def delete_users_on_dialer(
         if not resolved_uid:
             # Not in the call-log userlist (no recent calls) — fall back to scanning live
             # folder listings, which cover every account regardless of call activity.
-            resolved_uid, matched_label = _resolve_by_folder_scan(client, name, folder_cache)
+            resolved_uid, matched_label = _resolve_by_folder_scan(client, name, folder_cache, log)
 
         if not resolved_uid:
             detail = "Not found in this dialer's call-log user list or any writable folder"
@@ -169,31 +157,20 @@ def delete_users_multi_dialer(
     log_callback: Optional[Callable[[str], None]] = None,
 ) -> list[dict]:
     """Delete targets on multiple dialers in parallel. Returns flat list of all results."""
-    all_results: list[dict] = []
+    def worker(url: str) -> list[dict]:
+        return delete_users_on_dialer(
+            url, targets, readymode_user, readymode_pass, None, log_callback,
+        )
 
-    with ThreadPoolExecutor(max_workers=len(dialer_urls)) as pool:
-        futures = {
-            pool.submit(
-                delete_users_on_dialer, url, targets,
-                readymode_user, readymode_pass,
-                None, log_callback,
-            ): url
-            for url in dialer_urls
-        }
-        for future in as_completed(futures):
-            try:
-                all_results.extend(future.result())
-            except Exception as e:
-                url = futures[future]
-                name = dialer_name_from_url(url)
-                if log_callback:
-                    log_callback(f"ERROR Unexpected error on {name}: {e}")
-                else:
-                    print(f"ERROR Unexpected error on {name}: {e}")
-                for t in targets:
-                    all_results.append({
-                        "name": t.get("name", ""), "uid": t.get("uid"),
-                        "dialer": name, "status": "failed", "detail": str(e),
-                    })
+    def on_error(url: str, e: Exception) -> list[dict]:
+        name = dialer_name_from_url(url)
+        return [
+            {
+                "name": t.get("name", ""), "uid": t.get("uid"),
+                "dialer": name, "status": "failed", "detail": str(e),
+            }
+            for t in targets
+        ]
 
-    return all_results
+    per_dialer = run_per_dialer(dialer_urls, worker, on_error, log_callback)
+    return [result for dialer_results in per_dialer for result in dialer_results]

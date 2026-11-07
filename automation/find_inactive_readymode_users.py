@@ -1,4 +1,7 @@
-"""Inactive-user scan orchestrator — pure HTTP, no browser.
+"""Inactive-user scan orchestrator — HTTP throughout, except that
+ReadyModeHTTPClient.login() can launch a real browser if a dialer puts up a Cloudflare
+challenge (see automation/readymode_http.py's module docstring). Nothing else here
+touches a browser.
 
 Login to every requested dialer, build the FULL account roster from every writable
 folder on each (see ReadyModeHTTPClient.list_folder_users() — not limited to accounts
@@ -23,15 +26,15 @@ a uid is only ever meaningful on the dialer it came from.
 """
 
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from typing import Callable, Optional
 
 from automation.readymode_http import (
     ReadyModeHTTPClient,
     ReadyModeLoginError,
-    resolve_folder_listing_id,
+    fetch_all_folder_users,
     dialer_name_from_url,
+    run_per_dialer,
 )
 
 # 0 = "never logged in at all during the lookback window" — no shift, no logged hours.
@@ -58,36 +61,15 @@ def _is_inactive(days_active: int, minutes_active: int, max_days_active: int) ->
 
 
 def _build_full_roster(client: "ReadyModeHTTPClient", log: Callable[[str], None]) -> dict:
-    """{uid: {"name": str, "folder": str}} for every account in every writable folder,
-    fetched in parallel (see the identical pattern in find_duplicate_readymode_users.py
-    and delete_readymode_users.py — same slowness lesson: sequential folder fetches are
-    the actual bottleneck, not the request itself)."""
-    roster: dict[str, dict] = {}
-    try:
-        folders = client.get_writable_folders() or {}
-    except Exception as e:
-        log(f"WARN  Could not list writable folders: {e}")
-        return roster
+    """{uid: {"name": str, "folder": str}} for every account in every writable folder.
 
-    listing_ids = [
-        (folder_name, resolve_folder_listing_id(create_form_id))
-        for folder_name, create_form_id in folders.items()
-    ]
-    listing_ids = [(n, lid) for n, lid in listing_ids if lid]
-
-    with ThreadPoolExecutor(max_workers=max(1, len(listing_ids))) as pool:
-        futures = {
-            pool.submit(client.list_folder_users, listing_id): folder_name
-            for folder_name, listing_id in listing_ids
-        }
-        for future in as_completed(futures):
-            folder_name = futures[future]
-            try:
-                for uid, name in future.result().items():
-                    roster.setdefault(uid, {"name": name, "folder": folder_name})
-            except Exception as e:
-                log(f"WARN  Could not list folder '{folder_name}': {e}")
-    return roster
+    Thin reshape over the shared automation.readymode_http.fetch_all_folder_users(), which
+    does the actual threaded folder-scan mechanics (see its docstring for why folders are
+    fetched in parallel)."""
+    return {
+        uid: {"name": name, "folder": folder}
+        for uid, (name, folder) in fetch_all_folder_users(client, log).items()
+    }
 
 
 def _scan_dialer_full(
@@ -187,27 +169,16 @@ def find_inactive_users_multi_dialer(
     def log(msg: str):
         (log_callback or print)(msg)
 
-    raw_results: list[dict] = []
-    with ThreadPoolExecutor(max_workers=len(dialer_urls)) as pool:
-        futures = {
-            pool.submit(
-                _scan_dialer_full, url,
-                readymode_user, readymode_pass,
-                lookback_days, log_callback,
-            ): url
-            for url in dialer_urls
+    def worker(url: str) -> dict:
+        return _scan_dialer_full(url, readymode_user, readymode_pass, lookback_days, log_callback)
+
+    def on_error(url: str, e: Exception) -> dict:
+        return {
+            "dialer": dialer_name_from_url(url), "dialer_url": url,
+            "status": "failed", "detail": str(e), "accounts": [],
         }
-        for future in as_completed(futures):
-            url = futures[future]
-            dialer_name = dialer_name_from_url(url)
-            try:
-                raw_results.append(future.result())
-            except Exception as e:
-                log(f"ERROR Unexpected error on {dialer_name}: {e}")
-                raw_results.append({
-                    "dialer": dialer_name, "dialer_url": url,
-                    "status": "failed", "detail": str(e), "accounts": [],
-                })
+
+    raw_results = run_per_dialer(dialer_urls, worker, on_error, log_callback)
 
     ok_results = [r for r in raw_results if r["status"] == "ok"]
     scanned_count = len(ok_results)

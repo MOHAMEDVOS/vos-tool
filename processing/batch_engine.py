@@ -16,18 +16,20 @@ import multiprocessing
 import re
 
 from audio_pipeline.audio_processor import AudioProcessor, RESULT_KEYS
+from audio_pipeline.audio_utils import (
+    format_agent_name_with_spaces,
+    format_timestamp_for_display,
+)
 
 logger = logging.getLogger(__name__)
 from audio_pipeline.detections import IntroductionClassifier
 
-# Helper to attach Streamlit context to threads
 def _run_with_context(ctx, func, *args, **kwargs):
     if ctx:
         try:
             from streamlit.runtime.scriptrunner import add_script_run_ctx
             add_script_run_ctx(threading.current_thread(), ctx)
         except Exception as e:
-            # Silence internal streamlit errors but log them for debugging
             pass
     return func(*args, **kwargs)
 
@@ -47,10 +49,8 @@ class BatchProcessor:
     def __init__(self, max_workers: Optional[int] = None):
         self.audio_processor = AudioProcessor()
         # Optimize workers for fast AssemblyAI processing (30-60s files)
-        # Limit concurrent API calls to avoid rate limits and optimize throughput
         cpu_count = multiprocessing.cpu_count()
-        
-        # Check for manual override via environment variable
+
         if os.getenv("ASSEMBLYAI_MAX_WORKERS"):
             try:
                 max_workers = int(os.getenv("ASSEMBLYAI_MAX_WORKERS"))
@@ -91,8 +91,7 @@ class BatchProcessor:
         folder = Path(folder_path)
         if not folder.exists():
             return []
-        
-        # Search for supported audio formats
+
         audio_files = []
         for pattern in ['*.mp3', '*.wav', '*.m4a', '*.mp4']:
             audio_files.extend(folder.rglob(pattern))
@@ -113,7 +112,6 @@ class BatchProcessor:
         Returns:
             List of processing results
         """
-        # Auto-fetch AssemblyAI key if not provided but username is
         if not user_api_key and username:
             try:
                 from lib.dashboard_manager import user_manager
@@ -125,42 +123,25 @@ class BatchProcessor:
                 logger.warning(f"Failed to fetch user API key: {e}")
 
         audio_files = self.find_audio_files(folder_path)
-        
+
         if not audio_files:
             return []
-        
-        # PRE-LOAD MODELS BEFORE BATCH PROCESSING STARTS
-        # TEMPORARILY DISABLED: This was blocking transcription while downloading HuggingFace models
-        # Models will load on-demand instead
-        # logger.info("Pre-loading models before batch processing...")
-        # try:
-        #     from processing.model_preloader import get_model_preloader
-        #     preloader = get_model_preloader()
-        #     preload_success = preloader.preload_all_models()
-        #     if preload_success:
-        #         logger.info("All models pre-loaded successfully")
-        #     else:
-        #         logger.warning("Some models failed to pre-load, will load on-demand")
-        # except Exception as e:
-        #     logger.warning(f"Model pre-loading failed: {e}, will load on-demand")
-        
+
         results = []
         total_files = len(audio_files)
         logger.info(f"Starting parallel processing of {total_files} audio files")
         completed_global = 0
-        
-        # Use adaptive batch sizing
+
         from processing.adaptive_batch_sizer import get_adaptive_batch_sizer
         batch_sizer = get_adaptive_batch_sizer(username)
-        batch_sizer.reset()  # Reset history for new batch
-        
+        batch_sizer.reset()
+
         # Allow more time per file for local Whisper Medium on CPU (first run can be slow)
-        timeout_per_file = 600  # 600 seconds (10 minutes) timeout per file
+        timeout_per_file = 600
         
         i = 0
         batch_num = 0
         while i < total_files:
-            # Calculate adaptive batch size for this batch
             remaining_files = audio_files[i:]
             batch_size = batch_sizer.calculate_batch_size(
                 remaining_files,
@@ -168,10 +149,10 @@ class BatchProcessor:
                 completed_files=completed_global,
                 total_files=total_files
             )
-            
+
             batch_files = audio_files[i:i + batch_size]
             batch_num += 1
-            
+
             logger.info(f"Processing batch {batch_num} (adaptive size: {len(batch_files)} files)")
             
             # Capture Streamlit context only when the retired Streamlit runtime is present.
@@ -182,7 +163,6 @@ class BatchProcessor:
                 ctx = None
             
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                # Submit batch for processing
                 futures = {}
                 for file_path in batch_files:
                     future = executor.submit(_run_with_context, ctx, self.audio_processor.process_single_file, file_path, additional_metadata, False, username, user_api_key)
@@ -197,10 +177,9 @@ class BatchProcessor:
                         file_start_time = time.time()
                         result = future.result(timeout=timeout_per_file)
                         file_processing_time = time.time() - file_start_time
-                        
-                        # Update batch sizer with processing time for adaptive sizing
+
                         batch_sizer.update_processing_time(file_processing_time)
-                        
+
                         results.append(result)
                         completed_global += 1
 
@@ -208,23 +187,19 @@ class BatchProcessor:
                         # This prevents accumulating thousands of results in RAM
                         if len(results) >= 100:  # Batch larger chunks to reduce database I/O
                             try:
-                                # Save to database immediately
                                 from lib.dashboard_manager import dashboard_manager
                                 df_batch = pd.DataFrame(results)
                                 dashboard_manager.save_agent_audit_results(df_batch, username)
                                 logger.info(f"Saved {len(results)} results to database (incremental save)")
-                                
-                                # Clear results from memory after saving
+
                                 results.clear()
-                                
-                                # Force garbage collection to free memory
+
                                 import gc
                                 gc.collect()
                             except Exception as e:
                                 logger.error(f"Failed to save incremental batch: {e}")
                                 # Continue processing even if save fails
 
-                        # Update overall progress for UI after each file
                         if progress_callback:
                             progress_callback(completed_global, total_files)
 
@@ -242,7 +217,6 @@ class BatchProcessor:
                         })
                         completed_global += 1
 
-                        # Update overall progress for UI after each file
                         if progress_callback:
                             progress_callback(completed_global, total_files)
 
@@ -251,8 +225,7 @@ class BatchProcessor:
                         error_msg = str(e)
                         logger.error(f"Error processing file {file_path.name} for user {username or 'default'}: {e}", exc_info=True)
                         print(f"Error processing: {file_path.name}")
-                        
-                        # Check for specific concurrency-related errors
+
                         if "connection pool exhausted" in error_msg.lower() or "rate limit" in error_msg.lower():
                             logger.error(f"CONCURRENCY ISSUE: {error_msg} - This may indicate resource exhaustion")
                         
@@ -267,30 +240,25 @@ class BatchProcessor:
             
             batch_time = time.time() - start_time
             logger.info(f"Batch {batch_num} completed in {batch_time:.1f}s")
-            
-            # Memory cleanup every 5 batches to reduce overhead
+
             if batch_num % 5 == 0:
                 import gc
                 gc.collect()
-                
-                # Clear torch cache if available (for CPU memory management)
+
                 try:
                     import torch
                     if hasattr(torch, 'cuda') and torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 except Exception as e:
-                    # Silently ignore torch cache clearing errors as it's optional
                     pass
-            
-            # Update progress and move to next batch
+
             if progress_callback:
                 progress_callback(completed_global, total_files)
-            
-            i += len(batch_files)  # Move to next batch
-        
+
+            i += len(batch_files)
+
         logger.info(f"Completed processing {total_files} files for user {username or 'default'}. Total results: {len(results)}")
-        
-        # Log if processing stopped early (potential issue)
+
         if completed_global < total_files:
             logger.warning(f"EARLY STOP DETECTED: User {username or 'default'} processed {completed_global}/{total_files} files. Missing {total_files - completed_global} files!")
             logger.warning(f"This may indicate worker pool exhaustion, resource contention, or API rate limits.")
@@ -311,8 +279,7 @@ class BatchProcessor:
             List of processing results
         """
         logger.info("Starting ASYNC batch processing (Phase 2 optimization)")
-        
-        # Auto-fetch AssemblyAI key if not provided but username is
+
         if not user_api_key and username:
             try:
                 from lib.dashboard_manager import user_manager
@@ -330,7 +297,6 @@ class BatchProcessor:
         if not audio_files:
             return []
         
-        # Enable deferred phrase learning for batch processing
         phrase_manager = None
         try:
             from lib.phrase_learning import PhraseLearningManager
@@ -340,34 +306,17 @@ class BatchProcessor:
         except Exception as e:
             logger.warning(f"Could not enable deferred phrase learning: {e}")
         
-        # PRE-LOAD MODELS BEFORE BATCH PROCESSING STARTS
-        # TEMPORARILY DISABLED: This was blocking transcription while downloading HuggingFace models
-        # Models will load on-demand instead
-        # logger.info("Pre-loading models before async batch processing...")
-        # try:
-        #     from processing.model_preloader import get_model_preloader
-        #     preloader = get_model_preloader()
-        #     preload_success = preloader.preload_all_models()
-        #     if preload_success:
-        #         logger.info("All models pre-loaded successfully")
-        #     else:
-        #         logger.warning("Some models failed to pre-load, will load on-demand")
-        # except Exception as e:
-        #     logger.warning(f"Model pre-loading failed: {e}, will load on-demand")
-        
         results = []
         total_files = len(audio_files)
         logger.info(f"Starting async processing of {total_files} audio files with {self.max_workers} concurrent workers")
         completed_global = 0
-        
-        # Audio processing timeout (10 minutes per file)
+
         timeout_per_file = 600
         
         # STREAMING EXECUTION MODEL
         # Instead of batches, we submit ALL files immediately but gate them with a Semaphore.
         # This prevents "tail latency" where 9 fast files wait for 1 slow file to finish a batch.
         
-        # Create semaphore to limit concurrent AssemblyAI API calls
         semaphore = asyncio.Semaphore(self.max_workers)
         logger.info(f"Semaphore initialized with {self.max_workers} max workers")
         
@@ -419,15 +368,11 @@ class BatchProcessor:
                         'classification_success': False
                     }
         
-        # Start timer for overall processing
         start_time = time.time()
-        
+
         try:
-            # Create tasks for ALL files immediately
-            # The semaphore will ensure only `self.max_workers` run at once
             tasks = [asyncio.create_task(process_single_file_async(file_path)) for file_path in audio_files]
-            
-            # Use as_completed to process results as they trickle in
+
             completed_count = 0
             
             for coro in asyncio.as_completed(tasks):
@@ -437,8 +382,7 @@ class BatchProcessor:
                     results.append(result)
                     completed_count += 1
                     completed_global += 1
-                    
-                    # Log continuous progress
+
                     if completed_count % 5 == 0 or completed_count == total_files:
                         elapsed = time.time() - start_time
                         rate = completed_count / elapsed if elapsed > 0 else 0
@@ -454,13 +398,11 @@ class BatchProcessor:
                             f"(Active: {active_tasks}, Sem: {semaphore_available})"
                         )
                         print(f"Async Progress: {completed_count}/{total_files} files processed ({completed_count/total_files:.0%})")
-                        
-                        # Force memory cleanup periodically
+
                         if completed_count % 10 == 0:
                             import gc
                             gc.collect()
-                    
-                    # Update overall progress for UI
+
                     if progress_callback:
                         progress_callback(completed_global, total_files)
                         
@@ -484,7 +426,6 @@ class BatchProcessor:
                     # Ensure disabled in case of error to prevent stuck state
                     phrase_manager.deferred_mode = False
             
-            # Final cleanup
             import gc
             gc.collect()
             try:
@@ -512,11 +453,9 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
     flagged_calls = []
     
     for result in results:
-        # Skip files with errors
         if not result.get('classification_success', False):
             continue
-        
-        # Check if any detection is flagged
+
         # Releasing = "Yes" (agent never speaks - BAD)
         releasing_flagged = result.get('releasing_detection') == "Yes"
         # Late Hello = "Yes" (agent speaks too late - BAD)
@@ -526,7 +465,6 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
         # Wrong Dispo = "Yes" (homeowner asked not to be called again, agent logged something else - BAD)
         wrong_dispo_flagged = result.get('wrong_dispo_detection') == "Yes"
 
-        # Only include flagged calls (calls with issues or missed opportunities)
         if releasing_flagged or late_hello_flagged or rebuttal_not_used or wrong_dispo_flagged:
             file_path_str = result.get('file_path', '')
             file_name = Path(file_path_str).name if file_path_str else ''
@@ -545,8 +483,7 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 "File Name": file_name,
                 "File Path": file_path_str
             }
-            
-            # Add dialer name if available in metadata
+
             dialer_val = result.get('dialer_name') or result.get('Dialer Name') or ''
             if dialer_val:
                 flagged_call['Dialer Name'] = dialer_val
@@ -555,47 +492,42 @@ def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
                 flagged_call['API Key Source'] = result['API Key Source']
             elif 'api_key_source' in result:
                 flagged_call['API Key Source'] = result['api_key_source']
-            
-            # Add introduction scoring
+
             agent_name = result.get('agent_name', '')
-            
-            # Get transcription with fallback for both key names
+
             transcription = result.get('transcription', '')
             if not transcription:
                 # Fallback: try 'transcript' key (legacy/pre-fix)
                 transcription = result.get('transcript', '')
                 if transcription:
                     logger.debug(f"Using fallback 'transcript' key for {agent_name}")
-            
-            # Get existing detection results
+
             rebuttal_detected = result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No'
             late_hello_detected = result.get('late_hello_detection', 'No')
             releasing_detected = result.get('releasing_detection', 'No')
-            
+
             # Create classifier with agent name only (owner/property will be detected from transcript)
             classifier = IntroductionClassifier(agent_name, '', '')
             intro_scores = classifier.score(transcription or '', rebuttal_detected, late_hello_detected, releasing_detected)
-            
-            # Add new columns
+
             flagged_call['Agent Intro'] = intro_scores['agent_intro']['display']
             flagged_call['Owner Name'] = intro_scores['owner_name']['display']
             flagged_call['Reason for calling'] = intro_scores['property_ref']['display']
-            
+
             # Calculate total intro score (all 6 metrics) - now as percentage
             all_scores = [
                 intro_scores['agent_intro']['score'],
-                intro_scores['owner_name']['score'], 
+                intro_scores['owner_name']['score'],
                 intro_scores['property_ref']['score'],
                 intro_scores['rebuttal']['score'],
                 intro_scores['late_hello']['score'],
                 intro_scores['releasing']['score']
             ]
-            intro_score_value = sum(all_scores) / 6  # Average percentage
+            intro_score_value = sum(all_scores) / 6
             intro_score_display = f"{intro_score_value:.0f}%"
-            
+
             flagged_call['Intro Score'] = intro_score_display
-            
-            # Status based on intro score - percentage thresholds
+
             if intro_score_value >= 83:
                 status = "Excellent"
             elif intro_score_value >= 50:
@@ -632,7 +564,6 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
     for result in results:
         # Include files with errors so users can see what happened
         if not result.get('classification_success', False):
-            # Create error row
             file_path_str = result.get('file_path', '')
             file_name = Path(file_path_str).name if file_path_str else ''
             
@@ -681,8 +612,7 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
             # rebutting, without a third value in the detection column itself.
             "Objection Gate": (result.get('rebuttal_detection', {}) or {}).get('objection_gate_verdict'),
         }
-        
-        # Add dialer name if available in metadata
+
         dialer_val = result.get('dialer_name') or result.get('Dialer Name') or ''
         if dialer_val:
             formatted_result['Dialer Name'] = dialer_val
@@ -691,51 +621,46 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
             formatted_result['API Key Source'] = result['API Key Source']
         elif 'api_key_source' in result:
             formatted_result['API Key Source'] = result['api_key_source']
-        
-        # Add introduction scoring
+
         agent_name = result.get('agent_name', '')
-        
-        # Get transcription with fallback for both key names
+
         transcription = result.get('transcription', '')
         if not transcription:
             # Fallback: try 'transcript' key (legacy/pre-fix)
             transcription = result.get('transcript', '')
             if transcription:
                 logger.debug(f"Using fallback 'transcript' key for {agent_name}")
-        
-        # Get existing detection results
+
         rebuttal_detected = result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No'
         late_hello_detected = result.get('late_hello_detection', 'No')
         releasing_detected = result.get('releasing_detection', 'No')
-        
+
         # Create classifier with agent name only (owner/property will be detected from transcript)
         classifier = IntroductionClassifier(agent_name, '', '')
         intro_scores = classifier.score(transcription or '', rebuttal_detected, late_hello_detected, releasing_detected)
-        
-        # Add new columns
+
         formatted_result['Agent Intro'] = intro_scores['agent_intro']['display']
         formatted_result['Owner Name'] = intro_scores['owner_name']['display']
         formatted_result['Reason for calling'] = intro_scores['property_ref']['display']
-        
+
         # Calculate total intro score (all 6 metrics) - now as percentage
         all_scores = [
             intro_scores['agent_intro']['score'],
-            intro_scores['owner_name']['score'], 
+            intro_scores['owner_name']['score'],
             intro_scores['property_ref']['score'],
             intro_scores['rebuttal']['score'],
             intro_scores['late_hello']['score'],
             intro_scores['releasing']['score']
         ]
-        intro_score_value = sum(all_scores) / 6  # Average percentage
+        intro_score_value = sum(all_scores) / 6
         intro_score_display = f"{intro_score_value:.0f}%"
-        
+
         formatted_result['Intro Score'] = intro_score_display
-        
+
         # Add Feedback column (LLM reasoning)
         feedback = result.get('rebuttal_detection', {}).get('metadata', {}).get('feedback', '')
         formatted_result['Feedback'] = feedback
-        
-        # Status based on intro score - percentage thresholds
+
         if intro_score_value >= 83:
             status = "Excellent"
         elif intro_score_value >= 50:
@@ -749,32 +674,6 @@ def convert_all_to_dataframe_format(results: List[Dict]) -> pd.DataFrame:
         formatted_results.append(formatted_result)
     
     return pd.DataFrame(formatted_results)
-
-
-def format_agent_name_with_spaces(agent_name: str) -> str:
-    """
-    Convert agent names from formats like 'AbdelrahmanAhmedIbrahimHassan' 
-    to 'Abdelrahman Ahmed Ibrahim Hassan' by adding spaces before capital letters.
-    """
-    # If name already has spaces, return as-is
-    if ' ' in agent_name:
-        return agent_name
-    
-    # Add space before each capital letter (except the first one)
-    spaced_name = re.sub(r'(?<!^)(?=[A-Z])', ' ', agent_name)
-    return spaced_name
-
-def format_timestamp_for_display(timestamp: str) -> str:
-    """
-    Reformat timestamp from ReadyMode format to display format.
-    """
-    if not timestamp or timestamp.strip() == "":
-        return timestamp
-    
-    # Replace underscore with colon in time portion
-    time_pattern = r'(\d{1,2})_(\d{2})(AM|PM)'
-    formatted = re.sub(time_pattern, r'\1:\2\3', timestamp)
-    return formatted
 
 
 def _extract_lite_file_metadata(file_path: Path) -> Dict[str, str]:
@@ -835,7 +734,6 @@ def extract_dialer_name_from_path(file_path: Path) -> str:
         Dialer name if found (only the part after the last space), empty string otherwise
     """
     try:
-        # Get parent directory (folder containing the file)
         parent_dir = file_path.parent.name
 
         # Single-dialer layout: "{agent}-{date}_{counter} {dialer_name}"
@@ -884,7 +782,6 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
     if not folder.exists():
         return pd.DataFrame()
 
-    # Find all audio files
     audio_files = []
     for pattern in ['*.mp3', '*.wav', '*.m4a', '*.mp4']:
         audio_files.extend(folder.rglob(pattern))
@@ -896,11 +793,10 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
     total_files = len(audio_files)
     logger.info(f"Starting lite parallel processing of {total_files} audio files")
 
-    # Use adaptive batch sizing for lite processing too
     from processing.adaptive_batch_sizer import get_adaptive_batch_sizer
     batch_sizer = get_adaptive_batch_sizer()
-    batch_sizer.reset()  # Reset history for new batch
-    
+    batch_sizer.reset()
+
     timeout_per_file = 15  # 15 seconds timeout per file (optimized lite processing should be faster)
 
     # --- Fix 6: Thread count monitoring — log before batch to detect exhaustion early ---
@@ -923,7 +819,6 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
     batch_num = 0
     completed_global = 0
     while i < total_files:
-        # Calculate adaptive batch size for this batch
         remaining_files = audio_files[i:]
         batch_size = batch_sizer.calculate_batch_size(
             remaining_files,
@@ -939,13 +834,11 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
         logger.info(f"Processing lite batch {batch_num}/{total_batches} ({len(batch_files)} files)")
 
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Submit batch for lite processing
             futures = {}
             for file_path in batch_files:
                 future = executor.submit(process_single_file_lite, file_path, additional_metadata, user_api_key)
                 futures[future] = file_path
 
-            # Collect results with timeout protection
             start_time = time.time()
             completed_count = 0
             batch_timeout = timeout_per_file * len(batch_files) + 30  # Reduced buffer to 30s for faster failure detection
@@ -957,10 +850,9 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
                         file_start_time = time.time()
                         result = future.result(timeout=timeout_per_file)
                         file_processing_time = time.time() - file_start_time
-                        
-                        # Update batch sizer with processing time for adaptive sizing
+
                         batch_sizer.update_processing_time(file_processing_time)
-                        
+
                         results.append(result)
                         completed_count += 1
                         completed_global += 1
@@ -1007,10 +899,8 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
                 print(f"Warning: {len(pending_files)} files are stuck. Forcing completion...")
                 for future, file_path in pending_files:
                     try:
-                        # Try to cancel the stuck future
                         future.cancel()
                         if not future.cancelled():
-                            # If can't cancel, try one last quick result check
                             try:
                                 result = future.result(timeout=2)  # Quick 2s check
                                 results.append(result)
@@ -1031,8 +921,7 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
                     completed_count += 1
                     completed_global += 1
                     print(f"Error: Marked stuck file as failed: {file_path.name}")
-            
-            # Ensure all files are accounted for
+
             if completed_count < len(batch_files):
                 missing_count = len(batch_files) - completed_count
                 logger.warning(f"Batch {batch_num}: Only {completed_count}/{len(batch_files)} files completed. {missing_count} files may be stuck.")
@@ -1041,11 +930,10 @@ def batch_analyze_folder_lite(folder_path: str, progress_callback: Optional[Call
         batch_time = time.time() - start_time
         logger.info(f"Lite batch {batch_num} completed in {batch_time:.1f}s")
 
-        # Update progress and move to next batch
         if progress_callback:
             progress_callback(completed_global, total_files)
-        
-        i += len(batch_files)  # Move to next batch
+
+        i += len(batch_files)
 
     logger.info(f"All {total_files} files processed with lite analysis, {len(results)} results collected")
     return pd.DataFrame(results)
@@ -1081,19 +969,15 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             timestamp = ""
             disposition = ""
         else:
-            # Fallback for other formats
             agent_name_raw = stem
             phone_number = ""
             timestamp = ""
             disposition = ""
-        
-        # Clean up agent name - remove special characters but keep the structure
+
         agent_name_raw = agent_name_raw.replace("-", "").replace(".", "")
-        
-        # Format agent name with proper spacing
+
         agent_name = format_agent_name_with_spaces(agent_name_raw)
-        
-        # Format timestamp for display
+
         timestamp = format_timestamp_for_display(timestamp)
         
         # Extract dialer name from file path folder structure (per-file; correct for dual-dialer).
@@ -1116,7 +1000,7 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
                 except Exception as _e:
                     _emsg = str(_e)
                     if "Resource temporarily unavailable" in _emsg or "245" in _emsg:
-                        _wait = 2 ** _attempt  # 1s, 2s, 4s
+                        _wait = 2 ** _attempt
                         logger.warning(
                             f"ffmpeg thread exhaustion on {file_path.name}, "
                             f"retrying in {_wait}s (attempt {_attempt + 1}/3). "
@@ -1133,17 +1017,14 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             # This avoids processing entire long files when we only need the beginning
             max_duration_ms = 15 * 1000  # 15 seconds is enough for late hello detection
             if len(audio) > max_duration_ms:
-                # Slice first portion for late hello (faster processing)
                 audio_for_late_hello = audio[:max_duration_ms]
             else:
-                # File is short, use full audio
                 audio_for_late_hello = audio
 
         except Exception as e:
             logger.error(f"Failed to load audio file {file_path}: {e}")
             raise
 
-        # Perform only lite detections - use optimized audio segments
         # Releasing detection (needs full audio)
         try:
             releasing = releasing_detection(audio)
@@ -1184,7 +1065,6 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
         else:
             status = "Excellent"
 
-        # Create result dict with structured columns matching heavy audit
         result = {
             "Agent Name": agent_name,
             "Phone Number": phone_number,
@@ -1196,7 +1076,7 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             "Wrong Dispo Detection": wrong_dispo,
             "Wrong Dispo Reason": wrong_dispo_reason or "",
             "Transcription": "N/A",
-            "Dialer Name": dialer_name,  # Extract from folder path
+            "Dialer Name": dialer_name,
             "Agent Intro": "N/A",
             "Owner Name": "N/A",
             "Reason for Calling": "N/A",
@@ -1218,7 +1098,6 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
         return result
 
     except Exception as e:
-        # Extract dialer name from file path even on error
         dialer_name = extract_dialer_name_from_path(file_path)
 
         return {
@@ -1227,7 +1106,7 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             "Late Hello Detection": "Error",
             "Rebuttal Detection": "N/A",
             "Transcription": "N/A",
-            "Dialer Name": dialer_name,  # Extract from folder path
+            "Dialer Name": dialer_name,
             "Agent Intro": "N/A",
             "Owner Name": "N/A",
             "Reason for Calling": "N/A",
@@ -1252,17 +1131,15 @@ def get_batch_processor(username: Optional[str] = None) -> BatchProcessor:
         BatchProcessor instance for the user
     """
     global _batch_processors
-    
-    # Use default key if no username
+
     user_key = username or "__default__"
-    
+
     if user_key not in _batch_processors:
         with _batch_processor_lock:
             if user_key not in _batch_processors:
                 # Use forced max workers for stability
                 max_workers = FORCED_MAX_WORKERS
-                
-                # Log that we are using the forced limit
+
                 logger.info(f"Using forced max workers: {max_workers}")
 
                 _batch_processors[user_key] = BatchProcessor(max_workers=max_workers)
@@ -1307,7 +1184,6 @@ def batch_analyze_folder_fast(folder_path: str, progress_callback: Optional[Call
     """
     processor = get_batch_processor(username)
     if use_async:
-        # Use async processing (Phase 2 optimization)
         logger.info("Using async batch processing (Phase 2 optimization)")
         
         try:
@@ -1342,14 +1218,12 @@ def batch_analyze_folder_fast(folder_path: str, progress_callback: Optional[Call
         else:
             results = asyncio.run(coro)
     else:
-        # Use traditional ThreadPoolExecutor processing
         logger.info("Using ThreadPoolExecutor batch processing")
         results = processor.process_folder_parallel(folder_path, progress_callback, additional_metadata, username=username, user_api_key=user_api_key)
-    
+
     if show_all_results:
         # Return all results as DataFrame for debugging, but apply proper column formatting
         return convert_all_to_dataframe_format(results)
     else:
-        # Return only flagged calls (default behavior)
         flagged_calls = convert_to_dataframe_format(results)
         return pd.DataFrame(flagged_calls)

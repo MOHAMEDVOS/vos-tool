@@ -3,14 +3,28 @@
 Exercises ReadyModeHTTPClient.resolve_folder('Agents') against resva..resva7 and
 checks it returns each dialer's known per-instance id.
 """
+import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from automation.readymode_http import ReadyModeHTTPClient
 
-CREATE_USER = "UserCreation"
-CREATE_PASS = "RES370@370"
+CREATE_USER = os.getenv("READYMODE_USER", "").strip()
+CREATE_PASS = os.getenv("READYMODE_PASSWORD", "").strip()
+if not CREATE_USER or not CREATE_PASS:
+    try:
+        from config import get_user_readymode_credentials
+        owner_email = "mohamedibrahimpayonner@gmail.com"
+        rm_u, rm_p = get_user_readymode_credentials(owner_email)
+        if rm_u and rm_p:
+            CREATE_USER, CREATE_PASS = rm_u, rm_p
+    except Exception as e:
+        print(f"Could not load DB credentials: {e}")
+if not CREATE_USER or not CREATE_PASS:
+    print("ERROR: No ReadyMode credentials found.")
+    print("Set READYMODE_USER and READYMODE_PASSWORD env vars, or ensure the owner account has ReadyMode creds in the DB.")
+    sys.exit(1)
 
 EXPECTED = {
     "resva":  "48-36-14",  "resva2": "48-36-14", "resva3": "48-36-14",

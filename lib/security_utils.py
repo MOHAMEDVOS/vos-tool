@@ -84,18 +84,15 @@ class SecurityManager:
         # Try to save to secure location if ENCRYPTION_KEY_PATH is set
         if env_key_path:
             try:
-                # Create directory if needed
                 os.makedirs(os.path.dirname(env_key_path), exist_ok=True)
                 with open(env_key_path, 'wb') as f:
                     f.write(key)
-                # Set secure permissions
                 secure_file_permissions(env_key_path)
                 logger.info(f"✓ New encryption key saved to secure location: {env_key_path}")
                 return key
             except Exception as e:
                 logger.error(f"Could not save encryption key to {env_key_path}: {e}")
         
-        # Fallback: Save to file with strong warning
         logger.error(
             "⚠️  CRITICAL: Saving encryption key to .encryption_key file in project directory. "
             "This is NOT secure for production! "
@@ -170,7 +167,6 @@ class SecurityManager:
         if salt is None:
             salt = os.urandom(32)  # 32 bytes = 256 bits
         
-        # Use PBKDF2 with SHA256
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
@@ -295,7 +291,6 @@ def check_environment_security():
     issues = []
     recommendations = []
     
-    # Check if .env exists and has secure permissions
     env_file = '.env'
     if os.path.exists(env_file):
         try:
@@ -309,7 +304,6 @@ def check_environment_security():
         issues.append(".env file not found")
         recommendations.append("Create .env file from .env.example")
 
-    # Check encryption key sources
     encryption_key_file = os.path.join(os.path.dirname(__file__), '.encryption_key')
     if os.path.exists(encryption_key_file):
         try:
@@ -341,39 +335,3 @@ def check_environment_security():
         'status': 'secure' if not issues else 'needs_attention'
     }
 
-if __name__ == "__main__":
-    # Security check and demo
-    print("VOS TOOL SECURITY UTILITIES")
-    print("=" * 50)
-    
-    # Run security check
-    security_check = check_environment_security()
-    print(f"Security Status: {security_check['status'].upper()}")
-    
-    if security_check['issues']:
-        print("\nSecurity Issues:")
-        for issue in security_check['issues']:
-            print(f"  - {issue}")
-    
-    if security_check['recommendations']:
-        print("\nRecommendations:")
-        for rec in security_check['recommendations']:
-            print(f"  - {rec}")
-    
-    # Demo encryption
-    print(f"\nEncryption Demo:")
-    test_password = "MySecretPassword123!"
-    encrypted = security_manager.encrypt_string(test_password)
-    decrypted = security_manager.decrypt_string(encrypted)
-    print(f"Original: {test_password}")
-    print(f"Encrypted: {encrypted[:20]}...")
-    print(f"Decrypted: {decrypted}")
-    print(f"Match: {test_password == decrypted}")
-    
-    # Demo password hashing
-    print(f"\nPassword Hashing Demo:")
-    hashed, salt = security_manager.hash_password(test_password)
-    is_valid = security_manager.verify_password(test_password, hashed, salt)
-    print(f"Password: {test_password}")
-    print(f"Hash: {hashed[:20]}...")
-    print(f"Valid: {is_valid}")

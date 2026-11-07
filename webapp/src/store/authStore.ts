@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { useBadgeStore } from './badgeStore'
 
 interface AuthState {
   token: string | null
@@ -25,11 +26,13 @@ export const useAuthStore = create<AuthState>()(
       setAuth: (token, username, role, sessionId, name, picture) => {
         localStorage.setItem('vos_token', token)
         set({ token, username, role, sessionId, name: name || null, picture: picture || null })
+        useBadgeStore.getState().setCurrentUser(username)
       },
 
       clearAuth: () => {
         localStorage.removeItem('vos_token')
         set({ token: null, username: null, name: null, picture: null, role: null, sessionId: null })
+        useBadgeStore.getState().setCurrentUser('')
       },
     }),
     {

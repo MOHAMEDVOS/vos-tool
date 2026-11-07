@@ -16,15 +16,12 @@ import json
 from datetime import datetime, timedelta
 from functools import wraps
 
-# Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 logger = logging.getLogger(__name__)
 
 # Auto-initialize API key from database if possible
 try:
-    # Try to get user's API key from database
-    #  Attempt to determine current user from session state or environment
     current_user = None
     try:
         import streamlit as st
@@ -34,7 +31,7 @@ try:
         pass
     
     if not current_user:
-        current_user = os.getenv('VOS_USER', 'Mohamed Abdo')  # Fallback
+        current_user = os.getenv('VOS_USER', 'Mohamed Abdo')
     
     from lib.dashboard_manager import user_manager
     user_api_key = user_manager.get_user_assemblyai_key(current_user)
@@ -43,14 +40,12 @@ try:
         aai.settings.api_key = user_api_key
         logger.debug(f"Auto-initialized AssemblyAI API key from database for user: {current_user}")
     else:
-        # Fallback to environment variable
         env_key = os.getenv("ASSEMBLYAI_API_KEY")
         if env_key:
             aai.settings.api_key = env_key
             logger.debug("Using AssemblyAI API key from environment variable")
 except Exception as e:
     logger.warning(f"Could not auto-initialize API key from database: {e}")
-    # Try environment fallback
     try:
         env_key = os.getenv("ASSEMBLYAI_API_KEY")
         if env_key:
@@ -85,8 +80,7 @@ def retry_api_call(max_retries=3, backoff_factor=2, retry_on_rate_limit=True):
                 except Exception as e:
                     last_exception = e
                     error_str = str(e).lower()
-                    
-                    # Check if retryable
+
                     is_rate_limit = '429' in error_str or 'rate limit' in error_str
                     is_server_error = any(f'{code}' in error_str for code in range(500, 600))
                     is_timeout = 'timeout' in error_str or 'timed out' in error_str
@@ -96,9 +90,8 @@ def retry_api_call(max_retries=3, backoff_factor=2, retry_on_rate_limit=True):
                                    is_server_error or is_timeout or is_connection_error
                     
                     if should_retry and attempt < max_retries - 1:
-                        # Rate limit: wait longer
                         if is_rate_limit:
-                            wait_time = 60  # Wait 1 minute for rate limit
+                            wait_time = 60
                             logger.warning(f"⚠️ Rate limit hit, waiting {wait_time}s before retry...")
                         else:
                             wait_time = backoff_factor ** attempt
@@ -134,7 +127,6 @@ class TranscriptionCache:
         """
         self.enabled = os.getenv('TRANSCRIPTION_CACHE_ENABLED', 'true').lower() == 'true'
         
-        # Try to initialize DB cache manager
         self.db_manager = None
         try:
             from lib.transcription_caching import TranscriptionCacheManager
@@ -146,8 +138,7 @@ class TranscriptionCache:
         except Exception as e:
             logger.debug(f"Database cache not available: {e}")
             self.db_manager = None
-            
-        # Fallback to file cache
+
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ttl_days = ttl_days
@@ -160,7 +151,6 @@ class TranscriptionCache:
     
     def _get_file_hash(self, file_path: str) -> str:
         """Get MD5 hash of audio file for cache key."""
-        # Use DB key generator if available for consistency
         if self.db_manager:
             return self.db_manager.calculate_file_hash(file_path)
             
@@ -188,27 +178,23 @@ class TranscriptionCache:
             if not file_hash:
                 return None
             
-            # Level 1: Check Database
             if self.db_manager:
                 cached = self.db_manager.get_cached_transcript(file_hash)
                 if cached and cached.get('raw_response'):
                     logger.debug(f"✅ DB Cache HIT for {Path(file_path).name}")
                     return cached['raw_response']
-            
-            # Level 2: Check File System (Fallback)
+
             cache_file = self.cache_dir / f"{file_hash}.json"
-            
+
             if not cache_file.exists():
                 return None
-            
-            # Check expiration
+
             cache_age = datetime.now() - datetime.fromtimestamp(cache_file.stat().st_mtime)
             if cache_age > timedelta(days=self.ttl_days):
-                cache_file.unlink()  # Delete expired cache
+                cache_file.unlink()
                 logger.debug(f"Cache expired for {Path(file_path).name}")
                 return None
-            
-            # Load cached result
+
             with open(cache_file, 'r', encoding='utf-8') as f:
                 cached_data = json.load(f)
             
@@ -241,7 +227,6 @@ class TranscriptionCache:
             if not file_hash:
                 return
             
-            # Write to Database
             if self.db_manager:
                 try:
                     file_size = os.path.getsize(file_path)
@@ -250,7 +235,6 @@ class TranscriptionCache:
                 except Exception as e:
                     logger.warning(f"Failed to write to DB cache: {e}")
             
-            # Write to File System
             cache_file = self.cache_dir / f"{file_hash}.json"
             
             with open(cache_file, 'w', encoding='utf-8') as f:
@@ -306,7 +290,6 @@ class AssemblyAITranscriptionEngine:
         # This prevents race conditions when multiple users process files simultaneously
         self.api_key = effective_api_key
         
-        # Initialize transcription cache
         cache_dir = os.getenv('TRANSCRIPTION_CACHE_DIR', '.cache/transcriptions')
         cache_ttl = int(os.getenv('TRANSCRIPTION_CACHE_TTL_DAYS', '30'))
         self.cache = TranscriptionCache(cache_dir=cache_dir, ttl_days=cache_ttl)
@@ -326,13 +309,11 @@ class AssemblyAITranscriptionEngine:
         Uses polling loop to enforce timeout regardless of OS.
         """
         start_time = time.time()
-        
-        # Check cache first
+
         cached_result = self.cache.get(audio_file_path)
         if cached_result:
             return cached_result
-        
-        # Get timeout from config if not provided
+
         if timeout is None:
             try:
                 # Use string-based access or default to avoid import errors
@@ -340,7 +321,6 @@ class AssemblyAITranscriptionEngine:
             except (ValueError, TypeError):
                 timeout = 300
 
-        # Container for results
         result_container = {"result": None, "exception": None}
 
         try:
@@ -373,12 +353,10 @@ class AssemblyAITranscriptionEngine:
             
             logger.debug(f"Transcribing file: {audio_file_path} (timeout: {timeout}s)")
             
-            # Submit for transcription with local retry for connection issues
             transcript_submission = None
             submission_error = None
             for _ in range(3):
                 try:
-                    # Use the instance-specific transcriber
                     transcript_submission = transcriber.submit(audio_file_path, config=config)
                     break
                 except Exception as e:
@@ -386,15 +364,14 @@ class AssemblyAITranscriptionEngine:
                     # Only retry connection/server errors, not logic/auth errors
                     error_str = str(e).lower()
                     if '401' in error_str or '403' in error_str:
-                        raise # Auth error, don't retry
+                        raise
                     time.sleep(1)
             
             if not transcript_submission:
                 raise Exception(f"Failed to submit to AssemblyAI after 3 attempts: {submission_error}")
 
             transcript_id = transcript_submission.id
-            
-            # Poll for completion using instance-specific API key
+
             poll_interval = 2.0
             elapsed = 0.0
             
@@ -424,11 +401,9 @@ class AssemblyAITranscriptionEngine:
 
                 if transcript.status == aai.TranscriptStatus.completed:
                     processing_time_ms = int((time.time() - start_time) * 1000)
-                    
-                    # Extract utterances first
+
                     utterances = self._extract_utterances(transcript.utterances) if transcript.utterances else []
-                    
-                    # Extract results with dual-channel support
+
                     result = {
                         "transcript": transcript.text or "",  # Full transcript (all speakers)
                         "words": self._extract_words(transcript.words) if transcript.words else [],
@@ -445,8 +420,7 @@ class AssemblyAITranscriptionEngine:
                         "owner_transcript": self.extract_speaker_transcript(utterances, "B")   # Owner only
                     }
 
-                    
-                    # Cache successful result
+
                     self.cache.set(audio_file_path, result)
                     
                     result_container["result"] = result
@@ -480,7 +454,6 @@ class AssemblyAITranscriptionEngine:
                 "transcription_error": str(result_container["exception"])
             }
         
-        # Return result
         if result_container["result"]:
             return result_container["result"]
         else:
@@ -596,29 +569,24 @@ class AssemblyAITranscriptionEngine:
         """
         if not utterances:
             return ""
-        
-        # Sort utterances chronologically by start time
+
         sorted_utterances = sorted(utterances, key=lambda u: u.get('start', 0))
-        
-        # Determine if we're using multichannel (channel-based) or diarization (speaker-based)
+
         has_channels = any(u.get('channel') is not None for u in sorted_utterances)
         channel_roles = self._channel_roles(sorted_utterances) if has_channels else {}
-        
-        # Format as dialogue
+
         dialogue_lines = []
         for utterance in sorted_utterances:
             text = utterance.get('text', '').strip()
             if not text:
                 continue
-            
-            # Determine speaker label
+
             if has_channels:
                 # Multichannel mode: roles derived from the channel values present,
                 # so '1'/'2' (strings) and 0/1 (ints) both resolve correctly.
                 channel = utterance.get('channel')
                 speaker = channel_roles.get(channel, f"Channel {channel}")
             else:
-                # Diarization mode: Use speaker labels
                 speaker = utterance.get('speaker', 'Unknown')
             
             dialogue_lines.append(f"{speaker}: {text}")
@@ -641,8 +609,7 @@ class AssemblyAITranscriptionEngine:
         """
         if not utterances:
             return ""
-        
-        # Determine if we're using multichannel (channel-based) or diarization (speaker-based)
+
         has_channels = any(u.get('channel') is not None for u in utterances)
         
         speaker_texts = []
@@ -659,7 +626,6 @@ class AssemblyAITranscriptionEngine:
                     if text:
                         speaker_texts.append(text)
         else:
-            # Diarization mode: Use speaker labels
             for utterance in utterances:
                 if utterance.get('speaker') == speaker_label:
                     text = utterance.get('text', '').strip()
@@ -679,10 +645,8 @@ class AssemblyAITranscriptionEngine:
         Returns:
             Transcript text
         """
-        # Save segment to temp file
         audio_segment.export(temp_file_path, format="wav")
-        
-        # Transcribe
+
         result = self.transcribe_file(temp_file_path, enable_speaker_diarization=False)
         return result["transcript"]
     
@@ -710,7 +674,6 @@ class AssemblyAITranscriptionEngine:
                 # Restore original global key immediately
                 aai.settings.api_key = original_global_key
             
-            # Default configuration
             default_config = {
                 "speech_models": ["universal-2"],  # Required by AssemblyAI API (plural list)
                 "speaker_labels": os.getenv("ASSEMBLYAI_ENABLE_SPEAKER_DIARIZATION", "true").lower() == "true",
@@ -719,23 +682,19 @@ class AssemblyAITranscriptionEngine:
                 "format_text": True,
             }
             
-            # Merge with user-provided options
             config_dict = {**default_config, **(options or {})}
             config = aai.TranscriptionConfig(**config_dict)
-            
+
             logger.debug(f"Transcribing audio from URL: {audio_url}")
-            
-            # Transcribe from URL using instance-specific transcriber
+
             transcript = transcriber.transcribe(audio_url, config=config)
-            
-            # Check for errors
+
             if transcript.error:
                 logger.error(f"AssemblyAI transcription error: {transcript.error}")
                 raise Exception(f"Transcription failed: {transcript.error}")
             
             processing_time_ms = int((time.time() - start_time) * 1000)
-            
-            # Extract results (same format as transcribe_file)
+
             result = {
                 "transcript": transcript.text or "",
                 "words": self._extract_words(transcript.words) if transcript.words else [],
@@ -773,7 +732,6 @@ class AssemblyAITranscriptionEngine:
         Returns:
             Dict with transcript and metadata (same format as transcribe_file)
         """
-        # Run synchronous transcription in thread pool to avoid blocking event loop
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,
@@ -798,7 +756,6 @@ class AssemblyAITranscriptionEngine:
         Returns:
             Dict with transcript and metadata (same format as transcribe_url)
         """
-        # Run synchronous transcription in thread pool to avoid blocking event loop
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None,

@@ -31,7 +31,6 @@ export const useBadgeStore = create<BadgeState>()(
   )
 )
 
-// Unread count for current user
 export function useUnreadCount() {
   return useBadgeStore((s) =>
     Math.max(0, s.flaggedCount - (s.seenByUser[s.currentUser] ?? 0))

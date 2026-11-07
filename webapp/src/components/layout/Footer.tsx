@@ -6,8 +6,7 @@ export function Footer() {
   return (
     <footer className="mt-auto py-1 border-t border-[var(--b-divider)] opacity-90 transition-opacity duration-300">
       <div className="flex flex-col md:flex-row items-center justify-between gap-2 text-[7.5px] font-bold uppercase tracking-[0.3em] text-t-muted">
-        
-        {/* Left: Status */}
+
         <div className="flex items-center gap-1.5">
           <motion.div
             animate={{ 
@@ -19,12 +18,10 @@ export function Footer() {
           <span className="text-accent/80">AI-Powered Audit Platform</span>
         </div>
 
-        {/* Center: Copyright */}
         <div className="select-none opacity-80">
           &copy; {new Date().getFullYear()} VOS RAILWAY &bull; Intelligence Audit System
         </div>
 
-        {/* Right: Credits */}
         <div className="flex items-center gap-1.5">
           <span className="opacity-80">Developed by</span>
           <a 

@@ -3,7 +3,8 @@ import { useCampaignAudits, useCampaigns, useCampaignDisposition } from '@/hooks
 import { dashboardApi } from '@/api/dashboard'
 import { AuditTable } from '@/components/tables/AuditTable'
 import { Metric } from '@/components/ui/Metric'
-import { Button, DestroyButton } from '@/components/ui/Button'
+import { Button } from '@/components/ui/Button'
+import { ConfirmDestroyPanel } from '@/components/ui/ConfirmDestroyPanel'
 import { Spinner } from '@/components/ui/Spinner'
 import { SuccessFlash } from '@/components/ui/SuccessFlash'
 import { isRowFlagged, isFairRebuttalMiss } from '@/utils/audit'
@@ -262,39 +263,17 @@ export function CampaignAuditDashboard() {
             rows={displayRows} 
             excludeColumns={['Time', 'Long VM/Dead Detection']}
             leftActions={
-              !showConfirm ? (
-                <DestroyButton
-                  onClick={() => setShowConfirm(true)}
-                  disabled={!effectiveCampaign}
-                >
-                  Clear Selected Campaign Data
-                </DestroyButton>
-              ) : (
-                <div className="flex flex-col gap-3 p-4 rounded-xl border border-ship-red/20 bg-ship-red/5 min-w-[300px]">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-ship-red">Confirm Deletion</h3>
-                  </div>
-                  <p className="text-[10px] text-t-primary leading-relaxed font-bold opacity-80">
-                    Delete all audit data for campaign <span className="underline decoration-ship-red/50">'{effectiveCampaign}'</span>?
-                  </p>
-                  <div className="flex justify-start gap-2">
-                    <DestroyButton
-                      size="sm"
-                      onClick={() => clearData.mutate()}
-                      disabled={clearData.isPending}
-                    >
-                      {clearData.isPending ? 'Processing...' : 'Yes, Delete All'}
-                    </DestroyButton>
-                    <Button
-                      size="sm"
-                      variant="action"
-                      onClick={() => setShowConfirm(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              )
+              <ConfirmDestroyPanel
+                open={showConfirm}
+                onOpenChange={setShowConfirm}
+                triggerLabel="Clear Selected Campaign Data"
+                triggerDisabled={!effectiveCampaign}
+                message={<>Delete all audit data for campaign <span className="underline decoration-ship-red/50">'{effectiveCampaign}'</span>?</>}
+                confirmLabel="Yes, Delete All"
+                pendingLabel="Processing..."
+                isPending={clearData.isPending}
+                onConfirm={() => clearData.mutate()}
+              />
             }
           />
         </>

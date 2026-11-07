@@ -12,6 +12,7 @@ from datetime import date
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from lib.dashboard_manager import dashboard_manager
+from backend.services.dashboard_service import is_call_flagged
 from lib.google_workspace import (
     get_service_account_credentials,
     build_drive,
@@ -24,14 +25,10 @@ logger = logging.getLogger(__name__)
 
 
 def _is_flagged(row: Dict[str, Any]) -> bool:
-    return any(
-        row.get(column) == expected
-        for column, expected in (
-            ('Releasing Detection', 'Yes'),
-            ('Late Hello Detection', 'Yes'),
-            ('Rebuttal Detection', 'No'),
-        )
-    )
+    # Delegates to dashboard_service.is_call_flagged so the campaign export
+    # always matches the main dashboard's flagged-call logic exactly --
+    # see that function's docstring for the full rule.
+    return is_call_flagged(row)
 
 
 def _select_report_rows(raw_rows: list[Dict[str, Any]]) -> list[Dict[str, Any]]:

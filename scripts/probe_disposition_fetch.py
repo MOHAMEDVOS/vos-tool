@@ -7,6 +7,7 @@ Tests three filters to localise where 'Voicemail' leaks in:
   B) the same MINUS 'Not logged' (isolates the id -1 wildcard theory)
   C) only 'Not logged' (id -1) on its own
 """
+import os
 import sys
 from collections import Counter
 from datetime import date
@@ -15,8 +16,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from automation.readymode_http import ReadyModeHTTPClient, disposition_type_ids
 
-CREATE_USER = "UserCreation"
-CREATE_PASS = "RES370@370"
+CREATE_USER = os.getenv("READYMODE_USER", "").strip()
+CREATE_PASS = os.getenv("READYMODE_PASSWORD", "").strip()
+if not CREATE_USER or not CREATE_PASS:
+    try:
+        from config import get_user_readymode_credentials
+        owner_email = "mohamedibrahimpayonner@gmail.com"
+        rm_u, rm_p = get_user_readymode_credentials(owner_email)
+        if rm_u and rm_p:
+            CREATE_USER, CREATE_PASS = rm_u, rm_p
+    except Exception as e:
+        print(f"Could not load DB credentials: {e}")
+if not CREATE_USER or not CREATE_PASS:
+    print("ERROR: No ReadyMode credentials found.")
+    print("Set READYMODE_USER and READYMODE_PASSWORD env vars, or ensure the owner account has ReadyMode creds in the DB.")
+    sys.exit(1)
+
 DIALER = "https://resva5.readymode.com/"
 
 WANTED = ["Spanish Speaker", "DNC - Unknown", "Unknown", "DNC - Decision Maker",

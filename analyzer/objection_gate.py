@@ -68,6 +68,8 @@ from __future__ import annotations
 import re
 from typing import Optional, TypedDict
 
+from lib.wrong_dispo_detector import is_wrong_number_disposition
+
 
 class ObjectionGateResult(TypedDict):
     verdict: str          # "no_objection" | "attempted" | "no_attempt" | "unusable"
@@ -252,10 +254,6 @@ def _agent_attempted(turns: list[tuple[str, str]], objection_idx: int) -> bool:
     return len(residual) >= 2
 
 
-def _is_wrong_number(disposition: Optional[str]) -> bool:
-    return " ".join((disposition or "").lower().split()) == "wrong number"
-
-
 def _evaluate_wrong_number(turns: list[tuple[str, str]]) -> ObjectionGateResult:
     """A logged Wrong Number means the agent treated it as a denial, whatever
     words the owner used. The agent still owes a pivot, so this never returns
@@ -306,7 +304,7 @@ def evaluate(dialogue: str, disposition: Optional[str] = None) -> ObjectionGateR
         return {"verdict": "unparseable", "objection_quote": None,
                 "reason": "dialogue has content but no parseable Agent:/Owner: structure"}
 
-    if _is_wrong_number(disposition):
+    if is_wrong_number_disposition(disposition):
         return _evaluate_wrong_number(turns)
 
     found, quote, idx = _owner_objection(turns)

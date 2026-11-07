@@ -26,12 +26,10 @@ class QuotaRedistribution:
             Dict with current allocations and redistribution possibilities
         """
         try:
-            # Get admin info
             admin_info = self.quota_manager.get_admin_dashboard_info(admin_username)
             if "error" in admin_info:
                 return {"error": admin_info["error"]}
-            
-            # Get created users and their quota status
+
             created_users = self.quota_manager.get_admin_created_users(admin_username)
             user_details = []
             
@@ -79,14 +77,12 @@ class QuotaRedistribution:
             admin_total = current_options["admin_total_quota"]
             total_new_allocation = sum(new_allocations.values())
             
-            # Validation
             if total_new_allocation > admin_total:
                 return {
                     "valid": False,
                     "error": f"Total allocation ({total_new_allocation}) exceeds admin quota ({admin_total})"
                 }
             
-            # Calculate changes
             changes = []
             for user_data in current_options["users"]:
                 username = user_data["username"]
@@ -94,7 +90,6 @@ class QuotaRedistribution:
                 new_quota = new_allocations.get(username, current_quota)
                 
                 if new_quota != current_quota:
-                    # Check if user's current usage exceeds new quota
                     current_usage = user_data["current_usage"]
                     if current_usage > new_quota:
                         return {
@@ -135,26 +130,23 @@ class QuotaRedistribution:
             Tuple[bool, str]: (success, message)
         """
         try:
-            # Validate the redistribution first
             impact = self.calculate_redistribution_impact(admin_username, new_allocations)
             if not impact.get("valid", False):
                 return False, impact.get("error", "Invalid redistribution")
             
-            # Load quota data
+            # Read current assignments (read-only - just to compute the diff below)
             quota_data = self.quota_manager._load_quota_data()
-            
-            # Apply changes
+
+            # Apply changes through the public API so they're actually persisted to Postgres -
+            # _save_quota_data() only ever writes system_config, never user_assignments
             changes_made = []
             for username, new_quota in new_allocations.items():
                 if username in quota_data.get("user_assignments", {}):
                     old_quota = quota_data["user_assignments"][username]["daily_quota"]
                     if old_quota != new_quota:
-                        quota_data["user_assignments"][username]["daily_quota"] = new_quota
+                        self.quota_manager.adjust_user_quota(username, admin_username, new_quota)
                         changes_made.append(f"{username}: {old_quota} → {new_quota}")
-            
-            # Save changes
-            self.quota_manager._save_quota_data(quota_data)
-            
+
             if changes_made:
                 return True, f"Redistribution successful: {', '.join(changes_made)}"
             else:
@@ -182,25 +174,20 @@ class QuotaRedistribution:
             users = options["users"]
             total_quota = options["admin_total_quota"]
             
-            # Calculate usage-based suggestions
             suggestions = {}
-            
+
             for user in users:
                 username = user["username"]
                 current_usage = user["current_usage"]
-                # Suggest quota based on usage + 50% buffer
                 suggested_quota = max(100, int(current_usage * 1.5))
                 suggestions[username] = suggested_quota
-            
-            # Adjust if total exceeds admin quota
+
             total_suggested = sum(suggestions.values())
             if total_suggested > total_quota:
-                # Scale down proportionally
                 scale_factor = total_quota / total_suggested
                 for username in suggestions:
                     suggestions[username] = max(100, int(suggestions[username] * scale_factor))
-            
-            # Check if redistribution would be beneficial
+
             current_total_assigned = sum(user["current_quota"] for user in users)
             suggested_total = sum(suggestions.values())
             

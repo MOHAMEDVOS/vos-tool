@@ -1,7 +1,11 @@
-"""ReadyMode call downloader using authenticated pure HTTP requests.
+"""ReadyMode call downloader using ReadyModeHTTPClient for everything — report queries,
+pagination, and the recording downloads themselves never touch a browser. The one
+exception is login: ReadyModeHTTPClient.login() can fall back to a real browser if a
+dialer puts up a Cloudflare challenge (see automation/readymode_http.py's module
+docstring).
 
 Agent audits, Campaign audits, and the scoring sampler use this module to query
-ReadyMode's JSON report endpoint and download recordings without a browser.
+ReadyMode's JSON report endpoint and download recordings.
 See ``automation/readymode_http.py`` for the client and the ReadyMode HTTP spec for
 the report contract.
 
@@ -108,7 +112,16 @@ def format_agent_name_for_filename(agent_name):
 
 
 def extract_dialer_name_from_url(dialer_url: str) -> str:
-    """Extract dialer name from ReadyMode URL (e.g. https://resva.readymode.com/ -> resva)."""
+    """Extract dialer name from ReadyMode URL (e.g. https://resva.readymode.com/ -> resva).
+
+    Overlaps with automation.readymode_http.dialer_name_from_url(), which every other
+    orchestrator in this directory uses. Deliberately kept separate rather than switched
+    over (checked 2026-11-06): the two agree on every well-formed dialer URL actually used
+    in this codebase, but diverge on malformed input — a URL with no "://" scheme returns
+    "custom" here, and anything non-string (e.g. None) returns "unknown" via the
+    try/except below, whereas dialer_name_from_url() would raise on either. This function
+    is also imported directly by backend/api/readymode.py, outside this consolidation's
+    scope, so it can't simply be deleted in favor of the shared one."""
     try:
         if "://" in dialer_url:
             domain_part = dialer_url.split("://")[1]
@@ -380,7 +393,9 @@ def download_all_call_recordings(dialer_url, agent, update_callback=None,
                                  registry_run_id=None, force_reaudit=False,
                                  claim_recordings_callback=None,
                                  release_recordings_callback=None):
-    """Download call recordings from ReadyMode via pure HTTP (no browser).
+    """Download call recordings from ReadyMode via ReadyModeHTTPClient — HTTP throughout,
+    except that login() alone may fall back to a real browser for a Cloudflare challenge
+    (see automation/readymode_http.py's module docstring).
 
     Signature, output folders, filename format, progress prints, duration filtering and
     cancellation semantics are preserved from the previous Playwright implementation.

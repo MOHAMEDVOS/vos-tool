@@ -163,7 +163,6 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
 
     row = rows[0]
 
-    # Normalize JSON columns
     options_val = row.get("options_json")
     if isinstance(options_val, str):
         try:

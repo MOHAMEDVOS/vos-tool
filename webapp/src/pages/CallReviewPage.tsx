@@ -9,9 +9,8 @@ import { Play, Pause, Volume2, MoreVertical, Search, Download } from 'lucide-rea
 import { CustomSelect } from '@/components/ui/Select'
 import { KaraokeTranscript } from '@/components/KaraokeTranscript'
 import { AgentDeductionsTable, type AgentDeductionRow } from '@/pages/ActionsPage'
-import { dedupeLongCallRows, isLongCallFlagged, isFairRebuttalMiss } from '@/utils/audit'
+import { dedupeLongCallRows, isFairRebuttalMiss, getCallIssues, buildAgentDeductions } from '@/utils/audit'
 
-/* ─── Custom Audio Player ─────────────────────────────────────── */
 interface AudioPlayerProps {
   src: string
   isLateHello?: boolean
@@ -89,7 +88,6 @@ function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted, downloa
         onEnded={onEnded}
       />
 
-      {/* Play Button */}
       <motion.button
         whileTap={{ scale: 0.9 }}
         onClick={togglePlay}
@@ -98,7 +96,6 @@ function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted, downloa
         {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
       </motion.button>
 
-      {/* Download Button */}
       {downloadFileName && (
         <a
           href={src}
@@ -110,13 +107,11 @@ function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted, downloa
         </a>
       )}
 
-      {/* Waveform Container */}
       <div className="flex flex-col flex-1 gap-0.5 overflow-hidden">
         <div
           className="relative h-6 cursor-pointer overflow-hidden"
           onClick={handleSeek}
         >
-          {/* Background Layer */}
           <div className="absolute inset-0 flex items-center gap-[2px] pointer-events-none">
             {bars.map((h, i) => (
               <div
@@ -127,7 +122,6 @@ function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted, downloa
             ))}
           </div>
 
-          {/* Progress Layer */}
           <div
             className="absolute inset-0 flex items-center gap-[2px] pointer-events-none"
             style={{
@@ -185,29 +179,10 @@ export function CallReviewPage() {
     return map
   }, [allAuditsData, liteAuditsData])
 
-  const agentDeductions = useMemo<AgentDeductionRow[]>(() => {
-    const flagged = dedupeLongCallRows(calls ?? [])
-    const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; wrongDispo: number; dialerNames: Set<string> }>()
-    for (const call of flagged) {
-      const name = (call['Agent Name'] ?? 'Unknown').trim()
-      if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, longCall: 0, wrongDispo: 0, dialerNames: new Set() })
-      const entry = agentMap.get(name)!
-      entry.flagged.push(call)
-      if (call['Releasing Detection'] === 'Yes') entry.releasing++
-      if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
-      if (isFairRebuttalMiss(call)) entry.noRebuttals++
-      if (isLongCallFlagged(call['Long VM/Dead Detection'])) entry.longCall++
-      if (call['Wrong Dispo Detection'] === 'Yes') entry.wrongDispo++
-      const dialer = call['Dialer Name'] as string | undefined
-      if (dialer) entry.dialerNames.add(dialer)
-    }
-    return [...agentMap.entries()].map(([agentName, data]) => ({
-      agentName, totalCalls: totalCallsMap.get(agentName) ?? data.flagged.length,
-      flaggedCalls: data.flagged.length, releasing: data.releasing, lateHello: data.lateHello,
-      noRebuttals: data.noRebuttals, longCall: data.longCall, wrongDispo: data.wrongDispo,
-      dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
-    })).sort((a, b) => b.flaggedCalls - a.flaggedCalls)
-  }, [calls, totalCallsMap])
+  const agentDeductions = useMemo<AgentDeductionRow[]>(
+    () => buildAgentDeductions(dedupeLongCallRows(calls ?? []), totalCallsMap),
+    [calls, totalCallsMap],
+  )
 
   const agents = useMemo(() => {
     const names = [...new Set((calls ?? []).map((call) => call['Agent Name']).filter(Boolean) as string[])]
@@ -284,14 +259,7 @@ export function CallReviewPage() {
 }
 
 function CallCard({ call }: { call: FlaggedCall }) {
-  const issues: string[] = []
-  if (call['Releasing Detection'] === 'Yes') issues.push('Releasing')
-  if (call['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
-  if (isFairRebuttalMiss(call)) issues.push('No Rebuttals')
-  if (call['Wrong Dispo Detection'] === 'Yes') {
-    const wrongDispoReason = call['Wrong Dispo Reason']
-    issues.push(wrongDispoReason ? `Wrong Dispo ${wrongDispoReason}` : 'Wrong Dispo')
-  }
+  const issues = getCallIssues(call)
 
   const filePath = call['File Path'] as string | undefined
   const fileName = (call['File Name'] ?? call.filename ?? call.Filename) as string | undefined
@@ -335,7 +303,6 @@ function CallCard({ call }: { call: FlaggedCall }) {
   return (
     <div className="flex flex-col gap-3 rounded-lg bg-surface-card shadow-card p-5 w-full border border-b-subtle">
 
-      {/* Top row: name + phone + issue badges */}
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-medium text-vos-black">{call['Agent Name'] ?? 'Unknown Agent'}</span>
         <span className="text-sm text-vos-600">{call['Phone Number'] ?? ''}</span>
@@ -344,10 +311,8 @@ function CallCard({ call }: { call: FlaggedCall }) {
         </div>
       </div>
 
-      {/* Body: audio left, transcription right */}
       <div className={transcription ? 'grid grid-cols-1 gap-3 lg:grid-cols-[1fr_340px]' : ''}>
 
-        {/* Left — audio + metadata */}
         <div className="flex flex-col gap-3">
           {audioSrc ? (
             <AuthenticatedAudio
@@ -368,7 +333,6 @@ function CallCard({ call }: { call: FlaggedCall }) {
               if (!displayTime) return null
               
               let displayStr = String(displayTime)
-              // If it's a 13-digit JS timestamp, format it
               if (/^\d{13}$/.test(displayStr)) {
                 displayStr = new Date(Number(displayStr)).toLocaleString('en-US', {
                   month: 'short',

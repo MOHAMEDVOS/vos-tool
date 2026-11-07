@@ -8,25 +8,24 @@ import {
   ChevronRight, Sun, Moon, UserPlus, ClipboardList,
 } from 'lucide-react'
 import { UsageCard } from './UsageCard'
-import { useAuditStore } from '@/store/auditStore'
-import { inferPhase } from '@/hooks/useAuditStream'
+import { useAuditStore, inferPhase } from '@/store/auditStore'
 import { animate } from 'animejs'
+import { canAccess, type Feature } from '@/utils/permissions'
 
-interface NavItem { id: NavTab; label: string; icon: React.ReactElement; roles?: string[] }
+interface NavItem { id: NavTab; label: string; icon: React.ReactElement; feature?: Feature }
 
 const ALL_ITEMS: NavItem[] = [
   { id: 'Audit',             label: 'Audit',       icon: <Mic size={15} /> },
   { id: 'Actions',           label: 'Actions',     icon: <Flag size={15} /> },
   { id: 'Call Review',       label: 'Call Review', icon: <PlayCircle size={15} /> },
-  { id: 'TL Actions',        label: 'TL Actions',  icon: <ClipboardCheck size={15} />, roles: ['Owner', 'Admin'] },
+  { id: 'TL Actions',        label: 'TL Actions',  icon: <ClipboardCheck size={15} />, feature: 'tl-actions-tab' },
   { id: 'Dashboard',         label: 'Dashboard',   icon: <LayoutDashboard size={15} /> },
-  { id: 'Scoring',           label: 'Scoring',     icon: <ClipboardList size={15} />, roles: ['Owner', 'Admin'] },
-  { id: 'Users',             label: 'Users',       icon: <UserPlus size={15} />, roles: ['Owner', 'Admin'] },
-  { id: 'Phrase Management', label: 'Phrases',     icon: <BookOpen size={15} />, roles: ['Owner'] },
-  { id: 'Settings',          label: 'Settings',    icon: <Settings size={15} />, roles: ['Owner', 'Admin'] },
+  { id: 'Scoring',           label: 'Scoring',     icon: <ClipboardList size={15} />, feature: 'scoring-tab' },
+  { id: 'Users',             label: 'Users',       icon: <UserPlus size={15} />, feature: 'users-tab' },
+  { id: 'Phrase Management', label: 'Phrases',     icon: <BookOpen size={15} />, feature: 'phrase-management-tab' },
+  { id: 'Settings',          label: 'Settings',    icon: <Settings size={15} />, feature: 'settings-tab' },
 ]
 
-/* Stagger container for nav items */
 const navContainer = {
   hidden: {},
   show:   { transition: { staggerChildren: 0.045 } },
@@ -61,9 +60,8 @@ export function Sidebar() {
   const logoRef        = useRef<HTMLDivElement>(null)
   const waterRef       = useRef<HTMLDivElement>(null)
 
-  const items = ALL_ITEMS.filter((i) => !i.roles || (role && i.roles.includes(role)))
+  const items = ALL_ITEMS.filter((i) => !i.feature || canAccess(role, i.feature))
 
-  /* ── Water fill loop on V logo ── */
   React.useEffect(() => {
     const water = waterRef.current
     if (!water) return
@@ -75,26 +73,21 @@ export function Sidebar() {
     const runCycle = () => {
       if (stopped) return
 
-      // Start empty at bottom
       water.style.transform = 'translateY(100%)'
       water.style.opacity   = '1'
 
-      // Rise slowly: bottom → top (2s)
       animate(water, {
         translateY: ['100%', '0%'],
         duration: 2000,
         ease: 'cubicBezier(0.2, 0.8, 0.4, 1)',
         onComplete: () => {
-          // Hold full for 5 minutes, then drain
           holdTimer = setTimeout(() => {
             if (stopped) return
-            // Drain fast: top → bottom (0.6s)
             animate(water, {
               translateY: ['0%', '100%'],
               duration: 600,
               ease: 'cubicBezier(0.4, 0, 0.8, 1)',
               onComplete: () => {
-                // Brief pause then repeat
                 cycleTimer = setTimeout(() => { if (!stopped) runCycle() }, 400)
               },
             })
@@ -178,12 +171,10 @@ export function Sidebar() {
         sidebarCollapsed ? 'w-[60px]' : 'w-[220px]',
       ].join(' ')}
     >
-      {/* ── Header ── */}
       <div className={[
         'flex h-14 shrink-0 items-center border-b border-[var(--b-divider)]',
         sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-4',
       ].join(' ')}>
-        {/* V logo mark — water fill animation */}
         <div
           ref={logoRef}
           className="w-[26px] h-[26px] rounded-[4px] flex items-center justify-center shrink-0 select-none relative overflow-hidden"
@@ -194,7 +185,6 @@ export function Sidebar() {
               : '0 0 0 1px rgba(0,0,0,0.20)',
           }}
         >
-          {/* Water fill — rises from bottom */}
           <div
             ref={waterRef}
             className="absolute inset-0 z-0 pointer-events-none"
@@ -247,7 +237,6 @@ export function Sidebar() {
         </motion.button>
       </div>
 
-      {/* ── Nav ── */}
       <nav className="flex-1 min-h-0 overflow-y-auto custom-scrollbar py-2 px-2">
         <motion.div
           className="space-y-px"
@@ -281,7 +270,6 @@ export function Sidebar() {
                     color: theme === 'dark' ? '#ffffff' : '#0f1117',
                   }}
                 >
-                  {/* Active left-bar indicator */}
                   {isActive && (
                     <motion.div
                       layoutId="activeNav"
@@ -291,7 +279,6 @@ export function Sidebar() {
                     />
                   )}
 
-                  {/* Icon with hover micro-animation */}
                   <motion.span
                     className="shrink-0"
                     style={isActive ? { color: 'var(--accent)' } : {}}
@@ -321,7 +308,6 @@ export function Sidebar() {
           })}
         </motion.div>
         
-        {/* Audit Progress in Sidebar */}
         <AnimatePresence>
           {isAuditRunning && (
             <motion.div
@@ -382,7 +368,6 @@ export function Sidebar() {
         </AnimatePresence>
       </nav>
 
-      {/* ── Bottom ── */}
       <div className="shrink-0 border-t border-[var(--b-divider)]">
         <div className={sidebarCollapsed ? 'flex justify-center py-2 px-2' : 'px-2 pt-2'}>
           <UsageCard />
@@ -391,7 +376,6 @@ export function Sidebar() {
         <div className="p-2 space-y-px">
           {!sidebarCollapsed ? (
             <>
-              {/* Profile row */}
               <div className="flex items-center gap-2.5 px-2 py-2 rounded-md shadow-[var(--shadow-border)] bg-surface-card mb-1">
                 <div className="h-7 w-7 shrink-0 rounded-full bg-[var(--surface-soft)] overflow-hidden flex items-center justify-center shadow-[var(--shadow-ring)]">
                   {picture
@@ -405,7 +389,6 @@ export function Sidebar() {
                 </div>
               </div>
 
-              {/* Theme toggle */}
               <motion.button
                 ref={themeButtonRef}
                 onClick={handleThemeToggle}
@@ -425,7 +408,6 @@ export function Sidebar() {
                 <span>{theme === 'light' ? 'Dark mode' : 'Light mode'}</span>
               </motion.button>
 
-              {/* Sign out */}
               <motion.button
                 onClick={clearAuth}
                 whileHover={{ x: 2 }}
@@ -445,7 +427,6 @@ export function Sidebar() {
               </motion.button>
             </>
           ) : (
-            /* Collapsed icons */
             <div className="flex flex-col items-center gap-2 py-1">
               <div className="h-7 w-7 rounded-full bg-[var(--surface-soft)] overflow-hidden flex items-center justify-center shadow-[var(--shadow-ring)]">
                 {picture

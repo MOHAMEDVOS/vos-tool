@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/health", tags=["health"])
 
-# Import owner authentication dependency
 from backend.core.dependencies import get_current_owner_user
 
 
@@ -35,6 +34,8 @@ async def get_database_health(current_user: dict = Depends(get_current_owner_use
         summary = monitor.get_health_summary()
         return summary
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Health check failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Health check error: {str(e)}")
@@ -60,6 +61,8 @@ async def get_pool_metrics(current_user: dict = Depends(get_current_owner_user))
         
         return monitor.get_pool_metrics()
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Pool metrics check failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -85,6 +88,8 @@ async def get_query_metrics(current_user: dict = Depends(get_current_owner_user)
         
         return monitor.get_query_metrics()
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Query metrics check failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -117,6 +122,8 @@ async def get_slow_queries(limit: int = 10, current_user: dict = Depends(get_cur
             "queries": slow_queries
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Slow queries check failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -155,6 +162,8 @@ async def get_health_alerts(current_user: dict = Depends(get_current_owner_user)
             ]
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Alerts check failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -181,6 +190,8 @@ async def reset_metrics(current_user: dict = Depends(get_current_owner_user)) ->
         monitor.reset_metrics()
         return {"message": "Metrics reset successfully"}
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Metrics reset failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -24,7 +24,6 @@ def get_recordings_root() -> Path:
     if env_root:
         candidates.append(Path(env_root))
     
-    # Check if we're in Docker (common indicators)
     is_docker = False
     try:
         if os.path.exists("/.dockerenv"):
@@ -60,7 +59,6 @@ def get_recordings_root() -> Path:
     for candidate in candidates:
         try:
             candidate.mkdir(parents=True, exist_ok=True)
-            # Test write access
             test_file = candidate / ".write_test"
             test_file.write_text("ok", encoding="utf-8")
             test_file.unlink(missing_ok=True)
@@ -70,7 +68,6 @@ def get_recordings_root() -> Path:
             # print(f"DEBUG Candidate {candidate} failed: {e}")
             continue
     
-    # Final fallback to project root Recordings
     fallback = Path(__file__).parent.parent / "Recordings"
     fallback.mkdir(parents=True, exist_ok=True)
     return fallback

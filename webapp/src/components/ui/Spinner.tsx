@@ -45,12 +45,9 @@ export function Spinner({ size = 'md', variant = 'ring' }: Props) {
     )
   }
 
-  /* default: ring */
   return (
     <div className={`${ring[size]} relative`}>
-      {/* Track */}
       <div className="absolute inset-0 rounded-full border-2 border-[var(--b-subtle)]" />
-      {/* Arc */}
       <motion.div
         className="absolute inset-0 rounded-full border-2 border-transparent"
         style={{

@@ -51,7 +51,6 @@ def _get_user_profile(username: str) -> Dict[str, Any]:
 def _get_quota_and_usage(username: str) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
 
-    # Quota status
     try:
         if quota_manager:
             result["quota_status"] = quota_manager.get_user_quota_status(username)
@@ -126,7 +125,6 @@ def _get_learned_rebuttals_summary() -> Dict[str, Any]:
             # Fall through to JSON fallback
             pass
 
-    # JSON fallback
     try:
         with open("dashboard_data/learned_rebuttals.json", "r", encoding="utf-8") as f:
             data = json.load(f)

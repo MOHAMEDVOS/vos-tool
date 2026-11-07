@@ -40,18 +40,6 @@ def setup_logging(
     logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-def setup_frontend_logging() -> None:
-    """
-    Configure logging for Streamlit frontend (simpler format).
-    """
-    logging.basicConfig(
-        level=logging.INFO,  # Enable INFO logging to see system progress
-        format='%(message)s',  # Simple format without timestamps
-        handlers=[logging.StreamHandler()],
-        force=True
-    )
-
-
 def setup_backend_logging() -> None:
     """
     Configure logging for FastAPI backend (detailed format).

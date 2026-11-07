@@ -1,4 +1,7 @@
-"""Duplicate-user scan orchestrator — pure HTTP, no browser.
+"""Duplicate-user scan orchestrator — HTTP throughout, except that
+ReadyModeHTTPClient.login() can launch a real browser if a dialer puts up a Cloudflare
+challenge (see automation/readymode_http.py's module docstring). Nothing else here
+touches a browser.
 
 Login once per dialer, build a name->uid roster from two sources, group by shared
 display name, and return one result per dialer for the SSE stream in
@@ -16,7 +19,6 @@ docs/investigations/READYMODE_DUPLICATE_DETECTION_WORKFRAME.md.
 """
 
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Optional
 
 from automation.readymode_http import (
@@ -24,46 +26,23 @@ from automation.readymode_http import (
     ReadyModeLoginError,
     group_duplicate_users,
     lookup_date_range,
-    resolve_folder_listing_id,
+    fetch_all_folder_users,
     dialer_name_from_url,
+    run_per_dialer,
 )
 
 
 def _build_roster(client: "ReadyModeHTTPClient", userlist: dict, log: Callable[[str], None]) -> dict:
-    """Merge fetch_report()'s userlist with every writable folder's live listing, in
-    userlist's own {"x<uid>": "Folder|Name"} shape, so group_duplicate_users() can
-    consume the combined result unmodified. A uid already present from userlist is not
-    overwritten by the folder scan — userlist already carries its real folder. Folders
-    are fetched in parallel (each is an independent request against the same session,
-    and a folder can be 1000+ users worth of HTML to parse) — sequential fetching was
-    confirmed live 2026-09-01 as the actual source of scan slowness."""
+    """Merge fetch_report()'s userlist with every writable folder's live listing (via the
+    shared automation.readymode_http.fetch_all_folder_users()), in userlist's own
+    {"x<uid>": "Folder|Name"} shape, so group_duplicate_users() can consume the combined
+    result unmodified. A uid already present from userlist is not overwritten by the
+    folder scan — userlist already carries its real folder."""
     roster = dict(userlist or {})
-    try:
-        folders = client.get_writable_folders() or {}
-    except Exception as e:
-        log(f"WARN  Could not list writable folders: {e}")
-        return roster
-
-    listing_ids = [
-        (folder_name, resolve_folder_listing_id(create_form_id))
-        for folder_name, create_form_id in folders.items()
-    ]
-    listing_ids = [(n, lid) for n, lid in listing_ids if lid]
-
-    with ThreadPoolExecutor(max_workers=max(1, len(listing_ids))) as pool:
-        futures = {
-            pool.submit(client.list_folder_users, listing_id): folder_name
-            for folder_name, listing_id in listing_ids
-        }
-        for future in as_completed(futures):
-            folder_name = futures[future]
-            try:
-                for uid, name in future.result().items():
-                    key = f"x{uid}"
-                    if key not in roster:
-                        roster[key] = f"{folder_name}|{name}"
-            except Exception as e:
-                log(f"WARN  Could not list folder '{folder_name}': {e}")
+    for uid, (name, folder_name) in fetch_all_folder_users(client, log).items():
+        key = f"x{uid}"
+        if key not in roster:
+            roster[key] = f"{folder_name}|{name}"
     return roster
 
 
@@ -130,29 +109,13 @@ def find_duplicate_users_multi_dialer(
     """Scan multiple dialers in parallel. Returns one result dict per dialer (see
     find_duplicate_users_on_dialer) — NOT flattened, unlike create/delete's flat
     per-user list, since a uid is only meaningful on the dialer it came from."""
-    all_results: list[dict] = []
+    def worker(url: str) -> dict:
+        return find_duplicate_users_on_dialer(url, readymode_user, readymode_pass, log_callback)
 
-    with ThreadPoolExecutor(max_workers=len(dialer_urls)) as pool:
-        futures = {
-            pool.submit(
-                find_duplicate_users_on_dialer, url,
-                readymode_user, readymode_pass, log_callback,
-            ): url
-            for url in dialer_urls
+    def on_error(url: str, e: Exception) -> dict:
+        return {
+            "dialer": dialer_name_from_url(url), "dialer_url": url,
+            "status": "failed", "detail": str(e), "groups": [],
         }
-        for future in as_completed(futures):
-            url = futures[future]
-            dialer_name = dialer_name_from_url(url)
-            try:
-                all_results.append(future.result())
-            except Exception as e:
-                if log_callback:
-                    log_callback(f"ERROR Unexpected error on {dialer_name}: {e}")
-                else:
-                    print(f"ERROR Unexpected error on {dialer_name}: {e}")
-                all_results.append({
-                    "dialer": dialer_name, "dialer_url": url,
-                    "status": "failed", "detail": str(e), "groups": [],
-                })
 
-    return all_results
+    return run_per_dialer(dialer_urls, worker, on_error, log_callback)

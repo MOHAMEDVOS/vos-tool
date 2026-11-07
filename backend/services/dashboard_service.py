@@ -50,7 +50,6 @@ def get_agent_audits(
 ) -> List[Dict[str, Any]]:
     """Get agent audit records."""
     try:
-        # Convert DataFrame to list of dicts
         df = dashboard_manager.get_combined_agent_audit_data(username)
         if df is not None and not df.empty:
             if agent_name:
@@ -105,7 +104,6 @@ def get_campaign_audits(
                 return df.to_dict('records')
             return []
         else:
-            # Get all campaigns
             campaigns = dashboard_manager.get_available_campaigns(username)
             all_data = []
             for camp in campaigns:
@@ -154,7 +152,6 @@ def clear_campaign_audits(username: str, campaign: Optional[str] = None) -> bool
         if campaign:
             dashboard_manager.clear_campaign_audit_data(username=username, campaign_name=campaign)
         else:
-            # Clear all campaigns
             campaigns = dashboard_manager.get_available_campaigns(username)
             for camp in campaigns:
                 dashboard_manager.clear_campaign_audit_data(username=username, campaign_name=camp)
@@ -174,6 +171,73 @@ def get_available_campaigns(username: str) -> List[str]:
 
 
 
+def is_call_flagged(row: Dict[str, Any]) -> bool:
+    """Per-row "is this call flagged" predicate (G12).
+
+    This is the single source of truth for flagged-call logic -- both
+    get_flagged_calls (below) and campaign_report_export._is_flagged call
+    this function, so the main dashboard and the campaign export can never
+    silently disagree about which rows are flagged again.
+
+    Flagged if:
+      (Releasing Detection == Yes OR Late Hello Detection == Yes)
+        AND Rebuttal Detection in (No, N/A)
+      OR Rebuttal Detection == No, unless the Objection Gate marks the miss
+        as not a fair flag (no_objection / owner_ended_call / unusable)
+      OR Long VM/Dead Detection carries a non-blank, non-"No" label
+      OR Wrong Dispo Detection == Yes
+
+    Accepts a row dict either from `DataFrame.to_dict('records')` (missing
+    cell values show up as float NaN) or from a JSON round-trip (missing
+    values are None) -- both are treated the same. A column that isn't in
+    the row at all is treated the same as a blank value for that column,
+    mirroring the old `column in df.columns` checks this replaced.
+    """
+
+    def _missing(value: Any) -> bool:
+        return value is None or (isinstance(value, float) and value != value)
+
+    def _get(column: str) -> Any:
+        value = row.get(column)
+        return None if _missing(value) else value
+
+    quality = _get("Releasing Detection") == "Yes" or _get("Late Hello Detection") == "Yes"
+
+    if "Rebuttal Detection" in row:
+        rebuttal = _get("Rebuttal Detection")
+        no_rebuttal = rebuttal in ("No", "N/A")
+        rebuttal_issue = rebuttal == "No"
+        # "No" stays "No" whether or not the owner ever objected -- the
+        # column is strictly Yes/No. "Objection Gate" carries why, and a
+        # "No" that wasn't a fair miss isn't a fair flag. Only these three
+        # verdicts are excluded -- "unparseable" (no speaker labels, but
+        # real content) and "no_attempt" stay flagged, since there's no
+        # way to confirm those are unfair. See
+        # analyzer/objection_gate.py and docs/REBUTTAL_FALSE_FLAGS.md.
+        if "Objection Gate" in row:
+            not_a_fair_miss = _get("Objection Gate") in (
+                "no_objection", "owner_ended_call", "unusable"
+            )
+            rebuttal_issue = rebuttal_issue and not not_a_fair_miss
+    else:
+        no_rebuttal = True
+        rebuttal_issue = False
+
+    # Long Voicemail / Dead Call rows carry a free-text label (e.g. "Voicemail 28s");
+    # "No"/blank means not flagged. Mirror webapp isRowFlagged().
+    if "Long VM/Dead Detection" in row:
+        long_val = str(_get("Long VM/Dead Detection") or "").strip()
+        long_call = long_val not in ("", "No")
+    else:
+        long_call = False
+
+    # Homeowner clearly asked not to be called again, but the agent logged a
+    # disposition other than "DNC - Decision Maker" (lib/wrong_dispo_detector.py).
+    wrong_dispo_issue = _get("Wrong Dispo Detection") == "Yes"
+
+    return (quality and no_rebuttal) or rebuttal_issue or long_call or wrong_dispo_issue
+
+
 def get_flagged_calls(
     username: str,
     start_date: Optional[date] = None,
@@ -181,9 +245,9 @@ def get_flagged_calls(
 ) -> List[Dict[str, Any]]:
     """Return the combined agent+lite audits filtered to flagged rows (G12).
 
-    Flagged logic mirrors app.py::get_actions_flagged_count:
-      (Releasing=Yes OR Late Hello=Yes) with (Rebuttal in No/N/A)
-      OR Rebuttal Detection = No
+    Row-level flagged logic lives in is_call_flagged() above; see its
+    docstring for the exact rule. campaign_report_export._is_flagged calls
+    the same function so the two stay in agreement.
     """
     try:
         import pandas as pd
@@ -212,47 +276,9 @@ def get_flagged_calls(
         if combined.empty:
             return []
 
-        quality = (
-            (combined.get("Releasing Detection", "No") == "Yes")
-            | (combined.get("Late Hello Detection", "No") == "Yes")
-        )
-
-        if "Rebuttal Detection" in combined.columns:
-            no_rebuttal = combined["Rebuttal Detection"].isin(["No", "N/A"])
-            rebuttal_issue = combined["Rebuttal Detection"] == "No"
-            # "No" stays "No" whether or not the owner ever objected -- the
-            # column is strictly Yes/No. "Objection Gate" carries why, and a
-            # "No" that wasn't a fair miss isn't a fair flag. Only these three
-            # verdicts are excluded -- "unparseable" (no speaker labels, but
-            # real content) and "no_attempt" stay flagged, since there's no
-            # way to confirm those are unfair. See
-            # analyzer/objection_gate.py and docs/REBUTTAL_FALSE_FLAGS.md.
-            if "Objection Gate" in combined.columns:
-                not_a_fair_miss = combined["Objection Gate"].isin(
-                    ["no_objection", "owner_ended_call", "unusable"]
-                )
-                rebuttal_issue = rebuttal_issue & ~not_a_fair_miss
-        else:
-            no_rebuttal = pd.Series([True] * len(combined), index=combined.index)
-            rebuttal_issue = pd.Series([False] * len(combined), index=combined.index)
-
-        # Long Voicemail / Dead Call rows carry a free-text label (e.g. "Voicemail 28s");
-        # "No"/blank means not flagged. Mirror webapp isRowFlagged().
-        if "Long VM/Dead Detection" in combined.columns:
-            long_vals = combined["Long VM/Dead Detection"].fillna("").astype(str).str.strip()
-            long_call = ~long_vals.isin(["", "No"])
-        else:
-            long_call = pd.Series([False] * len(combined), index=combined.index)
-
-        # Homeowner clearly asked not to be called again, but the agent logged a
-        # disposition other than "DNC - Decision Maker" (lib/wrong_dispo_detector.py).
-        wrong_dispo_issue = combined.get("Wrong Dispo Detection", "No") == "Yes"
-
-        flagged = combined[(quality & no_rebuttal) | rebuttal_issue | long_call | wrong_dispo_issue]
-        if flagged.empty:
-            return []
         import json as _json
-        return _json.loads(flagged.to_json(orient="records", force_ascii=False))
+        records = _json.loads(combined.to_json(orient="records", force_ascii=False))
+        return [r for r in records if is_call_flagged(r)]
     except Exception as e:
         logger.error(f"get_flagged_calls failed: {e}", exc_info=True)
         return []

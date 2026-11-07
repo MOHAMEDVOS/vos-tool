@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
-import { useAuthStore } from '@/store/authStore'
 import { READYMODE_DIALER_URLS } from '@/api/readymode'
+import { readSSEStream } from '@/utils/sseStream'
 
 // ── Folder & Role option maps ────────────────────────────────────────────────
 // Folder is sent by NAME, not id: folder IDs are per-dialer (e.g. 'Agents' is
@@ -245,7 +245,6 @@ function DialerPicker({
 }
 
 export function UsersPage() {
-  const token = useAuthStore((s) => s.token)
   const [mode, setMode] = useState<'create' | 'delete' | 'duplicates'>('create')
 
   // ── Shared: custom dialers (persisted to localStorage) ──────────────────────
@@ -362,34 +361,13 @@ export function UsersPage() {
     }
 
     try {
-      const res = await fetch('/api/readymode-users/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+      await readSSEStream('/api/readymode-users/create', {
+        body,
+        onEvent: (event, data) => {
+          if (event === 'done') setResults(data as ResultRow[])
+          if (event === 'error') setResults(prev => [...prev, { name: '—', login_id: '—', dialer: 'all', status: 'failed', detail: String(data) }])
         },
-        body: JSON.stringify(body),
       })
-
-      const reader = res.body?.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-
-      while (reader) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue
-          try {
-            const { event, data } = JSON.parse(line.slice(5).trim())
-            if (event === 'done') setResults(data as ResultRow[])
-            if (event === 'error') setResults(prev => [...prev, { name: '—', login_id: '—', dialer: 'all', status: 'failed', detail: String(data) }])
-          } catch { /* ignore malformed SSE */ }
-        }
-      }
     } catch (e) {
       setResults(prev => [...prev, { name: '—', login_id: '—', dialer: 'all', status: 'failed', detail: `Connection error: ${(e as Error).message}` }])
     } finally {
@@ -432,34 +410,13 @@ export function UsersPage() {
     }
 
     try {
-      const res = await fetch('/api/readymode-users/delete', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+      await readSSEStream('/api/readymode-users/delete', {
+        body,
+        onEvent: (event, data) => {
+          if (event === 'done') setDeleteResults(data as DeleteResultRow[])
+          if (event === 'error') setDeleteResults(prev => [...prev, { name: '—', dialer: 'all', status: 'failed', detail: String(data) }])
         },
-        body: JSON.stringify(body),
       })
-
-      const reader = res.body?.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-
-      while (reader) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue
-          try {
-            const { event, data } = JSON.parse(line.slice(5).trim())
-            if (event === 'done') setDeleteResults(data as DeleteResultRow[])
-            if (event === 'error') setDeleteResults(prev => [...prev, { name: '—', dialer: 'all', status: 'failed', detail: String(data) }])
-          } catch { /* ignore malformed SSE */ }
-        }
-      }
     } catch (e) {
       setDeleteResults(prev => [...prev, { name: '—', dialer: 'all', status: 'failed', detail: `Connection error: ${(e as Error).message}` }])
     } finally {
@@ -500,39 +457,18 @@ export function UsersPage() {
     }
 
     try {
-      const res = await fetch('/api/readymode-users/inactive', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
+      await readSSEStream('/api/readymode-users/inactive', {
+        body,
+        onEvent: (event, data) => {
+          if (event === 'done') {
+            const results = data as InactiveDialerResult[]
+            setInactiveResults(results)
+          }
+          if (event === 'error') setInactiveResults(prev => [...prev, {
+            dialer: 'all', dialer_url: '', status: 'failed', detail: String(data), users: [],
+          }])
         },
-        body: JSON.stringify(body),
       })
-
-      const reader = res.body?.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-
-      while (reader) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue
-          try {
-            const { event, data } = JSON.parse(line.slice(5).trim())
-            if (event === 'done') {
-              const results = data as InactiveDialerResult[]
-              setInactiveResults(results)
-            }
-            if (event === 'error') setInactiveResults(prev => [...prev, {
-              dialer: 'all', dialer_url: '', status: 'failed', detail: String(data), users: [],
-            }])
-          } catch { /* ignore malformed SSE */ }
-        }
-      }
     } catch (e) {
       setInactiveResults(prev => [...prev, {
         dialer: 'all', dialer_url: '', status: 'failed',
@@ -569,36 +505,15 @@ export function UsersPage() {
         users: rows.map(r => ({ name: r.name, uid: r.uid })),
       }
       try {
-        const res = await fetch('/api/readymode-users/delete', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
+        await readSSEStream('/api/readymode-users/delete', {
+          body,
+          onEvent: (event, data) => {
+            if (event === 'done') setInactiveDeleteResults(prev => [...prev, ...(data as DeleteResultRow[])])
+            if (event === 'error') setInactiveDeleteResults(prev => [...prev, {
+              name: '—', dialer: rows[0]?.dialer ?? 'unknown', status: 'failed', detail: String(data),
+            }])
           },
-          body: JSON.stringify(body),
         })
-
-        const reader = res.body?.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-
-        while (reader) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          const lines = buf.split('\n')
-          buf = lines.pop() ?? ''
-          for (const line of lines) {
-            if (!line.startsWith('data:')) continue
-            try {
-              const { event, data } = JSON.parse(line.slice(5).trim())
-              if (event === 'done') setInactiveDeleteResults(prev => [...prev, ...(data as DeleteResultRow[])])
-              if (event === 'error') setInactiveDeleteResults(prev => [...prev, {
-                name: '—', dialer: rows[0]?.dialer ?? 'unknown', status: 'failed', detail: String(data),
-              }])
-            } catch { /* ignore malformed SSE */ }
-          }
-        }
       } catch (e) {
         setInactiveDeleteResults(prev => [...prev, {
           name: '—', dialer: rows[0]?.dialer ?? 'unknown', status: 'failed',
@@ -656,49 +571,28 @@ export function UsersPage() {
     const body = { dialer_urls: dupSelectedDialers.map(d => allDialerUrls[d]) }
 
     try {
-      const res = await fetch('/api/readymode-users/duplicates', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      })
-
-      const reader = res.body?.getReader()
-      const decoder = new TextDecoder()
-      let buf = ''
-
-      while (reader) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buf += decoder.decode(value, { stream: true })
-        const lines = buf.split('\n')
-        buf = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue
-          try {
-            const { event, data } = JSON.parse(line.slice(5).trim())
-            if (event === 'done') {
-              const results = data as DuplicateDialerResult[]
-              setDupResults(results)
-              // Pre-check every delete-candidate — still requires the confirm() below to act.
-              const initial: Record<string, boolean> = {}
-              for (const r of results) {
-                for (const g of r.groups) {
-                  for (const a of g.accounts) {
-                    if (a.role === 'delete_candidate') initial[`${r.dialer}:${a.uid}`] = true
-                  }
+      await readSSEStream('/api/readymode-users/duplicates', {
+        body,
+        onEvent: (event, data) => {
+          if (event === 'done') {
+            const results = data as DuplicateDialerResult[]
+            setDupResults(results)
+            // Pre-check every delete-candidate — still requires the confirm() below to act.
+            const initial: Record<string, boolean> = {}
+            for (const r of results) {
+              for (const g of r.groups) {
+                for (const a of g.accounts) {
+                  if (a.role === 'delete_candidate') initial[`${r.dialer}:${a.uid}`] = true
                 }
               }
-              setDupSelectedUids(initial)
             }
-            if (event === 'error') setDupResults(prev => [...prev, {
-              dialer: 'all', dialer_url: '', status: 'failed', detail: String(data), groups: [],
-            }])
-          } catch { /* ignore malformed SSE */ }
-        }
-      }
+            setDupSelectedUids(initial)
+          }
+          if (event === 'error') setDupResults(prev => [...prev, {
+            dialer: 'all', dialer_url: '', status: 'failed', detail: String(data), groups: [],
+          }])
+        },
+      })
     } catch (e) {
       setDupResults(prev => [...prev, {
         dialer: 'all', dialer_url: '', status: 'failed',
@@ -735,36 +629,15 @@ export function UsersPage() {
         users: rows.map(r => ({ name: r.name, uid: r.uid })),
       }
       try {
-        const res = await fetch('/api/readymode-users/delete', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
+        await readSSEStream('/api/readymode-users/delete', {
+          body,
+          onEvent: (event, data) => {
+            if (event === 'done') setDupDeleteResults(prev => [...prev, ...(data as DeleteResultRow[])])
+            if (event === 'error') setDupDeleteResults(prev => [...prev, {
+              name: '—', dialer: rows[0]?.dialer ?? 'unknown', status: 'failed', detail: String(data),
+            }])
           },
-          body: JSON.stringify(body),
         })
-
-        const reader = res.body?.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-
-        while (reader) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buf += decoder.decode(value, { stream: true })
-          const lines = buf.split('\n')
-          buf = lines.pop() ?? ''
-          for (const line of lines) {
-            if (!line.startsWith('data:')) continue
-            try {
-              const { event, data } = JSON.parse(line.slice(5).trim())
-              if (event === 'done') setDupDeleteResults(prev => [...prev, ...(data as DeleteResultRow[])])
-              if (event === 'error') setDupDeleteResults(prev => [...prev, {
-                name: '—', dialer: rows[0]?.dialer ?? 'unknown', status: 'failed', detail: String(data),
-              }])
-            } catch { /* ignore malformed SSE */ }
-          }
-        }
       } catch (e) {
         setDupDeleteResults(prev => [...prev, {
           name: '—', dialer: rows[0]?.dialer ?? 'unknown', status: 'failed',
@@ -776,11 +649,9 @@ export function UsersPage() {
     setDupDeleting(false)
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col gap-5 p-6">
 
-      {/* Page header + mode toggle */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-t-primary">
@@ -829,7 +700,6 @@ export function UsersPage() {
               onRemoveCustomDialer={removeCustomDialer}
             />
 
-            {/* Folder */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Folder</label>
               <select
@@ -843,7 +713,6 @@ export function UsersPage() {
               </select>
             </div>
 
-            {/* Role */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-t-muted uppercase tracking-wide">Role</label>
               <select
@@ -859,7 +728,6 @@ export function UsersPage() {
 
             <div className="border-t border-b-subtle" />
 
-            {/* Summary */}
             <div className="space-y-2">
               <p className="text-xs font-semibold text-t-muted uppercase tracking-wide">Summary</p>
               <div className="rounded-lg border border-b-subtle bg-surface-soft p-3 space-y-2 text-sm">

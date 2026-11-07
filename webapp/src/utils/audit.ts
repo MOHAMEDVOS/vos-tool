@@ -1,4 +1,5 @@
-import type { AgentAuditRow } from '@/types/api'
+import type { AgentAuditRow, FlaggedCall } from '@/types/api'
+import type { AgentDeductionRow } from '@/pages/ActionsPage'
 
 // Exact column order from app.py:2457-2471
 export const AGENT_AUDIT_COLUMN_ORDER = [
@@ -28,27 +29,22 @@ export const HIDDEN_COLUMNS = new Set([
 // Normalize column names to match display order
 export function normalizeRow(row: AgentAuditRow): AgentAuditRow {
   const out: AgentAuditRow = { ...row }
-  // Rename username to Auditor
   if ('username' in out) {
     out['Auditor'] = out['username']
     delete out['username']
   }
-  // Rename audit_type to Audit Type
   if ('audit_type' in out) {
     out['Audit Type'] = out['audit_type']
     delete out['audit_type']
   }
-  // Normalize "Reason for Calling" variants
   if ('Reason for Calling' in out && !('Reason for calling' in out)) {
     out['Reason for calling'] = out['Reason for Calling']
     delete out['Reason for Calling']
   }
-  // Normalize snake_case dialer_name → "Dialer Name"
   if ('dialer_name' in out && !('Dialer Name' in out)) {
     out['Dialer Name'] = out['dialer_name'] as string
     delete out['dialer_name']
   }
-  // Extract dialer name from file path when missing
   // Folder pattern: "{agent}-{date}_{counter} {dialer_name}/file.mp3"
   if (!out['Dialer Name']) {
     const fp = (out['File Path'] ?? out['file_path'] ?? '') as string
@@ -60,8 +56,7 @@ export function normalizeRow(row: AgentAuditRow): AgentAuditRow {
       }
     }
   }
-  
-  // Explicitly map Time from metadata or root if it exists
+
   const metadataTime = row.metadata?.['Time']
   if (!out['Time'] && typeof metadataTime === 'string') {
     out['Time'] = metadataTime
@@ -125,14 +120,14 @@ export function isRowFlagged(row: AgentAuditRow): boolean {
   )
 }
 
-// Badge variant for detection columns
 export function detectionVariant(val: unknown, col: string, row?: AgentAuditRow) {
   if (col === 'Rebuttal Detection') {
     if (val === 'Yes') return 'success'
     if (val === 'No') {
       // A "No" that wasn't a fair miss isn't an issue -- don't paint it red.
-      // See isRowFlagged above for the matching flag logic.
-      return NOT_A_FAIR_MISS.has(row?.['Objection Gate'] ?? '') ? 'success' : 'danger'
+      // Delegates to isFairRebuttalMiss so this always agrees with
+      // isRowFlagged and the backend's get_flagged_calls.
+      return isFairRebuttalMiss(row ?? { 'Rebuttal Detection': 'No' }) ? 'danger' : 'success'
     }
     return 'muted'
   }
@@ -143,6 +138,53 @@ export function detectionVariant(val: unknown, col: string, row?: AgentAuditRow)
     return isLongCallFlagged(val) ? 'danger' : 'success'
   }
   return 'muted'
+}
+
+// Builds the human issue labels for one flagged call -- shared by the Actions page's
+// list + Copy All text and Call Review's per-call badges.
+export function getCallIssues(row: FlaggedCall): string[] {
+  const issues: string[] = []
+  if (row['Releasing Detection'] === 'Yes') issues.push('Releasing')
+  if (row['Late Hello Detection'] === 'Yes') issues.push('Late Hello')
+  if (isFairRebuttalMiss(row)) issues.push('No Rebuttal')
+  if (row['Wrong Dispo Detection'] === 'Yes') {
+    const reason = row['Wrong Dispo Reason']
+    issues.push(reason ? `Wrong Dispo ${reason}` : 'Wrong Dispo')
+  }
+  const lc = row['Long VM/Dead Detection']
+  if (isLongCallFlagged(lc)) {
+    const s = String(lc).toLowerCase()
+    if (s.startsWith('voicemail')) issues.push('voicemail above 15 sec')
+    else if (s.startsWith('dead call')) issues.push('Dead call above 15 sec')
+    else issues.push('Long VM/Dead')
+  }
+  return issues
+}
+
+// Aggregates flagged calls (already deduped via dedupeLongCallRows) into one row per agent
+// with the 6 detection counters -- shared by ActionsPage and CallReviewPage, which both used
+// to build this with their own copy-pasted Map loop.
+export function buildAgentDeductions(rows: FlaggedCall[], totalCallsMap: Map<string, number>): AgentDeductionRow[] {
+  const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; wrongDispo: number; dialerNames: Set<string> }>()
+  for (const call of rows) {
+    const name = (call['Agent Name'] ?? 'Unknown').trim()
+    if (!agentMap.has(name)) agentMap.set(name, { flagged: [], releasing: 0, lateHello: 0, noRebuttals: 0, longCall: 0, wrongDispo: 0, dialerNames: new Set() })
+    const entry = agentMap.get(name)!
+    entry.flagged.push(call)
+    if (call['Releasing Detection'] === 'Yes') entry.releasing++
+    if (call['Late Hello Detection'] === 'Yes') entry.lateHello++
+    if (isFairRebuttalMiss(call)) entry.noRebuttals++
+    if (isLongCallFlagged(call['Long VM/Dead Detection'])) entry.longCall++
+    if (call['Wrong Dispo Detection'] === 'Yes') entry.wrongDispo++
+    const dialer = call['Dialer Name'] as string | undefined
+    if (dialer) entry.dialerNames.add(dialer)
+  }
+  return [...agentMap.entries()].map(([agentName, data]) => ({
+    agentName, totalCalls: totalCallsMap.get(agentName) ?? data.flagged.length,
+    flaggedCalls: data.flagged.length, releasing: data.releasing, lateHello: data.lateHello,
+    noRebuttals: data.noRebuttals, longCall: data.longCall, wrongDispo: data.wrongDispo,
+    dialerNames: [...data.dialerNames].sort(), deduction: data.flagged.length >= 5,
+  })).sort((a, b) => b.flaggedCalls - a.flaggedCalls)
 }
 
 const DETECTION_COLS = new Set([

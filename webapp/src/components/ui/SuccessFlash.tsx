@@ -29,7 +29,6 @@ export function SuccessFlash({ show, label = 'Done' }: Props) {
           transition={{ type: 'spring', stiffness: 500, damping: 28 }}
           className="inline-flex items-center gap-1.5"
         >
-          {/* Circle with checkmark */}
           <motion.div
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}

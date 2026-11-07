@@ -84,13 +84,11 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
   // Rebuild segments only when words change
   useEffect(() => {
     wordRefs.current = new Array(words.length).fill(null)
-    // Reset the highlighted word when the transcript changes.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveIdx(-1)
     lastScrolledIdx.current = -1
   }, [words])
 
-  // Detect manual scroll — pause auto-scroll for 3 s
   useEffect(() => {
     const box = containerRef.current
     if (!box) return
@@ -145,7 +143,6 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
     }
   }, [words, audioRef, audioEl])
 
-  // Click a word → seek audio to its start time
   const handleWordClick = (start: number) => {
     const audio = audioNodeRef.current ?? audioRef.current
     if (!audio) return
@@ -153,7 +150,6 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
     if (audio.paused) audio.play()
   }
 
-  // No word timestamps — fall back to plain text
   if (!words.length) {
     if (!fallbackText) return null
     return (
@@ -182,7 +178,6 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
         className="flex-1 overflow-y-auto max-h-[220px] px-3 py-2.5 custom-scrollbar"
       >
         {hasSpeakers ? (
-          // Speaker-segmented layout
           segments.map((seg, si) => (
             <div key={si}>
               <span className={`text-[9px] font-bold uppercase tracking-widest mr-1.5 ${speakerColor(seg.speaker)}`}>
@@ -204,7 +199,6 @@ export function KaraokeTranscript({ words, audioRef, audioEl, fallbackText }: Pr
             </div>
           ))
         ) : (
-          // Flat layout — no speakers
           <p className="text-[10px] leading-relaxed">
             {words.map((w, i) => (
               <WordSpan

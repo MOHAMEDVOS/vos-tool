@@ -1,4 +1,7 @@
-"""Bulk user creation orchestrator — pure HTTP, no browser.
+"""Bulk user creation orchestrator — HTTP throughout, except that
+ReadyModeHTTPClient.login() can launch a real browser if a dialer puts up a Cloudflare
+challenge (see automation/readymode_http.py's module docstring). Nothing else here
+touches a browser.
 
 Login once per dialer, create each user sequentially (one request per user so
 each carries its own password), print a progress line per user consumed by the
@@ -6,7 +9,6 @@ SSE stream in backend/api/readymode_users.py.
 """
 
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Optional
 
 from automation.readymode_http import (
@@ -14,6 +16,7 @@ from automation.readymode_http import (
     ReadyModeLoginError,
     ReadyModeUserCreateError,
     dialer_name_from_url,
+    run_per_dialer,
 )
 
 
@@ -102,31 +105,20 @@ def create_users_multi_dialer(
     log_callback: Optional[Callable[[str], None]] = None,
 ) -> list[dict]:
     """Create users on multiple dialers in parallel. Returns flat list of all results."""
-    all_results: list[dict] = []
+    def worker(url: str) -> list[dict]:
+        return create_users_on_dialer(
+            url, users, readymode_user, readymode_pass, None, log_callback,
+        )
 
-    with ThreadPoolExecutor(max_workers=len(dialer_urls)) as pool:
-        futures = {
-            pool.submit(
-                create_users_on_dialer, url, users,
-                readymode_user, readymode_pass,
-                None, log_callback,
-            ): url
-            for url in dialer_urls
-        }
-        for future in as_completed(futures):
-            try:
-                all_results.extend(future.result())
-            except Exception as e:
-                url = futures[future]
-                name = dialer_name_from_url(url)
-                if log_callback:
-                    log_callback(f"ERROR Unexpected error on {name}: {e}")
-                else:
-                    print(f"ERROR Unexpected error on {name}: {e}")
-                for u in users:
-                    all_results.append({
-                        "name": u["name"], "login_id": u["login_id"],
-                        "dialer": name, "status": "failed", "detail": str(e),
-                    })
+    def on_error(url: str, e: Exception) -> list[dict]:
+        name = dialer_name_from_url(url)
+        return [
+            {
+                "name": u["name"], "login_id": u["login_id"],
+                "dialer": name, "status": "failed", "detail": str(e),
+            }
+            for u in users
+        ]
 
-    return all_results
+    per_dialer = run_per_dialer(dialer_urls, worker, on_error, log_callback)
+    return [result for dialer_results in per_dialer for result in dialer_results]

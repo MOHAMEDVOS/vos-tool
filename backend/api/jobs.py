@@ -5,7 +5,7 @@ from datetime import datetime
 import logging
 
 from backend.core.dependencies import get_current_user
-from backend.services.job_store import create_job, update_job
+from backend.services.job_store import create_job, update_job, get_job
 from backend.job_tasks.tasks import process_audio_batch_task
 from backend.core.database import get_db
 
@@ -37,7 +37,6 @@ async def submit_batch_job(
     """
     Submit a batch audio processing job.
     """
-    # Generate Job ID
     job_id = str(uuid.uuid4())
     username = current_user['username']
     
@@ -45,7 +44,6 @@ async def submit_batch_job(
     # count = get_active_jobs_count(username)
     # if count >= MAX_JOBS: raise HTTPException(429, "Too many active jobs")
     
-    # Create job in database
     try:
         create_job(
             job_id=job_id,
@@ -59,7 +57,6 @@ async def submit_batch_job(
         logger.error(f"Failed to create job record: {e}")
         raise HTTPException(status_code=500, detail="Failed to create job record")
 
-    # Enqueue Celery task
     try:
         # We pass the token separately if needed, or let the task fetch it
         process_audio_batch_task.delay(
@@ -70,7 +67,6 @@ async def submit_batch_job(
         )
     except Exception as e:
         logger.error(f"Failed to enqueue task: {e}")
-        # Mark job as failed immediately if enqueue fails
         update_job(job_id, status="failed", error="Failed to enqueue background task")
         raise HTTPException(status_code=500, detail="Failed to start processing task")
 
@@ -92,7 +88,6 @@ async def get_job_status_endpoint(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # Security check: only allow owner to see job
     if job['username'] != current_user['username']:
         # Admin override could be added here
         raise HTTPException(status_code=403, detail="Access denied")

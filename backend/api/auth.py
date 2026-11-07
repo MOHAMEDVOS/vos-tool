@@ -14,7 +14,7 @@ from backend.models.schemas import LoginResponse, UserInfo
 from backend.core.security import create_access_token, generate_session_id
 from backend.core.dependencies import get_current_user
 from lib.dashboard_manager import session_manager, user_manager
-from lib.quota_manager import quota_manager
+from lib.quota_manager import quota_manager, PROTECTED_OWNER_EMAIL
 from backend.core.whitelist import get_user_from_whitelist
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -42,7 +42,6 @@ async def google_login(request: dict):
         idinfo = None
 
         if credential:
-            # Verify Google ID token
             try:
                 # Use 10s clock skew to handle 'Token used too early' errors (server/client clock mismatch)
                 idinfo = id_token.verify_oauth2_token(credential, google_requests.Request(), client_id, clock_skew_in_seconds=10)
@@ -50,20 +49,17 @@ async def google_login(request: dict):
                 logger.error(f"Google ID token verification failed: {e}")
                 raise HTTPException(status_code=401, detail="Invalid Google ID token")
         else:
-            # Verify Google Access Token
             import requests
             try:
-                # Get token info to verify client_id (azp)
                 token_info_resp = requests.get(f"https://oauth2.googleapis.com/tokeninfo?access_token={access_token}")
                 if token_info_resp.status_code != 200:
                     raise Exception("Failed to verify access token")
-                
+
                 token_info = token_info_resp.json()
                 if token_info.get("azp") != client_id:
                     logger.error(f"Google access token client_id mismatch: {token_info.get('azp')} != {client_id}")
                     raise Exception("Client ID mismatch")
 
-                # Get user info
                 user_info_resp = requests.get(
                     "https://www.googleapis.com/oauth2/v3/userinfo",
                     headers={"Authorization": f"Bearer {access_token}"}
@@ -80,11 +76,10 @@ async def google_login(request: dict):
         name = idinfo.get('name', '')
         picture = idinfo.get('picture', '')
 
-        # Check whitelist
         whitelisted_user = await get_user_from_whitelist(email)
         
         # Hard bypass for primary owner to prevent lockout
-        if email.lower() == "mohamedibrahimpayonner@gmail.com":
+        if email.lower() == PROTECTED_OWNER_EMAIL:
             whitelisted_user = {
                 "email": email,
                 "name": name,
@@ -100,32 +95,27 @@ async def google_login(request: dict):
                 detail="Your account is not authorized. Contact administrator."
             )
 
-        # Map to VOS role
         role = whitelisted_user["role"]
         
         # Ensure the primary owner always has Owner role regardless of whitelist
-        if email.lower() == "mohamedibrahimpayonner@gmail.com":
+        if email.lower() == PROTECTED_OWNER_EMAIL:
             role = "Owner"
             
         readymode_user = whitelisted_user.get("readymode_user")
         readymode_password = whitelisted_user.get("readymode_password")
-        
-        # Ensure user exists in VOS user_manager (auto-provision)
+
         if not user_manager.user_exists(email):
-            # Create user
             user_data = {
                 "role": role,
                 "name": name,
                 "readymode_user": readymode_user,
                 "readymode_pass": readymode_password
             }
-            # Set unlimited quota for Owner
             if role == "Owner":
                 user_data["daily_limit"] = 999999
-                
+
             user_manager.add_user(email, user_data)
         else:
-            # Sync role and readymode credentials if it changed
             update_data = {}
             current_user = user_manager.get_user(email)
             if current_user:
@@ -136,29 +126,24 @@ async def google_login(request: dict):
                 
                 if readymode_password:
                     update_data["readymode_pass"] = readymode_password
-                
-                # Ensure Owner has unlimited quota
+
                 if role == "Owner" and current_user.get("daily_limit") != 999999:
                     update_data["daily_limit"] = 999999
                     
             if update_data:
                 user_manager.update_user(email, update_data)
 
-        # Sync quota_manager assignment (ensure Owner has 999999)
         if role == "Owner":
             try:
-                # Assign to 'admin' group by default if no assignment exists or quota is wrong
                 quota_status = quota_manager.get_user_quota_status(email)
                 if not quota_status.get("has_quota") or quota_status.get("daily_quota") != 999999:
                     quota_manager.assign_user_to_admin(email, "admin", daily_quota=999999)
             except Exception as q_err:
                 logger.error(f"Failed to sync quota for owner {email}: {q_err}")
 
-        # Create session
         session_id = generate_session_id()
         session_manager.create_session(email, session_id)
-        
-        # Create JWT token
+
         access_token = create_access_token(data={
             "sub": email,
             "session_id": session_id

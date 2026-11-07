@@ -2,6 +2,7 @@ import React, { useEffect } from 'react'
 import { useQuotaStore } from '@/store/quotaStore'
 import { useUiStore } from '@/store/uiStore'
 import { useAuthStore } from '@/store/authStore'
+import { canAccess } from '@/utils/permissions'
 
 function MiniRing({ percent, isUnlimited }: { percent: number; isUnlimited: boolean }) {
   const circ = 289
@@ -63,7 +64,7 @@ export function UsageCard() {
   const ringOffset = ringCircumference * (1 - ringPercent)
   const progressText = isUnlimited ? '∞' : String(used)
   const remainingText = isUnlimited ? 'UNLIMITED' : String(remaining)
-  const title = (role === 'Admin' || role === 'Owner') ? 'ADMIN QUOTA' : 'DAILY CREDITS'
+  const title = canAccess(role, 'admin-quota-view') ? 'ADMIN QUOTA' : 'DAILY CREDITS'
 
   if (sidebarCollapsed) {
     return (
@@ -75,10 +76,8 @@ export function UsageCard() {
 
   return (
     <div className="mb-2 rounded-md p-3 shadow-[var(--shadow-border)] bg-surface-card">
-      {/* Title */}
       <div className="mb-2.5 mono-label text-center">{title}</div>
 
-      {/* Ring */}
       <div className="relative mx-auto mb-3 h-[56px] w-[56px]">
         <svg className="h-full w-full -rotate-90" viewBox="0 0 120 120">
           <circle
@@ -105,7 +104,6 @@ export function UsageCard() {
         </div>
       </div>
 
-      {/* Stats */}
       <div className="space-y-1">
         {[
           { label: 'Used',      value: progressText },

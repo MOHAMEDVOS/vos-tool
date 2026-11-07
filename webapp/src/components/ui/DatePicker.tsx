@@ -107,7 +107,6 @@ export function CustomDatePicker({ value, onChange, disabled, label, className =
               style={{ backgroundColor: 'var(--c-calendar)', borderColor: 'var(--b-medium)' }}
               className="absolute z-[60] mt-2 w-[280px] rounded-[24px] border shadow-2xl p-5 right-0 md:left-0"
             >
-              {/* Header */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex gap-0.5">
                   <button onClick={() => changeYear(-1)} style={{ color: 'var(--t-muted)' }} className="p-1.5 hover:bg-c-raised rounded-lg transition-colors"><LayoutGrid size={12} className="rotate-45" /></button>
@@ -122,14 +121,12 @@ export function CustomDatePicker({ value, onChange, disabled, label, className =
                 </div>
               </div>
 
-              {/* Weekdays */}
               <div className="grid grid-cols-7 mb-1.5">
                 {['Mo','Tu','We','Th','Fr','Sa','Su'].map(d => (
                   <span key={d} style={{ color: 'var(--t-muted)' }} className="text-center text-[9px] font-black uppercase">{d}</span>
                 ))}
               </div>
 
-              {/* Days Grid */}
               <div className="grid grid-cols-7 gap-1">
                 {generateDays().map((d, i) => {
                   const dateStr = localISO(new Date(year, month + d.monthOffset, d.day))

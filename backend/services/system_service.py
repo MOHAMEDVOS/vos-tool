@@ -81,14 +81,12 @@ def caller_owns_recording(username: str, resolved: Path) -> bool:
 
     recordings_dir = Path(RECORDINGS_ROOT)
 
-    # Case 1: file is under the shared recordings root — always permitted
     try:
         resolved.relative_to(recordings_dir)
         return True
     except ValueError:
         pass
 
-    # Case 2: file referenced in caller's audit data
     try:
         agent_data = dashboard_manager.get_combined_agent_audit_data(username)
         lite_data = dashboard_manager.get_combined_lite_audit_data(username)
@@ -166,20 +164,17 @@ def resolve_recording_path(file_path: str = None, filename: str = None, phone: s
 
     recordings_dir = Path(RECORDINGS_ROOT)
 
-    # Priority 1 — direct path
     if file_path:
         p = Path(file_path)
         if p.exists() and p.is_file():
             return p
 
-    # Priority 2 — filename search
     if filename and filename != 'Unknown':
         if recordings_dir.exists():
             for f in recordings_dir.rglob(filename):
                 if f.is_file() and f.name == filename:
                     return f
 
-    # Priority 3 — phone number match inside .mp3 filenames
     if phone and recordings_dir.exists():
         # Try formatted phone string first
         for f in recordings_dir.rglob("*.mp3"):

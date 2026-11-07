@@ -7,11 +7,10 @@ import { Spinner } from '@/components/ui/Spinner'
 
 interface Props {
   children: React.ReactNode
-  requiredRole?: string | string[]
 }
 
-export function ProtectedRoute({ children, requiredRole }: Props) {
-  const { token, role, clearAuth } = useAuthStore()
+export function ProtectedRoute({ children }: Props) {
+  const { token, clearAuth } = useAuthStore()
 
   const { isLoading, isError } = useQuery({
     queryKey: ['auth-me', token],
@@ -30,11 +29,6 @@ export function ProtectedRoute({ children, requiredRole }: Props) {
   if (isLoading) return <div className="flex min-h-screen items-center justify-center bg-surface-page"><Spinner size="lg" /></div>
   if (isError) {
     return <Navigate to="/login" replace />
-  }
-
-  if (requiredRole) {
-    const allowed = Array.isArray(requiredRole) ? requiredRole : [requiredRole]
-    if (!role || !allowed.includes(role)) return <Navigate to="/" replace />
   }
 
   return <>{children}</>

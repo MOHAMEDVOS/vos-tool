@@ -23,24 +23,19 @@ def process_audio_batch_task(
     logger.info(f"Starting batch job {job_id} for folder {folder_path} (User: {username})")
     
     try:
-        # Update status to processing
         update_job(job_id, status="processing", progress=0.0, stage="initializing")
-        
-        # Progress callback to update DB and Celery state
+
         def progress_callback(current: int, total: int):
             if total > 0:
                 progress = (current / total) * 100
             else:
                 progress = 0.0
-                
-            # Update DB with progress
+
             # Only update DB on significant steps to reduce load
             update_job(job_id, progress=progress, stage=f"processed_{current}_of_{total}")
-            
-            # Update Celery state
+
             self.update_state(state='PROGRESS', meta={'current': current, 'total': total, 'progress': progress})
 
-        # Run batch processing using the optimized fast engine
         # This will use async processing internally for AssemblyAI optimization
         df_results = batch_analyze_folder_fast(
             folder_path=folder_path,
@@ -51,11 +46,9 @@ def process_audio_batch_task(
             username=username,
             user_api_key=user_api_key
         )
-        
-        # Convert DataFrame to list of dicts for JSON storage
+
         results = df_results.to_dict(orient='records')
-        
-        # Store results
+
         result_payload = {
             'results': results,
             'total_files': len(results),

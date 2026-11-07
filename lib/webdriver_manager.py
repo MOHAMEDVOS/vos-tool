@@ -12,7 +12,6 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Try to import psutil for process management
 try:
     import psutil
     PSUTIL_AVAILABLE = True
@@ -93,11 +92,9 @@ class ChromeProcessManager:
         """
         logger.info(f"Cleaning up {len(self.tracked_pids)} Chrome processes and {len(self.tracked_profiles)} profiles")
         
-        # Kill all tracked processes
         for pid in list(self.tracked_pids):
             self.kill_process(pid)
-        
-        # Clean all temp profiles
+
         for profile in list(self.tracked_profiles):
             self.cleanup_profile(profile)
         
@@ -106,10 +103,8 @@ class ChromeProcessManager:
         logger.info("Chrome cleanup complete")
 
 
-# Global instance
 _chrome_manager = ChromeProcessManager()
 
-# Register cleanup on app exit
 atexit.register(_chrome_manager.cleanup_all)
 
 
@@ -156,16 +151,13 @@ def managed_chrome_driver(driver_init_func, *args, **kwargs):
     manager = get_chrome_manager()
     
     try:
-        # Initialize driver
         logger.info("Initializing Chrome WebDriver with managed context")
         driver = driver_init_func(*args, **kwargs)
-        
-        # Extract process ID if available
+
         if driver and hasattr(driver, 'service') and hasattr(driver.service, 'process'):
             chrome_pid = driver.service.process.pid
             manager.register_process(chrome_pid)
-        
-        # Extract temp profile path if available
+
         if driver and hasattr(driver, 'capabilities'):
             user_data_dir = driver.capabilities.get('chrome', {}).get('userDataDir')
             if user_data_dir:
@@ -173,8 +165,7 @@ def managed_chrome_driver(driver_init_func, *args, **kwargs):
                 manager.register_profile(temp_profile)
         
         logger.info(f"Chrome WebDriver initialized (PID: {chrome_pid})")
-        
-        # Yield driver to caller
+
         yield driver
         
     except Exception as e:
@@ -249,7 +240,6 @@ def get_chrome_process_count() -> int:
     return count
 
 
-# Diagnostic function
 def diagnose_chrome_leaks():
     """
     Print diagnostic information about Chrome processes.

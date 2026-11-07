@@ -15,7 +15,6 @@ import os
 import sys
 import json
 import uuid
-import queue
 import asyncio
 import logging
 import threading
@@ -25,7 +24,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -38,6 +36,7 @@ from lib.scoring_sampler import (
     score_agents,
 )
 from backend.core.dependencies import get_current_user
+from backend.core.sse import SSEEmitter, run_sse_stream
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -83,11 +82,7 @@ class ExportSheetRequest(BaseModel):
     title: Optional[str] = None
 
 
-# ── SSE + Redis helpers ──────────────────────────────────────────────────────
-def _sse(event: str, data) -> str:
-    return f"data: {json.dumps({'event': event, 'data': data})}\n\n"
-
-
+# ── Redis helpers ─────────────────────────────────────────────────────────────
 _mem_store: dict = {}  # local-dev fallback when Redis is unavailable
 _redis_client = None
 _redis_tried = False
@@ -149,8 +144,6 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
     day = _date.fromisoformat(request.date) if request.date else _date.today()
     rm_date = day.strftime("%m/%d/%Y")
     dialers = _dialer_list()
-    log_q: "queue.Queue[Optional[tuple]]" = queue.Queue()
-    result_box: dict = {}
 
     def _pull_dialer(name: str, url: str):
         client = ReadyModeHTTPClient(url)
@@ -160,7 +153,7 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
         )
         return name, parse_phone_agent_csv(csv_bytes)
 
-    def worker():
+    def worker(emitter: SSEEmitter):
         records_by_dialer: dict = {}
         dialers_ok, dialers_failed = [], []
         try:
@@ -173,15 +166,15 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
                         dname, records = fut.result()
                         records_by_dialer[dname] = records
                         dialers_ok.append(dname)
-                        log_q.put(("log", f"{dname}: {len(records)} calls"))
+                        emitter.send("log", f"{dname}: {len(records)} calls")
                     except ReadyModeLoginError as e:
                         dialers_failed.append(name)
-                        log_q.put(("log", f"{name}: skipped ({e})"))
+                        emitter.send("log", f"{name}: skipped ({e})")
                     except Exception as e:
                         dialers_failed.append(name)
-                        log_q.put(("log", f"{name}: error ({e})"))
+                        emitter.send("log", f"{name}: error ({e})")
                     done += 1
-                    log_q.put(("progress", json.dumps({"done": done, "total": len(dialers)})))
+                    emitter.send("progress", json.dumps({"done": done, "total": len(dialers)}))
 
             rand_index = build_agent_index(records_by_dialer)
 
@@ -207,47 +200,22 @@ async def gather(request: GatherRequest, current_user: dict = Depends(get_curren
                 "flagged_index": flagged_index,
             })
             total_rows = sum(len(v) for v in records_by_dialer.values())
-            result_box["done"] = {
+            emitter.send("done", json.dumps({
                 "run_id": run_id,
                 "dialers_ok": dialers_ok,
                 "dialers_failed": dialers_failed,
                 "agent_count": len(rand_index),
                 "flagged_agent_count": len(flagged_index),
                 "total_rows": total_rows,
-            }
+            }))
         except Exception as e:
             logger.error(f"Scoring gather failed: {e}", exc_info=True)
-            result_box["error"] = str(e)
-        finally:
-            log_q.put(None)
+            emitter.send("error", str(e))
 
-    threading.Thread(target=worker, daemon=True).start()
-
-    async def event_stream():
-        try:
-            yield _sse("start", f"Gathering {len(dialers)} dialers for {rm_date}")
-            while True:
-                try:
-                    item = log_q.get_nowait()
-                except queue.Empty:
-                    await asyncio.sleep(0.2)
-                    yield ": ping\n\n"
-                    continue
-                if item is None:
-                    break
-                yield _sse(item[0], item[1])
-            if "error" in result_box:
-                yield _sse("error", result_box["error"])
-            else:
-                yield _sse("done", json.dumps(result_box["done"]))
-        except (asyncio.CancelledError, GeneratorExit):
-            logger.info(f"Scoring gather SSE disconnected for {username}")
-            raise
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    return run_sse_stream(
+        worker,
+        start=("start", f"Gathering {len(dialers)} dialers for {rm_date}"),
+        disconnect_log=lambda: logger.info(f"Scoring gather SSE disconnected for {username}"),
     )
 
 
@@ -300,16 +268,10 @@ async def audit(request: AuditRequest, current_user: dict = Depends(get_current_
     total = len(names)
 
     cancel_event = threading.Event()
-    log_q: "queue.Queue[Optional[tuple]]" = queue.Queue()
-    result_box: dict = {}
 
     _AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac"}
 
-    def _prog(i: int, name: str, phase: str, **extra):
-        log_q.put(("progress", json.dumps({"agent_idx": i, "total": total, "agent": name,
-                                           "phase": phase, **extra})))
-
-    def worker():
+    def worker(emitter: SSEEmitter):
         from lib.scoring_sampler import _match_key
         from lib.scoring_audit import aggregate_agent
         from automation.download_readymode_calls import download_all_call_recordings
@@ -317,6 +279,10 @@ async def audit(request: AuditRequest, current_user: dict = Depends(get_current_
         from backend.services.user_service import get_user_settings
 
         user_api_key = (get_user_settings(username) or {}).get("assemblyai_api_key")
+
+        def _prog(i: int, name: str, phase: str, **extra):
+            emitter.send("progress", json.dumps({"agent_idx": i, "total": total, "agent": name,
+                                                 "phase": phase, **extra}))
 
         rows, skipped = [], []
         try:
@@ -377,7 +343,7 @@ async def audit(request: AuditRequest, current_user: dict = Depends(get_current_
                     except Exception as e:
                         # One agent's download/analysis failure shouldn't kill the whole run.
                         logger.warning(f"Scoring audit: {name} download/analyze failed: {e}")
-                        log_q.put(("log", f"{name}: {e}"))
+                        emitter.send("log", f"{name}: {e}")
 
                 if not fresh_rows and not action_calls:
                     skipped.append(name)
@@ -392,45 +358,20 @@ async def audit(request: AuditRequest, current_user: dict = Depends(get_current_
                 _prog(i, name, "done")
 
             # Always keep whatever completed so a cancel still returns partial rows.
-            result_box["done"] = {"rows": rows, "skipped": skipped, "date": run_date}
+            payload = json.dumps({"rows": rows, "skipped": skipped, "date": run_date})
             if cancel_event.is_set():
-                result_box["cancelled"] = True
+                emitter.send("cancelled", payload)
+            else:
+                emitter.send("done", payload)
         except Exception as e:
             logger.error(f"Scoring audit failed: {e}", exc_info=True)
-            result_box["error"] = str(e)
-        finally:
-            log_q.put(None)
+            emitter.send("error", str(e))
 
-    threading.Thread(target=worker, daemon=True).start()
-
-    async def event_stream():
-        try:
-            yield _sse("start", f"Auditing {total} agent(s)")
-            while True:
-                try:
-                    item = log_q.get_nowait()
-                except queue.Empty:
-                    await asyncio.sleep(0.2)
-                    yield ": ping\n\n"
-                    continue
-                if item is None:
-                    break
-                yield _sse(item[0], item[1])
-            if result_box.get("cancelled"):
-                yield _sse("cancelled", json.dumps(result_box.get("done") or {"rows": [], "skipped": []}))
-            elif "error" in result_box:
-                yield _sse("error", result_box["error"])
-            else:
-                yield _sse("done", json.dumps(result_box.get("done", {"rows": [], "skipped": []})))
-        except (asyncio.CancelledError, GeneratorExit):
-            cancel_event.set()
-            logger.info(f"Scoring audit SSE disconnected for {username}")
-            raise
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    return run_sse_stream(
+        worker,
+        start=("start", f"Auditing {total} agent(s)"),
+        cancel_event=cancel_event,
+        disconnect_log=lambda: logger.info(f"Scoring audit SSE disconnected for {username}"),
     )
 
 

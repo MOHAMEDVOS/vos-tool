@@ -1,4 +1,3 @@
-// test deploy trigger
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGoogleLogin as useGoogleAuth } from '@react-oauth/google'
@@ -123,7 +122,6 @@ export function LoginPage() {
     if (token) navigate('/', { replace: true })
   }, [token, navigate])
 
-  /* ── Master entrance timeline ── */
   useEffect(() => {
     if (!cardRef.current) return
 
@@ -141,7 +139,6 @@ export function LoginPage() {
       .add(authSectionRef.current!, { translateY: [12, 0], opacity: [0, 1], duration: 500 }, '-=200')
       .add(footerRef.current!, { translateY: [8, 0], opacity: [0, 1], duration: 400 }, '-=200')
 
-    /* glow ring pulse */
     if (glowRingRef.current) {
       animate(glowRingRef.current, {
         scale:    [0.88, 1.08],
@@ -154,7 +151,6 @@ export function LoginPage() {
     }
   }, [])
 
-  /* ── Water fill loop on login V logo ── */
   useEffect(() => {
     const water = loginWaterRef.current
     if (!water) return
@@ -196,7 +192,6 @@ export function LoginPage() {
     }
   }, [])
 
-  /* ── Typewriter on tagline ── */
   useEffect(() => {
     const el = typewriterRef.current
     if (!el) return
@@ -222,18 +217,15 @@ export function LoginPage() {
     >
       <SeamlessVideo src={LOGIN_BACKGROUND_VIDEO_URL} />
 
-      {/* Readability wash over the video */}
       <div
         className="fixed inset-0 z-[1] pointer-events-none bg-black/45"
       />
 
-      {/* Radial vignette */}
       <div
         className="fixed inset-0 z-[2] pointer-events-none"
         style={{ background: 'radial-gradient(ellipse 70% 70% at 50% 50%, transparent 20%, rgba(0,0,0,0.75) 100%)' }}
       />
 
-      {/* Ambient glow ring */}
       <div
         ref={glowRingRef}
         className="fixed z-[3] pointer-events-none"
@@ -258,7 +250,6 @@ export function LoginPage() {
               willChange: 'transform, opacity',
             }}
           >
-            {/* Accent bar */}
             <div
               ref={accentBarRef}
               className="accent-bar"
@@ -267,7 +258,6 @@ export function LoginPage() {
 
             <div className="px-10 py-12 md:px-12 md:py-14">
 
-              {/* Logo + header */}
               <div className="mb-14 text-center md:text-left">
                 <div className="flex items-center justify-center md:justify-start gap-2 mb-10">
                   <div
@@ -317,7 +307,6 @@ export function LoginPage() {
                 </p>
               </div>
 
-              {/* Auth section */}
               <div ref={authSectionRef} className="space-y-8" style={{ opacity: 0 }}>
                 <div ref={dividerRef} className="relative py-2" style={{ opacity: 0, transformOrigin: 'center' }}>
                   <div className="absolute inset-0 flex items-center">
@@ -386,7 +375,6 @@ export function LoginPage() {
                 )}
               </div>
 
-              {/* Footer */}
               <div
                 ref={footerRef}
                 className="mt-14 pt-8 border-t border-white/5 flex items-center justify-between"

@@ -148,9 +148,28 @@ def _is_dnc_unknown(disposition: str) -> bool:
     return norm.startswith("dnc") and "unknown" in norm
 
 
+def is_wrong_number_disposition(disposition: str | None) -> bool:
+    """True only for a disposition that normalizes to "wrong number".
+
+    Shared with analyzer/objection_gate.py, which asks this exact question
+    (is the already-logged disposition Wrong Number?) to decide whether to
+    apply its stricter wrong-number-specific gating path. Both historically
+    kept their own copy; unified here because -- unlike WRONG_NUMBER_PHRASES
+    vs. objection_gate's _WRONG_NUMBER_DENIAL, which deliberately diverge
+    because one matches normalized disposition-adjacent text and the other
+    matches raw transcript language -- these two were literally the same
+    check (normalize a disposition string, compare to "wrong number") with
+    no behavioral difference. Lives here, not in objection_gate.py, because
+    this module is deliberately stdlib-only (see module docstring) and
+    objection_gate.py has no such constraint, so the dependency only goes
+    one way with no risk of a cycle.
+    """
+    return _normalize(disposition) == "wrong number"
+
+
 def _is_wrong_number(disposition: str) -> bool:
     """True only for a disposition that normalizes to "wrong number"."""
-    return _normalize(disposition) == "wrong number"
+    return is_wrong_number_disposition(disposition)
 
 
 def _is_decision_maker_nyi(disposition: str) -> bool:

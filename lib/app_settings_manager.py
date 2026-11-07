@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
 
-# Import database manager
 try:
     from lib.database import get_db_manager
     DB_AVAILABLE = True
@@ -28,14 +27,12 @@ class AppSettingsManager:
         self.settings_file = self.settings_dir / "app_settings.json"
         self.settings_dir.mkdir(parents=True, exist_ok=True)
         
-        # Initialize database manager
         try:
             self._db_manager = get_db_manager() if DB_AVAILABLE and get_db_manager else None
         except Exception as e:
             logger.warning(f"Could not initialize database manager: {e}. Using JSON fallback.")
             self._db_manager = None
-        
-        # Default settings
+
         self.default_settings = {
             "audio": {
                 "vad_energy_threshold": 600,
@@ -70,7 +67,6 @@ class AppSettingsManager:
             }
         }
         
-        # Load existing settings or create defaults
         self._load_settings()
     
     def _load_settings(self):
@@ -100,11 +96,9 @@ class AppSettingsManager:
                         # Handle root-level settings
                         loaded_settings[key] = value
                 
-                # Merge with defaults
                 self.settings = self._merge_settings(self.default_settings, loaded_settings)
                 logger.info("Loaded app settings from database")
             else:
-                # No settings in database, use defaults and save them
                 self.settings = self.default_settings.copy()
                 self._save_settings()
                 logger.info("Created default app settings in database")
@@ -132,7 +126,6 @@ class AppSettingsManager:
                 logger.error("Cannot save settings: database manager not available")
                 return
             
-            # Save all settings to database
             for category, category_settings in self.settings.items():
                 if isinstance(category_settings, dict):
                     for key, value in category_settings.items():
@@ -163,12 +156,10 @@ class AppSettingsManager:
     def set_setting(self, category: str, key: str, value: Any):
         """Set a specific setting value."""
         try:
-            # Basic validation
             if not isinstance(category, str) or not isinstance(key, str):
                 logger.error(f"Category and key must be strings: {category}, {key}")
                 return False
-            
-            # Validate JSON serializable
+
             try:
                 json.dumps(value)
             except (TypeError, ValueError) as e:
@@ -179,8 +170,7 @@ class AppSettingsManager:
                 self.settings[category] = {}
             
             self.settings[category][key] = value
-            
-            # Save to database
+
             if not self._db_manager:
                 logger.error(f"Cannot save setting {category}.{key}: database not available")
                 return False
@@ -216,8 +206,7 @@ class AppSettingsManager:
                 self.settings[category] = {}
             
             self.settings[category].update(updates)
-            
-            # Save to database
+
             if not self._db_manager:
                 logger.error(f"Cannot update category {category}: database not available")
                 return False
@@ -309,7 +298,6 @@ class AppSettingsManager:
         """Check if maintenance mode is enabled."""
         return self.get_setting("system", "maintenance_mode", False)
 
-# Global settings manager instance
 app_settings = AppSettingsManager()
 
 def get_app_settings() -> AppSettingsManager:

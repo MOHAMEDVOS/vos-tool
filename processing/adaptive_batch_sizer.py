@@ -56,10 +56,8 @@ class AdaptiveBatchSizer:
             Optimal batch size
         """
         if not PSUTIL_AVAILABLE:
-            # Fallback to default if psutil not available
             return self.default_batch_size
-        
-        # Start with base batch size
+
         batch_size = self.default_batch_size
         
         try:
@@ -69,12 +67,10 @@ class AdaptiveBatchSizer:
             available_memory_gb = memory.available / (1024 ** 3)
             
             if memory_percent > self.memory_threshold:
-                # Memory is high, reduce batch size
                 reduction_factor = (memory_percent - self.memory_threshold) / (1.0 - self.memory_threshold)
                 batch_size = int(batch_size * (1.0 - reduction_factor * 0.5))  # Reduce up to 50%
                 logger.debug(f"High memory usage ({memory_percent:.1%}), reducing batch size to {batch_size}")
             elif memory_percent < 0.5 and available_memory_gb > 4:
-                # Memory is low, can increase batch size
                 increase_factor = (0.5 - memory_percent) * 2  # Scale from 0 to 1
                 batch_size = int(batch_size * (1.0 + increase_factor * 0.5))  # Increase up to 50%
                 logger.debug(f"Low memory usage ({memory_percent:.1%}), increasing batch size to {batch_size}")
@@ -84,12 +80,10 @@ class AdaptiveBatchSizer:
             cpu_load = cpu_percent / 100.0
             
             if cpu_load > self.cpu_threshold:
-                # CPU is busy, reduce batch size
                 reduction_factor = (cpu_load - self.cpu_threshold) / (1.0 - self.cpu_threshold)
                 batch_size = int(batch_size * (1.0 - reduction_factor * 0.4))  # Reduce up to 40%
                 logger.debug(f"High CPU load ({cpu_percent:.1f}%), reducing batch size to {batch_size}")
             elif cpu_load < 0.5:
-                # CPU is idle, can increase batch size
                 increase_factor = (0.5 - cpu_load) * 2
                 batch_size = int(batch_size * (1.0 + increase_factor * 0.3))  # Increase up to 30%
                 logger.debug(f"Low CPU load ({cpu_percent:.1f}%), increasing batch size to {batch_size}")
@@ -99,20 +93,17 @@ class AdaptiveBatchSizer:
                 total_size = sum(f.stat().st_size for f in file_paths[:min(100, len(file_paths))] if f.exists())
                 avg_file_size_mb = (total_size / len(file_paths[:min(100, len(file_paths))])) / (1024 ** 2) if file_paths else 0
                 
-                if avg_file_size_mb > 10:  # Large files (>10MB)
-                    # Reduce batch size for large files
+                if avg_file_size_mb > 10:
                     reduction = min(0.5, (avg_file_size_mb - 10) / 20)  # Reduce up to 50% for very large files
                     batch_size = int(batch_size * (1.0 - reduction))
                     logger.debug(f"Large files detected (avg {avg_file_size_mb:.1f}MB), reducing batch size to {batch_size}")
-                elif avg_file_size_mb < 2:  # Small files (<2MB)
-                    # Can increase batch size for small files
+                elif avg_file_size_mb < 2:
                     increase = min(0.3, (2 - avg_file_size_mb) / 2)  # Increase up to 30%
                     batch_size = int(batch_size * (1.0 + increase))
                     logger.debug(f"Small files detected (avg {avg_file_size_mb:.1f}MB), increasing batch size to {batch_size}")
             
             # 4. Adjust based on processing history (if available)
             if self.avg_processing_time and self.avg_processing_time > 30:
-                # Slow processing, reduce batch size
                 reduction = min(0.3, (self.avg_processing_time - 30) / 60)  # Reduce up to 30% for very slow processing
                 batch_size = int(batch_size * (1.0 - reduction))
                 logger.debug(f"Slow processing detected ({self.avg_processing_time:.1f}s/file), reducing batch size to {batch_size}")
@@ -142,11 +133,9 @@ class AdaptiveBatchSizer:
         """
         self.processing_times.append(processing_time)
         
-        # Keep only last 20 processing times
         if len(self.processing_times) > 20:
             self.processing_times.pop(0)
-        
-        # Calculate average
+
         if self.processing_times:
             self.avg_processing_time = sum(self.processing_times) / len(self.processing_times)
     
@@ -172,7 +161,6 @@ def get_adaptive_batch_sizer(username: Optional[str] = None) -> AdaptiveBatchSiz
     """
     global _batch_sizers
     
-    # Use default key if no username
     user_key = username or "__default__"
     
     if user_key not in _batch_sizers:

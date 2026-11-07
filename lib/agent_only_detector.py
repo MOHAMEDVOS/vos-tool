@@ -11,12 +11,10 @@ import logging
 import threading
 from typing import Dict, Any, Optional
 
-# Add current directory to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from pydub import AudioSegment
 
-# Import existing components
 from analyzer.rebuttal_detection import KeywordRepository, SemanticDetectionEngine, OutputFormatter
 from analyzer import objection_gate
 from lib.egyptian_accent_correction import EgyptianAccentCorrection
@@ -66,8 +64,7 @@ class LocalTranscriptionEngine:
         
         try:
             import tempfile
-            
-            # Export audio segment to temp file
+
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
                 audio_segment.export(tmp.name, format="wav")
                 tmp_path = tmp.name
@@ -77,7 +74,6 @@ class LocalTranscriptionEngine:
                 enable_speaker_diarization=False  # Disable for single-segment transcription
             )
             
-            # Clean up temp file
             try:
                 os.unlink(tmp_path)
             except:
@@ -106,23 +102,19 @@ class LocalTranscriptionEngine:
         i = 0
 
         while i < len(words):
-            # Check for repetition pattern
             found_repetition = False
 
-            # Look for patterns of length 2-5 words that repeat consecutively
             for pattern_len in range(min_repetition_length, min(6, len(words) - i + 1)):
                 if i + pattern_len * 2 <= len(words):
                     pattern = words[i:i + pattern_len]
                     next_pattern = words[i + pattern_len:i + pattern_len * 2]
 
                     if pattern == next_pattern:
-                        # Found repetition, skip all occurrences of this pattern
                         repetitions = 2
                         while (i + pattern_len * (repetitions + 1) <= len(words) and
                                words[i + pattern_len * repetitions:i + pattern_len * (repetitions + 1)] == pattern):
                             repetitions += 1
 
-                        # Keep only one instance of the pattern
                         result.extend(pattern)
                         i += pattern_len * repetitions
                         found_repetition = True
@@ -152,18 +144,15 @@ class AgentOnlyTranscriptionEngine:
         """Extract agent channel from stereo audio (left channel typically)."""
         logger.debug("Extracting agent channel from audio")
 
-        # If mono, assume it's already the agent channel
         if audio_segment.channels == 1:
             logger.debug("Audio is already mono (agent channel)")
             return audio_segment
 
-        # For stereo, take left channel (typically agent)
         if audio_segment.channels == 2:
-            agent_channel = audio_segment.split_to_mono()[0]  # Left channel
+            agent_channel = audio_segment.split_to_mono()[0]
             logger.debug("Extracted left channel as agent channel")
             return agent_channel
 
-        # Fallback: convert to mono
         logger.warning(f"Unexpected number of channels: {audio_segment.channels}, converting to mono")
         return audio_segment.set_channels(1)
 
@@ -183,25 +172,21 @@ class AgentOnlyTranscriptionEngine:
         start_time = time.time()
 
         try:
-            # Use original path for cache lookup if provided, otherwise use audio_file_path
             cache_key_path = original_file_path if original_file_path else audio_file_path
             logger.debug(f"Starting agent-only transcription with AssemblyAI: {audio_file_path} (cache key: {cache_key_path})")
 
-            # Calculate progressive timeout based on audio duration if not provided
             if timeout is None:
                 try:
                     from lib.timeout_utils import calculate_transcription_timeout
                     timeout = calculate_transcription_timeout(audio_duration_seconds)
                     logger.debug(f"Calculated transcription timeout: {timeout}s (file duration: {audio_duration_seconds:.1f}s)" if audio_duration_seconds else f"Using default timeout: {timeout}s")
                 except ImportError:
-                    # Fallback to config or default
                     try:
                         from backend.core.config import settings
                         timeout = settings.ASSEMBLYAI_TRANSCRIPTION_TIMEOUT
                     except ImportError:
                         timeout = 300  # 5 minutes default
 
-            # Check cache first using original file path
             cached_result = self.local_engine.assemblyai_engine.cache.get(cache_key_path)
             if cached_result:
                 logger.debug(f"✅ CACHE HIT for transcription: {cache_key_path}")
@@ -226,7 +211,7 @@ class AgentOnlyTranscriptionEngine:
             # This provides full conversation context while extracting agent-only text for detection
             result = self.local_engine.assemblyai_engine.transcribe_file(
                 audio_file_path,
-                enable_speaker_diarization=True,  # ENABLED for dual-channel context
+                enable_speaker_diarization=True,
                 timeout=timeout,
                 options={
                     "language_detection": False,
@@ -242,15 +227,13 @@ class AgentOnlyTranscriptionEngine:
             if not agent_transcript:
                 agent_transcript = result.get("transcript", "")
             
-            # Store full dialogue for LLM context
             dialogue = result.get("dialogue", "")
             speakers = result.get("speakers", [])
             utterances = result.get("utterances", [])
 
-            
+
             processing_time = int((time.time() - start_time) * 1000)
-            
-            # Cache the result using original file path as key
+
             if agent_transcript and cache_key_path:
                 try:
                     self.local_engine.assemblyai_engine.cache.set(cache_key_path, result)
@@ -259,15 +242,15 @@ class AgentOnlyTranscriptionEngine:
                     logger.warning(f"Failed to cache transcription: {cache_error}")
             
             return {
-                "transcript": agent_transcript,  # Agent-only transcript for detection
-                "full_transcript": result.get("transcript", ""),  # Full transcript (all speakers)
-                "dialogue": dialogue,  # Formatted conversation for LLM context
-                "owner_transcript": result.get("owner_transcript", ""),  # Owner-only transcript
+                "transcript": agent_transcript,
+                "full_transcript": result.get("transcript", ""),
+                "dialogue": dialogue,
+                "owner_transcript": result.get("owner_transcript", ""),
                 "speakers": speakers,
                 "utterances": utterances,
                 "processing_time_ms": processing_time,
                 "transcription_method": "assemblyai_api",
-                "channels_processed": 2,  # Dual-channel with speaker diarization
+                "channels_processed": 2,
                 "transcription_status": result.get("transcription_status", "unknown"),
                 "transcription_error": result.get("transcription_error"),
                 "error": "" if agent_transcript else "transcription_failed"
@@ -357,11 +340,9 @@ class AgentOnlyRebuttalDetector:
         start_time = time.time()
 
         try:
-            # Use original path for logging if provided
             cache_key = original_file_path if original_file_path else audio_file_path
             logger.debug(f"Starting agent-only rebuttal detection with AssemblyAI: {audio_file_path} (cache key: {cache_key})")
 
-            # Step 1: Transcribe only agent channel with AssemblyAI (with cache support)
             transcription_result = self.transcription_engine.transcribe_agent_only(
                 audio_file_path, 
                 original_file_path=original_file_path
@@ -381,12 +362,10 @@ class AgentOnlyRebuttalDetector:
             raw_transcript = transcription_result["transcript"]
             logger.debug(f"Raw AssemblyAI transcript: '{raw_transcript[:100]}...'")
 
-            # Step 2: Apply Egyptian accent corrections for better accuracy
             corrected_transcript, accent_corrections = self.egyptian_corrector.apply_corrections(raw_transcript)
             logger.debug(f"Applied {len(accent_corrections)} Egyptian accent corrections")
             logger.debug(f"Final corrected transcript (displayed in app): '{corrected_transcript[:100]}...'")
 
-            # Step 3: Detect rebuttals using corrected transcript with full dialogue context
             dialogue = transcription_result.get("dialogue", "")
             
             # Use dialogue for display if available (preferred for UI)
@@ -397,7 +376,6 @@ class AgentOnlyRebuttalDetector:
 
             matches, feedback_metadata = self.semantic_engine.detect_rebuttals(corrected_transcript, dialogue=dialogue)
 
-            # Step 4: Determine final result
             if matches:
                 best_match = matches[0]  # Highest confidence
                 result = "Yes"
@@ -429,15 +407,13 @@ class AgentOnlyRebuttalDetector:
                     except Exception as gate_error:
                         logger.warning(f"Objection gate failed, keeping original verdict: {gate_error}")
 
-            # Step 5: Format final result
             processing_time = int((time.time() - start_time) * 1000)
-            
+
             # Prepare feedback string for dashboard
             feedback_str = None
             if feedback_metadata:
                 feedback_str = feedback_metadata.get('feedback') or feedback_metadata.get('llm_reasoning')
-                
-                # Format specific feedback if LLM triggered
+
                 if 'llm_confidence' in feedback_metadata and feedback_str:
                     conf = feedback_metadata['llm_confidence']
                     feedback_str = f"LLM evaluation: not_interested -> False (confidence: {conf:.2f})\n{feedback_str}"
@@ -463,7 +439,7 @@ class AgentOnlyRebuttalDetector:
                     "speakers": transcription_result.get("speakers", []),
                     "utterances_count": len(transcription_result.get("utterances", [])),
                     "dialogue": dialogue,  # Full conversation for LLM (also used for display now)
-                    "owner_transcript": transcription_result.get("owner_transcript", ""),  # Owner's words
+                    "owner_transcript": transcription_result.get("owner_transcript", ""),
                     "feedback": feedback_str,  # Pass feedback to formatter
                     # Flat verdict so downstream flagging can exclude
                     # no-objection/owner-ended/unusable calls without a third
@@ -498,7 +474,6 @@ class AgentOnlyRebuttalDetector:
         try:
             logger.debug(f"Starting async agent-only rebuttal detection with AssemblyAI: {audio_file_path}")
             
-            # Get audio duration for timeout calculation and logging
             try:
                 audio = AudioSegment.from_file(audio_file_path)
                 audio_duration_seconds = len(audio) / 1000.0
@@ -507,7 +482,6 @@ class AgentOnlyRebuttalDetector:
                 logger.warning(f"Could not determine audio duration: {e}")
                 audio_duration_seconds = None
 
-            # Step 1: Transcribe only agent channel with AssemblyAI (async)
             transcription_start = time.time()
             transcription_result = await self.transcription_engine.transcribe_agent_only_async(
                 audio_file_path, 
@@ -561,7 +535,6 @@ class AgentOnlyRebuttalDetector:
             detection_elapsed = time.time() - detection_start
             logger.debug(f"Semantic rebuttal detection completed in {detection_elapsed:.2f}s")
 
-            # Step 4: Determine final result
             if matches:
                 best_match = matches[0]  # Highest confidence
                 result = "Yes"
@@ -572,7 +545,6 @@ class AgentOnlyRebuttalDetector:
                 confidence = 0.0
                 logger.debug("No rebuttals detected")
 
-            # Step 5: Format final result
             processing_time = int((time.time() - start_time) * 1000)
 
             return self.formatter.format_result(
@@ -612,7 +584,6 @@ def test_agent_only_system():
 
     detector = AgentOnlyRebuttalDetector()
 
-    # Test with sample audio file if it exists
     test_files = ["sample1.flac", "test_audio.wav", "sample.wav"]
 
     for test_file in test_files:

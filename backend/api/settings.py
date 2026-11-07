@@ -219,19 +219,19 @@ def _assert_can_modify(caller: dict, target_username: str) -> None:
     Raises HTTP 403 on violation.
     """
     from lib.dashboard_manager import user_manager as _um
+    from lib.quota_manager import PROTECTED_OWNER_EMAIL
     caller_role = caller["role"]
     caller_username = caller["username"]
 
-    if target_username == "Mohamed Abdo":
+    if target_username == "Mohamed Abdo" or target_username.lower() == PROTECTED_OWNER_EMAIL:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The protected owner account cannot be modified"
         )
 
     if caller_role == "Owner":
-        return  # Owner can modify anyone (except protected, checked above)
+        return
 
-    # Admin: only own created users
     created = _um.get_admin_created_users(caller_username)
     if target_username not in created:
         raise HTTPException(

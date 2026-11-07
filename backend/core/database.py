@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 from typing import List
 
-# Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from lib.database import get_db_manager
@@ -39,11 +38,9 @@ def init_db():
         if db is None:
             logger.warning("Database manager not available; running without PostgreSQL connection")
             return
-        # Test connection
         db.execute_query("SELECT 1", fetch=True)
         logger.info("Database connection established")
-        
-        # Create tables if they don't exist
+
         create_tables_if_needed(db)
         run_database_migrations()
         _db_initialized = True
@@ -246,7 +243,6 @@ def create_tables_if_needed(db):
         except Exception:
             pass
 
-        # Create users table
         create_users_table = """
         CREATE TABLE IF NOT EXISTS users (
             id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
@@ -264,21 +260,18 @@ def create_tables_if_needed(db):
         db.execute_query(create_users_table, fetch=False)
         logger.info("✓ Users table created/verified")
 
-        # Ensure required columns exist (safe no-op if already present)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS readymode_user TEXT;", fetch=False)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS readymode_pass_encrypted TEXT;", fetch=False)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS assemblyai_api_key_encrypted TEXT;", fetch=False)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by TEXT;", fetch=False)
         db.execute_query("ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
-        
-        # Try to drop legacy password columns if they exist
+
         try:
             db.execute_query("ALTER TABLE users DROP COLUMN IF EXISTS app_pass_hash;", fetch=False)
             db.execute_query("ALTER TABLE users DROP COLUMN IF EXISTS app_pass_salt;", fetch=False)
         except Exception:
             pass
-        
-        # Create user_sessions table
+
         create_sessions_table = """
         CREATE TABLE IF NOT EXISTS user_sessions (
             id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
@@ -298,8 +291,7 @@ def create_tables_if_needed(db):
         db.execute_query("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
         db.execute_query("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS ip_address INET;", fetch=False)
         db.execute_query("ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT;", fetch=False)
-        
-        # Create app_settings table
+
         create_settings_table = """
         CREATE TABLE IF NOT EXISTS app_settings (
             id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
@@ -319,7 +311,7 @@ def create_tables_if_needed(db):
         db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
         db.execute_query("ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
 
-        # Create processing_jobs table (durable async job tracking)
+        # Processing jobs table: durable async job tracking
         try:
             db_type = getattr(db, "db_type", "postgresql")
         except Exception:
@@ -365,7 +357,6 @@ def create_tables_if_needed(db):
         db.execute_query(create_jobs_table, fetch=False)
         logger.info("✓ Processing jobs table created/verified")
 
-        # Create daily_counters table if it doesn't exist
         create_daily_counters_table = """
         CREATE TABLE IF NOT EXISTS daily_counters (
             id UUID PRIMARY KEY DEFAULT (md5(random()::text || clock_timestamp()::text)::uuid),
@@ -380,10 +371,8 @@ def create_tables_if_needed(db):
         db.execute_query(create_daily_counters_table, fetch=False)
         logger.info("✓ Daily counters table created/verified")
 
-        # Ensure updated_at column exists in daily_counters
         db.execute_query("ALTER TABLE daily_counters ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;", fetch=False)
 
-        # Create whitelist table
         create_whitelist_table = """
         CREATE TABLE IF NOT EXISTS whitelist (
             email TEXT PRIMARY KEY,
@@ -405,7 +394,7 @@ def create_tables_if_needed(db):
             pass
         logger.info("✓ Whitelist table created/verified")
 
-        # Create user_google_tokens table for OAuth refresh token storage
+        # user_google_tokens table: OAuth refresh token storage
         create_google_tokens_table = """
         CREATE TABLE IF NOT EXISTS user_google_tokens (
             username TEXT PRIMARY KEY,
@@ -420,7 +409,7 @@ def create_tables_if_needed(db):
         db.execute_query(create_google_tokens_table, fetch=False)
         logger.info("✓ User Google tokens table created/verified")
 
-        # Create campaign_disposition_scans table for reachability summaries
+        # campaign_disposition_scans table: reachability summaries
         create_disposition_scans_table = """
         CREATE TABLE IF NOT EXISTS campaign_disposition_scans (
             id            SERIAL PRIMARY KEY,

@@ -11,12 +11,13 @@ import { AgentAuditDashboard } from '@/features/dashboard/AgentAuditDashboard'
 import { LiteAuditDashboard } from '@/features/dashboard/LiteAuditDashboard'
 import { CampaignAuditDashboard } from '@/features/dashboard/CampaignAuditDashboard'
 import { useAuthStore } from '@/store/authStore'
+import { canAccess } from '@/utils/permissions'
 import { Key, ChevronDown } from 'lucide-react'
 
 export function DashboardPage() {
   const qc = useQueryClient()
   const role = useAuthStore((s) => s.role)
-  const isAuditor = role === 'Auditor'
+  const isAuditor = !!role && !canAccess(role, 'campaign-audit')
   const [showConfig, setShowConfig] = useState(false)
 
   const TABS = [
@@ -74,7 +75,6 @@ export function DashboardPage() {
               className="overflow-hidden"
             >
               <Card className="flex flex-col bg-surface-card shadow-card overflow-hidden border border-b-medium">
-                {/* Header */}
                 <div className="px-6 py-4 border-b border-b-divider bg-surface-soft/30 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Key size={14} className="text-t-primary" />
@@ -90,7 +90,6 @@ export function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Body */}
                 <div className="p-6 flex flex-col gap-6">
                   <div>
                     <p className="text-[13px] text-t-secondary leading-relaxed max-w-xl">
@@ -116,7 +115,6 @@ export function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Footer */}
                 <div className="px-6 py-4 bg-surface-soft/20 border-t border-t-divider flex items-center justify-between">
                   <SuccessFlash show={updateKey.isSuccess} label="Settings Updated" />
                   <div className="flex items-center gap-3">

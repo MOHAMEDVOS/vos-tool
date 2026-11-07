@@ -10,6 +10,7 @@ import { settingsApi } from '@/api/settings'
 import { systemApi } from '@/api/system'
 import { sharingApi } from '@/api/sharing'
 import { useAuthStore } from '@/store/authStore'
+import { ALL_ROLES, canAccess, canDeleteUser, type Feature } from '@/utils/permissions'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -19,20 +20,20 @@ import { SuccessFlash } from '@/components/ui/SuccessFlash'
 import type { AppConfigCategory } from '@/types/api'
 import { motion, AnimatePresence } from 'framer-motion'
 
-type NavItem  = { id: string; label: string; forRoles?: string[] }
-type NavGroup = { id: string; label: string; icon: React.ElementType; forRoles?: string[]; items: NavItem[] }
+type NavItem  = { id: string; label: string; feature?: Feature }
+type NavGroup = { id: string; label: string; icon: React.ElementType; feature?: Feature; items: NavItem[] }
 
-// forRoles: undefined = all roles with settings access; otherwise restrict to listed roles
+// feature: undefined = all roles with settings access; otherwise restricted via permissions.ts
 const SIDEBAR_NAV: NavGroup[] = [
   {
     id: 'system_group',
     label: 'System',
     icon: Server,
     items: [
-      { id: 'quota_control',   label: 'Quota Control',   forRoles: ['Owner'] },
-      { id: 'admin_quota',     label: 'Quota Dashboard', forRoles: ['Admin'] },
-      { id: 'system_health',   label: 'System Health',   forRoles: ['Owner'] },
-      { id: 'app_config',      label: 'App Config',      forRoles: ['Owner'] },
+      { id: 'quota_control',   label: 'Quota Control',   feature: 'quota-control' },
+      { id: 'admin_quota',     label: 'Quota Dashboard', feature: 'admin-quota-dashboard' },
+      { id: 'system_health',   label: 'System Health',   feature: 'system-health' },
+      { id: 'app_config',      label: 'App Config',      feature: 'app-config' },
     ]
   },
   {
@@ -42,16 +43,16 @@ const SIDEBAR_NAV: NavGroup[] = [
     items: [
       { id: 'user_overview',      label: 'User Overview' },
       { id: 'user_create',        label: 'Create User' },
-      { id: 'admin_manage_users', label: 'Manage Users',  forRoles: ['Admin'] },
-      { id: 'user_edit',          label: 'Edit User',     forRoles: ['Owner'] },
-      { id: 'user_sessions',      label: 'Sessions',      forRoles: ['Owner'] },
+      { id: 'admin_manage_users', label: 'Manage Users',  feature: 'admin-manage-users' },
+      { id: 'user_edit',          label: 'Edit User',     feature: 'user-edit' },
+      { id: 'user_sessions',      label: 'Sessions',      feature: 'user-sessions' },
     ]
   },
   {
     id: 'sharing_group',
     label: 'Sharing',
     icon: Share2,
-    forRoles: ['Owner'],
+    feature: 'dashboard-sharing',
     items: [
       { id: 'dashboard_sharing', label: 'Dashboard Sharing' },
     ]
@@ -70,10 +71,10 @@ export function SettingsPage() {
   const filteredNav = useMemo(() => {
     if (!role || role === 'Auditor') return []
     return SIDEBAR_NAV
-      .filter(g => !g.forRoles || g.forRoles.includes(role))
+      .filter(g => !g.feature || canAccess(role, g.feature))
       .map(g => ({
         ...g,
-        items: g.items.filter(i => !i.forRoles || i.forRoles.includes(role))
+        items: g.items.filter(i => !i.feature || canAccess(role, i.feature))
       }))
       .filter(g => g.items.length > 0)
   }, [role])
@@ -81,7 +82,6 @@ export function SettingsPage() {
   return (
     <div className="flex flex-col w-full h-full px-12 py-16">
       <div className="grid grid-cols-[280px_1fr] gap-24 items-start max-w-[1700px] mx-auto w-full">
-        {/* Refined Sidebar */}
         <aside className="sticky top-0 flex flex-col gap-1 pr-4">
           {filteredNav.map((group) => (
             <div key={group.id} className="flex flex-col">
@@ -138,7 +138,6 @@ export function SettingsPage() {
           ))}
         </aside>
 
-        {/* Content Area */}
         <main className="flex-1 overflow-y-auto custom-scrollbar">
           <AnimatePresence mode="wait">
             <motion.div
@@ -235,7 +234,7 @@ function UserSessions() {
 function CreateUser() {
   const qc = useQueryClient()
   const callerRole = useAuthStore((s) => s.role)
-  const roleOptions = callerRole === 'Owner' ? ['Auditor', 'Admin'] : ['Auditor']
+  const roleOptions = canAccess(callerRole, 'create-admin-user') ? ['Auditor', 'Admin'] : ['Auditor']
   const [username, setUsername] = useState('')
   const [rmUsername, setRmUsername] = useState('')
   const [rmPassword, setRmPassword] = useState('')
@@ -305,7 +304,6 @@ function EditUser() {
 
   useEffect(() => {
     if (userToEdit) {
-      // Populate the edit form when the selected user's server data is available.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setNewRole(userToEdit.role)
       setDailyLimit(userToEdit.daily_limit ?? 0)
@@ -326,7 +324,6 @@ function EditUser() {
     },
   })
 
-  // Clear success/error on user change
   const resetUpdate = update.reset
   useEffect(() => {
     resetUpdate()
@@ -369,7 +366,7 @@ function EditUser() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="flex flex-col gap-2">
                       <label className="text-[9px] font-black uppercase tracking-[0.2em] text-vos-600">Assign New Role</label>
-                      <CustomSelect options={['Auditor', 'Admin', 'Owner']} value={newRole} onChange={setNewRole} />
+                      <CustomSelect options={ALL_ROLES} value={newRole} onChange={setNewRole} />
                     </div>
                     <div className="flex flex-col gap-2">
                       <label className="text-[9px] font-black uppercase tracking-[0.2em] text-vos-600">Quota Adjustment</label>
@@ -507,7 +504,7 @@ function ManageUsers() {
                         <Shield size={10} className="text-vos-700" />
                         <span className="text-[8px] font-black uppercase tracking-widest text-vos-700">Protected</span>
                       </div>
-                    ) : (role === 'Owner' || (role === 'Admin' && u.role === 'Auditor')) && u.username !== myUsername ? (
+                    ) : canDeleteUser(role, u.role) && u.username !== myUsername ? (
                       <Button 
                         variant="danger"
                         size="sm"
@@ -545,7 +542,6 @@ function QuotaSettings() {
       .map(u => u.username)
   }, [userData])
 
-  // Combine already set limits with any other admins found
   const targetAdmins = useMemo(() => {
     const fromLimits = Object.keys(adminLimits)
     const combined = Array.from(new Set([...fromLimits, ...allAdmins]))
@@ -554,7 +550,6 @@ function QuotaSettings() {
 
   useEffect(() => {
     if (adminUsername && adminLimits[adminUsername]) {
-      // Load the selected admin's limits into the editable form fields.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setMaxUsers(adminLimits[adminUsername].max_users)
       setDailyQuota(adminLimits[adminUsername].total_daily_quota)
@@ -751,7 +746,6 @@ function SharingSettings() {
         <p className="text-vos-500 text-xs">Control which users share dashboard views with each other.</p>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1 border-b border-b-subtle pb-0">
         {(['overview', 'manage', 'create'] as const).map((t) => (
           <button
@@ -785,7 +779,6 @@ function SharingOverview() {
 
   return (
     <div className="flex flex-col gap-10">
-      {/* Current Groups table */}
       <div className="flex flex-col gap-4">
         <h3 className="text-xs font-black uppercase tracking-widest text-vos-500">Current Groups</h3>
         <Card className="p-0 overflow-hidden bg-c-base border-b-subtle rounded-2xl">
@@ -818,7 +811,6 @@ function SharingOverview() {
         </Card>
       </div>
 
-      {/* User Dashboard Status table */}
       <div className="flex flex-col gap-4">
         <h3 className="text-xs font-black uppercase tracking-widest text-vos-500">User Dashboard Status</h3>
         <Card className="p-0 overflow-hidden bg-c-base border-b-subtle rounded-2xl">
@@ -896,7 +888,6 @@ function SharingManage() {
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Sync button */}
       <div className="flex items-center justify-between p-4 rounded-xl bg-c-raised/50 border border-b-subtle">
         <div className="flex flex-col gap-0.5">
           <span className="text-xs font-bold text-t-primary">Sync User Statuses</span>
@@ -908,7 +899,6 @@ function SharingManage() {
         </Button>
       </div>
 
-      {/* Group selector */}
       <div className="flex flex-col gap-2">
         <label className="text-[10px] font-black uppercase tracking-widest text-vos-600">Select a group to manage</label>
         <CustomSelect options={groupNames} value={selectedGroup} onChange={setSelectedGroup} placeholder="Select group…" />
@@ -916,9 +906,7 @@ function SharingManage() {
 
       {selectedGroup && (
         <div className="flex flex-col gap-8">
-          {/* Add / Remove members */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Add */}
             <Card className="bg-c-base border-b-subtle p-6 rounded-2xl flex flex-col gap-4">
               <h4 className="text-xs font-black uppercase tracking-widest text-vos-500">Add Members</h4>
               <div className="flex flex-col gap-2">
@@ -941,7 +929,6 @@ function SharingManage() {
               </Button>
             </Card>
 
-            {/* Remove */}
             <Card className="bg-c-base border-b-subtle p-6 rounded-2xl flex flex-col gap-4">
               <h4 className="text-xs font-black uppercase tracking-widest text-vos-500">Remove Members</h4>
               <div className="flex flex-col gap-2">
@@ -965,7 +952,6 @@ function SharingManage() {
             </Card>
           </div>
 
-          {/* Delete group */}
           <div className="flex justify-end border-t border-b-subtle pt-6">
             <Button
               variant="secondary"
@@ -1115,7 +1101,6 @@ function SystemHealth() {
   )
 }
 
-// â”€â”€â”€ Admin: Quota Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AdminQuotaDashboard() {
   const { data: status, isLoading } = useQuery({ queryKey: ['quota-status'], queryFn: quotaApi.status })
   const { data: redistData, isLoading: redistLoading } = useQuery({ queryKey: ['quota-redistribution'], queryFn: quotaApi.redistribution })
@@ -1132,7 +1117,6 @@ function AdminQuotaDashboard() {
         <p className="text-vos-500 text-xs">Your quota usage and user creation limits.</p>
       </div>
 
-      {/* Quota Status */}
       {quotaInfo && (
         <div className="flex flex-col gap-4">
           <h3 className="text-xs font-black uppercase tracking-widest text-vos-500">Your Quota Status</h3>
@@ -1153,7 +1137,6 @@ function AdminQuotaDashboard() {
         </div>
       )}
 
-      {/* Users quota table */}
       <div className="flex flex-col gap-4">
         <h3 className="text-xs font-black uppercase tracking-widest text-vos-500">Your Users</h3>
         {redistLoading ? <Spinner /> : (
@@ -1193,7 +1176,6 @@ function AdminQuotaDashboard() {
   )
 }
 
-// â”€â”€â”€ Admin: Manage Users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function AdminManageUsers() {
   const qc = useQueryClient()
   const { data: userData, isLoading } = useQuery({ queryKey: ['settings-users'], queryFn: settingsApi.users })
@@ -1214,7 +1196,6 @@ function AdminManageUsers() {
 
   useEffect(() => {
     if (userToEdit) {
-      // Load the selected auditor's account data into the editable form.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setRmUsername(userToEdit.readymode_username ?? '')
       setNewQuota(redistUser?.daily_quota ?? userToEdit.daily_limit ?? 0)
@@ -1252,7 +1233,6 @@ function AdminManageUsers() {
         <p className="text-vos-500 text-xs">View and manage all users created under your account.</p>
       </div>
 
-      {/* Users table */}
       <Card className="p-0 overflow-hidden bg-c-base border-b-subtle rounded-2xl">
         <table className="w-full text-left text-xs">
           <thead className="bg-surface-page border-b border-b-subtle">
@@ -1287,7 +1267,6 @@ function AdminManageUsers() {
         </table>
       </Card>
 
-      {/* Edit selected user */}
       <div className="flex flex-col gap-6">
         <h3 className="text-xs font-black uppercase tracking-widest text-vos-500">Edit User</h3>
         <CustomSelect options={myUsers.map(u => u.username)} value={selectedUser} onChange={setSelectedUser} placeholder="Select user to edit…" />
@@ -1340,7 +1319,6 @@ function AppConfig() {
 
   useEffect(() => {
     if (data) {
-      // Refresh editable config controls after the selected category is fetched.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setConfig(data)
     }
@@ -1354,7 +1332,6 @@ function AppConfig() {
     setConfig(prev => ({ ...prev, [key]: value }))
   }
 
-  // Helper to format labels from snake_case
   const formatLabel = (key: string) => {
     return key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
   }

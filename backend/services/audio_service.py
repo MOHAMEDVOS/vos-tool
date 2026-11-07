@@ -23,15 +23,12 @@ from backend.services import job_store
 async def upload_audio_file(file_content: bytes, filename: str, username: str) -> Dict[str, Any]:
     """Upload and save audio file."""
     try:
-        # Create upload directory
         upload_dir = settings.UPLOAD_DIR / username
         upload_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Generate unique file ID
+
         file_id = str(uuid.uuid4())
         file_path = upload_dir / f"{file_id}_{filename}"
-        
-        # Save file
+
         with open(file_path, "wb") as f:
             f.write(file_content)
         
@@ -56,7 +53,6 @@ async def process_audio(
     """Process audio file and return job ID."""
     job_id = str(uuid.uuid4())
 
-    # Initialize durable job record
     job_store.create_job(
         job_id,
         username=username,
@@ -68,8 +64,7 @@ async def process_audio(
         audit_type=audit_type,
         options=options,
     )
-    
-    # Start processing in background
+
     asyncio.create_task(_process_audio_background(job_id, file_path, audit_type, username, options))
     
     return job_id
@@ -85,8 +80,7 @@ async def _process_audio_background(
     """Background task for audio processing."""
     try:
         job_store.update_job(job_id, status="processing", progress=0.1, stage="starting")
-        
-        # Get user's AssemblyAI API key if available
+
         user_api_key = None
         api_key_source = "global"
         try:
@@ -106,8 +100,7 @@ async def _process_audio_background(
         # Import only the processors used for single-file work.
         from audio_pipeline.fast_audio_processor import FastAudioProcessor
         from audio_pipeline.semantic_audio_processor import SemanticAudioProcessor
-        
-        # Process based on audit type - SINGLE FILE ONLY
+
         job_metadata = {"API Key Source": api_key_source, "Processing Mode": "single_file"}
 
         if audit_type == "lite":
@@ -116,9 +109,7 @@ async def _process_audio_background(
             timeout = settings.PROCESSING_TIMEOUT_SINGLE_FILE
 
         if audit_type == "lite":
-            # Lite audit processing - FAST single file only
             job_store.update_job(job_id, progress=0.3, stage="processing_lite_fast")
-            # Use FastAudioProcessor for much faster lite processing
             processor = FastAudioProcessor()
             result = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -133,9 +124,7 @@ async def _process_audio_background(
             # Wrap single result in list to match expected batch format
             result = [result]
         else:
-            # Heavy audit processing - SEMANTIC single file only (AssemblyAI + semantic analysis!)
             job_store.update_job(job_id, progress=0.3, stage="processing_heavy_semantic")
-            # Use SemanticAudioProcessor for heavy processing with semantic rebuttal detection
             processor = SemanticAudioProcessor()
             result = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -153,7 +142,6 @@ async def _process_audio_background(
 
         job_store.update_job(job_id, progress=0.9, stage="finalizing")
 
-        # Store result durably
         try:
             if hasattr(result, "to_dict"):
                 result_payload = result.to_dict(orient="records")
@@ -167,18 +155,16 @@ async def _process_audio_background(
         
         # Also save to dashboard for immediate visibility
         try:
-            # Convert result to DataFrame for dashboard storage
             import pandas as pd
             if isinstance(result_payload, list) and result_payload:
                 df = pd.DataFrame(result_payload)
             else:
                 df = pd.DataFrame([result_payload]) if result_payload else pd.DataFrame()
-            
-            # Save to appropriate dashboard based on audit type
+
             if audit_type == "heavy":
                 dashboard_manager.save_agent_audit_results(df, username)
                 logger.info(f"Saved {len(df)} heavy audit results to dashboard for user {username}")
-            else:  # lite mode
+            else:
                 dashboard_manager.save_lite_audit_results(df, username)
                 logger.info(f"Saved {len(df)} lite audit results to dashboard for user {username}")
             

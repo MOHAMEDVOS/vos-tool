@@ -32,20 +32,18 @@ class WorkerPoolManager:
         """Calculate maximum total workers based on system and account type."""
         import multiprocessing
         cpu_count = multiprocessing.cpu_count()
-        
-        # Check environment override
+
         if os.getenv("ASSEMBLYAI_MAX_WORKERS"):
             try:
                 return int(os.getenv("ASSEMBLYAI_MAX_WORKERS"))
             except ValueError:
                 pass
-        
-        # Default based on account type
+
         account_type = os.getenv("ASSEMBLYAI_ACCOUNT_TYPE", "free").lower()
         if account_type == "paid":
-            return min(cpu_count, 20)  # Paid: up to 20 workers
+            return min(cpu_count, 20)
         else:
-            return min(cpu_count, 5)  # Free: max 5 workers
+            return min(cpu_count, 5)
     
     def _calculate_max_workers_per_user(self) -> int:
         """Calculate max workers per user based on expected concurrent users."""
@@ -65,23 +63,18 @@ class WorkerPoolManager:
         """
         with self._lock:
             self._active_users.add(username)
-            
-            # Calculate available workers
+
             total_used = sum(self._user_workers.values())
             available = self._max_total_workers - total_used
-            
-            # Allocate workers for this user
+
             if username in self._user_workers:
-                # User already has workers, return current allocation
                 return self._user_workers[username]
-            
-            # New user - allocate workers
+
             if available >= self._max_workers_per_user:
                 allocated = self._max_workers_per_user
             elif available > 0:
                 allocated = available
             else:
-                # No workers available - allocate minimum
                 allocated = 1
                 logger.warning(f"No workers available for {username}, allocating minimum (1)")
             
@@ -111,7 +104,6 @@ class WorkerPoolManager:
             }
 
 
-# Global worker pool manager instance
 _worker_pool_manager = None
 _worker_pool_lock = threading.Lock()
 

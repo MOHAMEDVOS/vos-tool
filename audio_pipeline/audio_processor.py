@@ -14,6 +14,11 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
 from pydub import AudioSegment
 
+from audio_pipeline.audio_utils import (
+    extract_agent_audio as _shared_extract_agent_audio,
+    format_agent_name_with_spaces,
+    format_timestamp_for_display,
+)
 from audio_pipeline.detections import debug_audio_analysis, late_hello_detection, releasing_detection
 from lib.wrong_dispo_detector import wrong_dispo_detail
 
@@ -51,7 +56,6 @@ except (ModuleNotFoundError, ImportError):
 
 
 # Shared executor pool for all AudioProcessor instances to avoid nested deadlock
-# max_workers=6 allows 2 concurrent files (3 tasks each) or 3 concurrent files (2 tasks each)
 _shared_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="AudioProc")
 logger = logging.getLogger(__name__)
 _agent_detectors: Dict[str, AgentOnlyRebuttalDetector] = {}
@@ -68,19 +72,6 @@ def get_agent_detector(user_api_key: Optional[str] = None):
     return _agent_detectors[user_key]
 
 
-def format_agent_name_with_spaces(agent_name: str) -> str:
-    if ' ' in agent_name:
-        return agent_name
-    return re.sub(r'(?<!^)(?=[A-Z])', ' ', agent_name)
-
-
-def format_timestamp_for_display(timestamp: str) -> str:
-    if not timestamp or timestamp.strip() == "":
-        return timestamp
-    time_pattern = r'(\d{1,2})_(\d{2})(AM|PM)'
-    return re.sub(time_pattern, r'\1:\2\3', timestamp)
-
-
 class AudioProcessor:
     """
     Unified audio processor for VOS Tool.
@@ -95,7 +86,7 @@ class AudioProcessor:
             if not file_path.exists() or not file_path.is_file():
                 return False
             file_size = file_path.stat().st_size
-            if file_size < 1024:  # Skip files smaller than 1KB (likely empty/corrupt)
+            if file_size < 1024:
                 return False
             if file_path.suffix.lower() not in self.supported_formats:
                 return False
@@ -106,7 +97,6 @@ class AudioProcessor:
     def _check_audio_duration(self, audio: AudioSegment) -> bool:
         """Check if audio meets minimum duration requirement (skip very short/silent files)."""
         duration_ms = len(audio)
-        # Skip files shorter than 3 seconds (likely silent or corrupted)
         if duration_ms < 3000:
             logger.warning(f"Audio too short ({duration_ms}ms), skipping")
             return False
@@ -128,9 +118,7 @@ class AudioProcessor:
             return None
 
     def extract_agent_audio(self, audio: AudioSegment) -> AudioSegment:
-        if audio.channels == 2:
-            return audio.split_to_mono()[0]
-        return audio
+        return _shared_extract_agent_audio(audio)
 
     def classify_call(self, agent_audio: AudioSegment, full_audio: AudioSegment, file_name: str = "", file_path: str = "", user_api_key: Optional[str] = None, disposition: str = "") -> Dict[str, Any]:
         logger.debug(f"Starting classification for file: {file_name}")
@@ -145,15 +133,12 @@ class AudioProcessor:
         }
 
         try:
-            # Fast-path: Skip very short audio files before processing
             if not self._check_audio_duration(agent_audio):
                 result['error'] = 'Audio too short (<3 seconds)'
                 result['rebuttal_detection'] = {'result': 'Skipped', 'transcript': '', 'reason': 'too_short'}
                 return result
             
             # OPTIMIZATION: Use original file directly for AssemblyAI to support multichannel
-            # Use file_path if available (it should be), otherwise falls back to agent extraction if strictly needed,
-            # but for now we prioritize sending the raw file.
             transcription_file = file_path
             
             # OPTIMIZATION: Run detections in parallel using a SHARED executor
@@ -161,12 +146,10 @@ class AudioProcessor:
             logger.debug(f"Starting parallel detections for {file_name}")
             overall_start = time.time()
             
-            # Submit releasing and late hello tasks (fast local detections)
             # These still use the extracted agent_audio which is fine/correct for local analysis
             future_releasing = _shared_executor.submit(releasing_detection, agent_audio)
             future_late_hello = _shared_executor.submit(late_hello_detection, agent_audio, file_name)
             
-            # Start rebuttal detection (AssemblyAI) using the RAW FULL FILE
             future_rebuttal = None
             if transcription_file and os.path.exists(transcription_file):
                 agent_detector = get_agent_detector(user_api_key)
@@ -180,11 +163,9 @@ class AudioProcessor:
                  logger.error(f"Cannot run rebuttal detection: Original file path missing or invalid: {transcription_file}")
                  # If strictly needed, we could fallback to temp file creation here, but the user explicitly requested raw audio.
             
-            # Collect results as they complete
             # Releasing detection (fast, completes first ~0.5-1s)
             rel_start = time.time()
             try:
-                # Add 30s safety timeout for local detections
                 result['releasing_detection'] = future_releasing.result(timeout=30)
             except Exception as rel_error:
                 logger.error(f"Releasing detection failed: {rel_error}")
@@ -195,7 +176,6 @@ class AudioProcessor:
             # Late hello detection (fast, completes second ~0.5-1s)
             late_start = time.time()
             try:
-                # Add 30s safety timeout for local detections
                 result['late_hello_detection'] = future_late_hello.result(timeout=30)
             except Exception as late_error:
                 logger.error(f"Late hello detection failed: {late_error}")
@@ -204,7 +184,6 @@ class AudioProcessor:
             logger.debug(f"Late hello detection completed in {late_time:.2f}s: {result['late_hello_detection']}")
             
             # Rebuttal detection (slow, completes last ~30-60s, but started in parallel)
-            # Check if we need rebuttal detection (skip if releasing call or very long file)
             audio_duration_seconds = len(agent_audio) / 1000
             max_rebuttal_duration = int(os.getenv("MAX_REBUTTAL_DURATION_SECONDS", "600"))  # 10 minutes default
             
@@ -215,9 +194,7 @@ class AudioProcessor:
                 if future_rebuttal:
                     # Try to cancel if not started yet (won't work if already running, but harmless)
                     future_rebuttal.cancel()
-                    # If cancellation failed (already running), just ignore the result
                     try:
-                        # Quick timeout check - if it's running, don't wait
                         if not future_rebuttal.done():
                             logger.debug("Rebuttal detection already started, will complete but result will be ignored")
                     except Exception:
@@ -237,7 +214,6 @@ class AudioProcessor:
             elif future_rebuttal:
                 reb_start = time.time()
                 try:
-                    # Calculate progressive timeout based on audio duration
                     from lib.timeout_utils import calculate_rebuttal_timeout
                     rebuttal_timeout_s = calculate_rebuttal_timeout(audio_duration_seconds)
                     logger.debug(
@@ -267,7 +243,6 @@ class AudioProcessor:
                     result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': 'timeout'}
                 except Exception as reb_error:
                     elapsed_time = time.time() - reb_start
-                    # Check if it's a timeout error
                     error_str = str(reb_error)
                     is_timeout = 'ReadTimeout' in error_str or 'timeout' in error_str.lower() or 'timed out' in error_str.lower()
                     
@@ -294,13 +269,6 @@ class AudioProcessor:
             else:
                 logger.warning(f"Could not start rebuttal detection (temp file creation failed) for {file_name}")
                 result['rebuttal_detection'] = {'result': 'No', 'transcript': '', 'error': 'temp_file_failed'}
-            
-            # Clean up temp file - NO LONGER NEEDED as we use raw file
-            # if temp_file:
-            #     try:
-            #         os.unlink(temp_file)
-            #     except Exception:
-            #         pass
             
             overall_time = time.time() - overall_start
             logger.debug(f"All parallel detections completed for {file_name} in {overall_time:.2f}s")
@@ -410,13 +378,11 @@ class AudioProcessor:
                 'rebuttal_detection': 'Error'
             }
 
-        # Extract transcription from rebuttal detection result
         # Ensure transcription is always included, matching Agent Audit and Campaign Audit behavior
         transcription = ''
         if isinstance(classification['rebuttal_detection'], dict):
             transcription = classification['rebuttal_detection'].get('transcript', '')
         elif isinstance(classification.get('rebuttal_detection'), str):
-            # Fallback: if rebuttal_detection is a string (e.g., 'Error'), try to get transcript from classification
             transcription = classification.get('transcript', '')
         
         # Per-file dialer name from the folder path (authoritative for dual-dialer runs,
@@ -472,13 +438,6 @@ class AudioProcessor:
 
         return result
 
-    def process_batch(self, file_paths: List[Path], additional_metadata: Optional[dict] = None, include_debug: bool = False) -> List[Dict]:
-        results = []
-        for file_path in file_paths:
-            result = self.process_single_file(file_path, additional_metadata, include_debug)
-            results.append(result)
-        return results
-
 
 RESULT_KEYS = {
     "AGENT_NAME": "Agent Name",
@@ -492,70 +451,3 @@ RESULT_KEYS = {
     "WRONG_DISPO_REASON": "Wrong Dispo Reason",
     "TRANSCRIPTION": "Transcription"
 }
-
-
-def convert_to_dataframe_format(results: List[Dict]) -> List[Dict]:
-    flagged_calls = []
-
-    for result in results:
-        if not result.get('classification_success', False):
-            continue
-
-        releasing_flagged = result.get('releasing_detection') == "Yes"
-        late_hello_flagged = result.get('late_hello_detection') == "Yes"
-        rebuttal_not_used = result.get('rebuttal_detection', {}).get('result') == "No" if isinstance(result.get('rebuttal_detection'), dict) else False
-        wrong_dispo_flagged = result.get('wrong_dispo_detection') == "Yes"
-
-        if releasing_flagged or late_hello_flagged or rebuttal_not_used or wrong_dispo_flagged:
-            flagged_call = {
-                RESULT_KEYS["AGENT_NAME"]: result.get('agent_name', ''),
-                RESULT_KEYS["PHONE_NUMBER"]: result.get('phone_number', ''),
-                RESULT_KEYS["TIMESTAMP"]: result.get('timestamp', ''),
-                RESULT_KEYS["DISPOSITION"]: result.get('disposition', ''),
-                RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
-                RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
-                RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-                RESULT_KEYS["WRONG_DISPO"]: result.get('wrong_dispo_detection', 'No'),
-                RESULT_KEYS["WRONG_DISPO_REASON"]: result.get('wrong_dispo_reason') or '',
-                RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', ''),
-                "file_path": result.get('file_path', '')
-            }
-
-            dialer_val = result.get('dialer_name') or result.get('Dialer Name') or ''
-            if dialer_val:
-                flagged_call['Dialer Name'] = dialer_val
-
-            flagged_calls.append(flagged_call)
-
-    return flagged_calls
-
-
-def convert_all_to_dataframe_format(results: List[Dict]) -> List[Dict]:
-    formatted_results = []
-
-    for result in results:
-        if not result.get('classification_success', False):
-            continue
-
-        formatted_result = {
-            RESULT_KEYS["AGENT_NAME"]: result.get('agent_name', ''),
-            RESULT_KEYS["PHONE_NUMBER"]: result.get('phone_number', ''),
-            RESULT_KEYS["TIMESTAMP"]: result.get('timestamp', ''),
-            RESULT_KEYS["DISPOSITION"]: result.get('disposition', ''),
-            RESULT_KEYS["RELEASING"]: result.get('releasing_detection', 'No'),
-            RESULT_KEYS["LATE_HELLO"]: result.get('late_hello_detection', 'No'),
-            RESULT_KEYS["REBUTTAL"]: result.get('rebuttal_detection', {}).get('result', 'No') if isinstance(result.get('rebuttal_detection'), dict) else 'No',
-            RESULT_KEYS["WRONG_DISPO"]: result.get('wrong_dispo_detection', 'No'),
-            RESULT_KEYS["WRONG_DISPO_REASON"]: result.get('wrong_dispo_reason') or '',
-            RESULT_KEYS["TRANSCRIPTION"]: result.get('transcription', ''),
-            "file_path": result.get('file_path', '')
-        }
-
-        dialer_val = result.get('dialer_name') or result.get('Dialer Name') or ''
-        if dialer_val:
-            formatted_result['Dialer Name'] = dialer_val
-
-        formatted_results.append(formatted_result)
-
-    return formatted_results
-

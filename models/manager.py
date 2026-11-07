@@ -14,7 +14,6 @@ logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-_WHISPER_MODEL = None
 _SEMANTIC_MODEL = None
 _SEMANTIC_MODEL_LOCK = threading.RLock()
 _SEMANTIC_EMBEDDINGS = None
@@ -46,7 +45,6 @@ def get_semantic_model():
             from analyzer.rebuttal_detection import KeywordRepository
             from huggingface_hub import snapshot_download
             
-            # Auto-detect GPU for Sentence Transformers
             import torch
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
             logger.debug(f"[SINGLETON] [TID={tid}] Device: {device}")
@@ -54,7 +52,6 @@ def get_semantic_model():
             # Prefer local cache to avoid hanging on slow network connections
             model_id = 'sentence-transformers/all-MiniLM-L6-v2'  # SWITCHED TO LIGHTER MODEL FOR RELIABILITY
             try:
-                # Check for existing local snapshot
                 logger.debug(f"[SINGLETON] [TID={tid}] Checking for local model snapshot: {model_id}")
                 local_path = snapshot_download(
                     model_id, 
@@ -73,11 +70,10 @@ def get_semantic_model():
                 for attempt in range(max_retries):
                     try:
                         logger.info(f"[SINGLETON] [TID={tid}] Download attempt {attempt + 1}/{max_retries}...")
-                        # Download if not found locally
                         # Using the lightweight model (~80MB) avoids OOM and timeouts on Railway
                         _SEMANTIC_MODEL = SentenceTransformer(model_id, device=device)
                         logger.info(f"[SINGLETON] [TID={tid}] ✅ Light model (all-MiniLM-L6-v2) loaded successfully")
-                        break  # Success, exit retry loop
+                        break
                     except Exception as critical_error:
                         logger.error(f"[SINGLETON] [TID={tid}] Attempt {attempt + 1} failed: {critical_error}")
 
@@ -168,8 +164,6 @@ def get_semantic_model():
             logger.info(f"[SINGLETON] [TID={tid}] Scheduled background task to load learned phrases")
 
             return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
-            
-            return _SEMANTIC_MODEL, _SEMANTIC_EMBEDDINGS
 
         except Exception as e:
             import traceback
@@ -216,108 +210,3 @@ def reload_semantic_embeddings():
             logger.error(f"❌ [RELOAD] Failed to reload embeddings: {e}")
 
 
-def get_whisper_model():
-    """
-    DEPRECATED: This function is no longer used.
-    The app uses AssemblyAI for transcription instead of local Whisper models.
-    
-    Returns None to indicate Whisper is not used.
-    """
-    logger.warning("get_whisper_model() called but app uses AssemblyAI for transcription. Returning None.")
-    return None
-    
-    # Original Whisper loading code below (kept for reference but never executed)
-    global _WHISPER_MODEL
-
-    if _WHISPER_MODEL is not None:
-        return _WHISPER_MODEL
-
-    if not hasattr(get_whisper_model, 'lock'):
-        get_whisper_model.lock = threading.Lock()
-
-    with get_whisper_model.lock:
-        if _WHISPER_MODEL is not None:
-            return _WHISPER_MODEL
-
-        try:
-            from transformers import pipeline
-            import torch
-
-            # GPU optimization for RTX 4090
-            if torch.cuda.is_available():
-                device = 0
-                dtype = torch.float16  # Use FP16 for faster inference on RTX 4090
-                logger.info(f"[SINGLETON] Loading Whisper model on GPU (CUDA device {device}) with FP16...")
-                logger.info(f"[SINGLETON] GPU: {torch.cuda.get_device_name(0)}, VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f}GB")
-            else:
-                device = -1
-                dtype = torch.float32
-                logger.info("[SINGLETON] Loading Whisper model on CPU...")
-            
-            logger.info("[SINGLETON] Loading Whisper medium model (default)...")
-            
-            # Try Flash Attention 2 on GPU, fallback to eager if not available
-            attn_implementation = "eager"
-            if device >= 0:  # Only try Flash Attention on GPU
-                try:
-                    from flash_attn import flash_attn_interface  # noqa: F401
-                    attn_implementation = "flash_attention_2"
-                    logger.info("[SINGLETON] Using Flash Attention 2 for faster inference")
-                except ImportError:
-                    logger.info("[SINGLETON] Flash Attention 2 not available, using eager attention")
-                    attn_implementation = "eager"
-            
-            # Import config to get batch size settings
-            try:
-                from runpod_config import BATCH_CONFIG
-                batch_size = BATCH_CONFIG['gpu_batch_size'] if device >= 0 else BATCH_CONFIG['cpu_batch_size']
-            except ImportError:
-                batch_size = 6 if device >= 0 else 1  # Default fallback
-                
-            _WHISPER_MODEL = pipeline(
-                "automatic-speech-recognition",
-                model="openai/whisper-medium",
-                device=device,
-                batch_size=batch_size,  # Added batch processing
-                model_kwargs={
-                    "attn_implementation": attn_implementation,
-                    "dtype": dtype,  # Updated: torch_dtype -> dtype
-                    "use_safetensors": True,
-                    "low_cpu_mem_usage": True
-                }
-            )
-            logger.info(f"[SINGLETON] Whisper medium model loaded successfully on {'GPU' if device >= 0 else 'CPU'}")
-            return _WHISPER_MODEL
-        except Exception as e:
-            logger.error(f"Failed to load Whisper medium model: {e}", exc_info=True)
-            try:
-                logger.info("[SINGLETON] Trying Whisper small model as fallback...")
-                device = 0 if torch.cuda.is_available() else -1
-                dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-                
-                attn_implementation = "eager"
-                if device >= 0:  # Only try Flash Attention on GPU
-                    try:
-                        from flash_attn import flash_attn_interface  # noqa: F401
-                        attn_implementation = "flash_attention_2"
-                        logger.info("[SINGLETON] Using Flash Attention 2 for fallback model")
-                    except ImportError:
-                        attn_implementation = "eager"
-                
-                _WHISPER_MODEL = pipeline(
-                    "automatic-speech-recognition",
-                    model="openai/whisper-small",
-                    device=device,
-                    model_kwargs={
-                        "attn_implementation": attn_implementation,
-                        "dtype": dtype,  # Updated: torch_dtype -> dtype
-                        "use_safetensors": True,
-                        "low_cpu_mem_usage": True
-                    }
-                )
-                logger.info(f"[SINGLETON] Whisper small model loaded successfully (fallback) on {'GPU' if device >= 0 else 'CPU'}")
-                return _WHISPER_MODEL
-            except Exception as fallback_error:
-                logger.error(f"Fallback Whisper small model also failed: {fallback_error}")
-                _WHISPER_MODEL = None
-                return None

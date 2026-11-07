@@ -14,7 +14,6 @@ from datetime import date
 from typing import Dict, List, Tuple
 import logging
 
-# Import database manager
 try:
     from lib.database import get_db_manager
     DB_AVAILABLE = True
@@ -24,6 +23,12 @@ except ImportError as e:
     logging.error(f"Database manager not available - quota system requires database. Error: {e}")
 
 logger = logging.getLogger(__name__)
+
+
+# Owner identifiers that receive unlimited (999999) quota treatment.
+# Single source of truth for this list - do not re-hardcode it elsewhere.
+PROTECTED_OWNER_EMAIL = "mohamedibrahimpayonner@gmail.com"
+OWNER_EMAILS = ["Mohamed Abdo", PROTECTED_OWNER_EMAIL, "mohamedabdo@res-va.com"]
 
 
 # Custom exceptions for quota system
@@ -73,7 +78,6 @@ class QuotaManager:
         if not self._db_manager:
             raise DatabaseUnavailableError("Database manager returned None")
         
-        # Verify database connectivity on initialization
         try:
             test_query = "SELECT 1"
             self._db_manager.execute_query(test_query, fetch=True)
@@ -118,7 +122,6 @@ class QuotaManager:
                         "default_admin_daily_quota": config_result.get('default_admin_daily_quota', 5000)
                     }
                 else:
-                    # No config yet, use defaults
                     quota_data["system_config"] = {
                         "quota_reset_time": "00:00",
                         "default_admin_user_limit": 10,
@@ -132,7 +135,6 @@ class QuotaManager:
                     "default_admin_daily_quota": 5000
                 }
             
-            # Load admin limits
             admin_limits_query = "SELECT * FROM admin_limits ORDER BY admin_username"
             admin_limits = self._db_manager.execute_query(admin_limits_query, fetch=True)
             for admin in admin_limits:
@@ -145,7 +147,6 @@ class QuotaManager:
                     "last_modified": admin.get('updated_at').isoformat() if admin.get('updated_at') else None
                 }
             
-            # Load user assignments
             user_assignments_query = "SELECT * FROM user_quota_assignments ORDER BY user_username"
             user_assignments = self._db_manager.execute_query(user_assignments_query, fetch=True)
             for assignment in user_assignments:
@@ -175,7 +176,6 @@ class QuotaManager:
             raise DatabaseUnavailableError("Cannot save quota data: Database manager not initialized")
         
         try:
-            # Save system config (upsert)
             if "system_config" in data:
                 config = data["system_config"]
                 query = """
@@ -219,7 +219,6 @@ class QuotaManager:
         }
         
         try:
-            # Load admin usage for today
             admin_usage_query = """
                 SELECT admin_username, total_used, date
                 FROM admin_usage
@@ -235,7 +234,6 @@ class QuotaManager:
                     "users_usage": {}
                 }
             
-            # Load user usage for today (grouped by admin)
             user_usage_query = """
                 SELECT user_username, admin_username, usage_count, date
                 FROM user_usage
@@ -272,7 +270,6 @@ class QuotaManager:
         try:
             today = str(date.today())
             
-            # Delete old usage records (keep last 30 days for history)
             delete_query = """
                 DELETE FROM admin_usage 
                 WHERE date < (CURRENT_DATE - INTERVAL '30 days')
@@ -309,7 +306,6 @@ class QuotaManager:
             raise DatabaseUnavailableError("Cannot set admin limits: Database not available")
         
         try:
-            # Calculate per-user quota (Total / Max Users)
             per_user_daily_quota = total_daily_quota // max_users if max_users > 0 else 0
             
             query = """
@@ -374,15 +370,12 @@ class QuotaManager:
             raise DatabaseUnavailableError("Cannot remove admin limits: Database not available")
         
         try:
-            # Delete admin limits
             delete_limits_query = "DELETE FROM admin_limits WHERE admin_username = %s"
             self._db_manager.execute_query(delete_limits_query, (admin_username,))
-            
-            # Delete all user assignments under this admin
+
             delete_assignments_query = "DELETE FROM user_quota_assignments WHERE assigned_to_admin = %s"
             self._db_manager.execute_query(delete_assignments_query, (admin_username,))
-            
-            # Clean up usage records
+
             delete_admin_usage = "DELETE FROM admin_usage WHERE admin_username = %s"
             self._db_manager.execute_query(delete_admin_usage, (admin_username,))
             
@@ -543,7 +536,6 @@ class QuotaManager:
             admin_limits = quota_data.get("admin_limits", {}).get(admin_username, {})
             admin_usage = usage_data.get("admin_usage", {}).get(admin_username, {})
             
-            # Get detailed users and calculate assigned quota
             user_assignments = quota_data.get("user_assignments", {})
             detailed_users = []
             total_assigned_quota = 0
@@ -609,17 +601,14 @@ class QuotaManager:
         
         try:
             if admin_username:
-                # Remove specific user from specific admin
                 delete_query = "DELETE FROM user_quota_assignments WHERE user_username = %s AND assigned_to_admin = %s"
                 self._db_manager.execute_query(delete_query, (username, admin_username))
                 msg = f"User {username} removed from admin {admin_username} quota"
             else:
-                # Remove user from all admins
                 delete_query = "DELETE FROM user_quota_assignments WHERE user_username = %s"
                 self._db_manager.execute_query(delete_query, (username,))
                 msg = f"User {username} removed from valid quota assignments"
-            
-            # Clean up usage records
+
             delete_usage = "DELETE FROM user_usage WHERE user_username = %s"
             self._db_manager.execute_query(delete_usage, (username,))
             
@@ -643,24 +632,20 @@ class QuotaManager:
             Tuple[bool, str]: (success, message)
         """
         try:
-            # Check if assignment exists first (User)
             if not self._db_manager:
                 return False, "Database not available"
-            
+
             check_query = "SELECT assigned_to_admin FROM user_quota_assignments WHERE user_username = %s"
             assignment = self._db_manager.execute_query(check_query, (username,), fetchone=True)
-            
+
             if assignment:
-                # Remove the assignment (User)
                 self.remove_user_from_admin(username)
                 return True, f"Quota assignment for user '{username}' removed successfully"
-            
-            # Check if admin limits exist (Admin)
+
             check_admin_query = "SELECT admin_username FROM admin_limits WHERE admin_username = %s"
             admin_assignment = self._db_manager.execute_query(check_admin_query, (username,), fetchone=True)
-            
+
             if admin_assignment:
-                # Remove the assignment (Admin)
                 self.remove_admin_limits(username)
                 return True, f"Admin limits for user '{username}' removed successfully"
                 
@@ -695,31 +680,25 @@ class QuotaManager:
         try:
             today = str(date.today())
             
-            # Get user's quota assignment
             quota_data = self._load_quota_data()
             user_assignment = quota_data.get("user_assignments", {}).get(username)
-            
+
             if not user_assignment:
                 logger.warning(f"No quota assignment found for user {username}. Attempting to auto-assign to 'admin'.")
                 # Attempt auto-heal: Assign to default 'admin' if exists
                 try:
-                    # Check if 'admin' exists in admin_limits
                     admin_exists = quota_data.get("admin_limits", {}).get("admin")
                     if not admin_exists:
                         logger.warning("Default 'admin' account not found. Creating it...")
-                        # Auto-create admin group with high capacity
                         self.set_admin_limits("admin", max_users=1000, total_daily_quota=1000000, owner_username="system")
                         quota_data = self._load_quota_data()  # Reload to confirm creation
                         admin_exists = quota_data.get("admin_limits", {}).get("admin")
-                    
+
                     if admin_exists:
-                        # Auto-assign to admin
                         # SPECIAL CASE: Give Mohamed Abdo & Owner Email unlimited (999999) quota, others 1000
-                        owner_emails = ["Mohamed Abdo", "mohamedibrahimpayonner@gmail.com", "mohamedabdo@res-va.com"]
-                        daily_limit = 999999 if username in owner_emails else 1000
+                        daily_limit = 999999 if username in OWNER_EMAILS else 1000
                         self.assign_user_to_admin(username, "admin", daily_quota=daily_limit)
-                        
-                        # Reload quota data to get the new assignment
+
                         quota_data = self._load_quota_data()
                         user_assignment = quota_data.get("user_assignments", {}).get(username)
                         logger.info(f"Successfully auto-assigned user {username} to 'admin' with {daily_limit} quota.")
@@ -738,26 +717,23 @@ class QuotaManager:
             admin_username = user_assignment.get("assigned_to_admin")
             daily_quota = user_assignment.get("daily_quota", 0)
             
-            # Get current usage
             current_usage_query = """
-                SELECT usage_count FROM user_usage 
+                SELECT usage_count FROM user_usage
                 WHERE user_username = %s AND date = %s
             """
             current_usage_result = self._db_manager.execute_query(
-                current_usage_query, 
-                (username, today), 
+                current_usage_query,
+                (username, today),
                 fetchone=True
             )
             current_usage = current_usage_result['usage_count'] if current_usage_result else 0
-            
-            # Check if adding this usage would exceed quota
+
             new_usage = current_usage + usage_count
             if new_usage > daily_quota:
                 raise QuotaExceededError(
                     f"User {username} quota exceeded: {new_usage}/{daily_quota}"
                 )
-            
-            # Record user usage (atomic upsert)
+
             user_usage_query = """
                 INSERT INTO user_usage (user_username, admin_username, date, usage_count)
                 VALUES (%s, %s, %s, %s)
@@ -767,7 +743,6 @@ class QuotaManager:
             """
             self._db_manager.execute_query(user_usage_query, (username, admin_username, today, usage_count))
             
-            # Update admin total usage (atomic upsert)
             admin_usage_query = """
                 INSERT INTO admin_usage (admin_username, date, total_used)
                 VALUES (%s, %s, %s)
@@ -782,7 +757,7 @@ class QuotaManager:
             return True, msg
             
         except QuotaExceededError:
-            raise  # Re-raise quota exceeded
+            raise
         except Exception as e:
             logger.error(f"Error recording user usage: {e}")
             raise DatabaseOperationError(f"Cannot record usage: {e}")
@@ -815,11 +790,9 @@ class QuotaManager:
             admin_username = user_assignment.get("assigned_to_admin")
             
             # SPECIAL CASE: Owner email gets unlimited quota display
-            owner_emails = ["Mohamed Abdo", "mohamedibrahimpayonner@gmail.com"]
-            if username in owner_emails:
+            if username in OWNER_EMAILS:
                 daily_quota = 999999
             
-            # Get current usage from database
             usage_query = """
                 SELECT usage_count FROM user_usage 
                 WHERE user_username = %s AND date = %s
@@ -879,18 +852,15 @@ class QuotaManager:
         }
         
         try:
-            # Test database connection
             if self._db_manager:
                 test_result = self._db_manager.execute_query("SELECT 1", fetch=True)
                 health["database_connected"] = bool(test_result)
-            
-            # Test loading quota data
+
             quota_data = self._load_quota_data()
             health["can_load_quota"] = True
             health["admin_count"] = len(quota_data.get("admin_limits", {}))
             health["user_count"] = len(quota_data.get("user_assignments", {}))
-            
-            # Test loading usage data
+
             self._load_usage_data()
             health["can_load_usage"] = True
             
@@ -918,13 +888,10 @@ class QuotaManager:
         }
         
         try:
-            # Get quota before
             result["quota_before"] = self.get_user_quota_status(username)
-            
-            # Record test usage
+
             self.record_user_usage(username, test_amount)
-            
-            # Get quota after
+
             result["quota_after"] = self.get_user_quota_status(username)
             
             result["success"] = True
@@ -936,7 +903,6 @@ class QuotaManager:
         return result
 
 
-# Global quota manager instance
 try:
     quota_manager = QuotaManager()
     logger.info("Quota manager initialized successfully")

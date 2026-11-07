@@ -1,4 +1,5 @@
-import { api } from './client'
+import { api, apiUrl } from './client'
+import { readSSEStream } from '@/utils/sseStream'
 import type { ReadyModeStatus } from '@/types/api'
 
 export const READYMODE_DIALER_URLS: Record<string, string> = {
@@ -80,45 +81,18 @@ export const readymodeApi = {
     api.post<AgentDialerCountsResponse>('/api/readymode/agent-dialer-counts', body),
   streamFetch: async (
     body: DownloadRequest,
-    token: string,
     onMessage: (event: string, data: string) => void,
     signal: AbortSignal,
   ): Promise<void> => {
-    const res = await fetch('/api/readymode/stream', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(body),
+    await readSSEStream('/api/readymode/stream', {
+      body,
       signal,
+      checkOk: true,
+      onEvent: (event, data) => onMessage(event, data as string),
     })
-    if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText)
-      throw new Error(text || `HTTP ${res.status}`)
-    }
-    const reader = res.body!.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop()!
-      for (const line of lines) {
-        if (!line.startsWith('data:')) continue
-        const raw = line.slice(5).trim()
-        if (!raw) continue
-        try {
-          const { event, data } = JSON.parse(raw)
-          onMessage(event, data)
-        } catch { /* ping/keep-alive lines */ }
-      }
-    }
   },
   cancel: (token: string) =>
-    fetch('/api/readymode/cancel', {
+    fetch(apiUrl('/api/readymode/cancel'), {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     }),

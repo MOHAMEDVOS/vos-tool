@@ -36,7 +36,6 @@ async def get_current_user(
             detail="Invalid token payload",
         )
     
-    # Verify user exists
     user_data = user_manager.get_user(username)
     if not user_data:
         raise HTTPException(
@@ -44,7 +43,6 @@ async def get_current_user(
             detail="User not found",
         )
     
-    # Validate session if session_id is present in token
     session_id = payload.get("session_id")
     if session_id:
         from lib.dashboard_manager import session_manager

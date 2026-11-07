@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "webapp", "run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "graphify-view",
+      "runtimeExecutable": "/Users/vos/.local/share/uv/tools/graphifyy/bin/python",
+      "runtimeArgs": ["-m", "http.server", "8799", "--directory", "graphify-out"],
+      "port": 8799
     }
   ]
 }

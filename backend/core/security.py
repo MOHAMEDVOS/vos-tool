@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from typing import Optional
 import jwt
 from backend.core.config import settings
-import hashlib
 import secrets
 
 
@@ -32,16 +31,6 @@ def decode_access_token(token: str) -> Optional[dict]:
         return None
     except jwt.InvalidTokenError:
         return None
-
-
-def hash_password(password: str) -> str:
-    """Hash password using SHA256 (compatible with existing system)."""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password against hash."""
-    return hash_password(plain_password) == hashed_password
 
 
 def generate_session_id() -> str:

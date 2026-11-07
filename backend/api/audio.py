@@ -37,15 +37,13 @@ async def upload_audio(
 ):
     """Upload audio file for processing."""
     try:
-        # Check file size
         file_content = await file.read()
         if len(file_content) > settings.MAX_UPLOAD_SIZE:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"File too large. Maximum size: {settings.MAX_UPLOAD_SIZE / 1024 / 1024}MB"
             )
-        
-        # Upload file
+
         file_info = await upload_audio_file(
             file_content,
             file.filename,
@@ -84,8 +82,7 @@ async def process_audio_endpoint(
             )
         
         file_path = str(files[0])
-        
-        # Start processing
+
         job_id = await process_audio(
             request.file_id,
             file_path,
@@ -117,14 +114,13 @@ async def get_processing_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
-    
-    # Verify job belongs to user
+
     if job.get("username") != current_user["username"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
         )
-    
+
     return ProcessingStatus(
         job_id=job_id,
         status=job.get("status", "unknown"),
@@ -139,31 +135,24 @@ def _extract_transcription_status(result_dict: Optional[Dict], stored_metadata: 
     if not result_dict and not stored_metadata:
         return None
     
-    # Check result dict first
     if result_dict:
-        # Direct transcription status
         if "transcription_status" in result_dict:
             return result_dict["transcription_status"]
-        
-        # Check nested result structure (batch format)
+
         if "result" in result_dict and isinstance(result_dict["result"], list) and result_dict["result"]:
             first_item = result_dict["result"][0]
             if isinstance(first_item, dict) and "transcription_status" in first_item:
                 return first_item["transcription_status"]
-    
-    # Check metadata
+
     if stored_metadata:
         if "transcription_status" in stored_metadata:
             return stored_metadata["transcription_status"]
-    
-    # Check for error patterns
+
     if result_dict:
-        # Check if transcript is empty but processing completed
         transcript = result_dict.get("transcript", "")
         if not transcript and result_dict.get("classification_success") is False:
             return "failed"
-        
-        # Check for timeout indicators
+
         error = result_dict.get("error", "")
         if "timeout" in error.lower():
             return "timeout"
@@ -176,24 +165,19 @@ def _extract_transcription_error(result_dict: Optional[Dict], stored_metadata: O
     if not result_dict and not stored_metadata:
         return None
     
-    # Check result dict first
     if result_dict:
-        # Direct transcription error
         if "transcription_error" in result_dict:
             return result_dict["transcription_error"]
-        
-        # Check nested result structure (batch format)
+
         if "result" in result_dict and isinstance(result_dict["result"], list) and result_dict["result"]:
             first_item = result_dict["result"][0]
             if isinstance(first_item, dict) and "transcription_error" in first_item:
                 return first_item["transcription_error"]
-        
-        # Check general error field for transcription-related errors
+
         error = result_dict.get("error", "")
         if error and any(keyword in error.lower() for keyword in ["transcription", "assemblyai", "api", "timeout"]):
             return error
-    
-    # Check metadata
+
     if stored_metadata:
         if "transcription_error" in stored_metadata:
             return stored_metadata["transcription_error"]
@@ -213,14 +197,13 @@ async def get_processing_results(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found"
         )
-    
-    # Verify job belongs to user
+
     if job.get("username") != current_user["username"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied"
         )
-    
+
     result = get_job_result(job_id)
 
     # The stored result is a DataFrame-like payload (list[dict]) plus optional metadata.
@@ -255,7 +238,6 @@ async def get_processing_results(
         accent_corrections=result_dict.get("accent_corrections") if result_dict else None,
         metadata=merged_metadata,
         error=job.get("error"),
-        # New transcription-specific fields
         transcription_status=_extract_transcription_status(result_dict, stored_metadata),
         transcription_error=_extract_transcription_error(result_dict, stored_metadata),
         processing_stage=job.get("stage")
