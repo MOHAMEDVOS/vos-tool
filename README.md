@@ -140,7 +140,3 @@ Owner-only. This is where the rebuttal phrase library (see section 1) gets curat
 - **Sharing groups** — by default every user's dashboard is isolated to their own audits. An Admin can put a group of users into a shared dashboard mode so a team sees one combined view instead of everyone's data staying siloed.
 
 ![Settings and sharing-group panel](screenshots/settings-sharing/screenshot.png)
-
-## Screenshots
-
-The images above live in [`screenshots/`](screenshots/), one subfolder per feature. See [`screenshots/README.md`](screenshots/README.md) if a shot ever needs retaking — it says what to capture for each one and where to save it.
