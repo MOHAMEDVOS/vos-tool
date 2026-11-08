@@ -89,7 +89,7 @@ Three dashboard views, for three different jobs:
 This is the one-click version of what a human QA auditor does with a spreadsheet, built around the company's existing "Auditors-Scoring" sheet format:
 
 1. **Gather** — pull the phone-number-to-agent list from every dialer for a chosen date, plus that date's already-flagged calls, and cache both.
-2. **Generate** — for each agent, take up to 5 fresh call samples (preferring their flagged calls where they have them, otherwise random ones) and turn the detections into a single score per agent by **majority vote** across five points: late hello, releasing, used a rebuttal correctly, gave a proper intro, and stated the reason for calling. If an agent doesn't have 5 real samples, the phone-number cell gets padded with unused numbers from their list just so the sheet looks complete — padded numbers are never scored.
+2. **Generate** — for each agent, take up to 5 fresh call samples (preferring their flagged calls where they have them, otherwise random ones) and turn the detections into a single score per agent by **majority vote** across five points: late hello, releasing, used a rebuttal correctly, gave a proper intro, and stated the reason for calling.
 3. **Export** — push the generated rows straight into the shared Google Sheet, in the exact column layout the scoring team already uses.
 
 The rebuttal column is deliberately stricter than the others: it's only flagged as an issue when a *full* set of 5 samples was scored and fewer than 2 of them used a rebuttal — a thin sample (fewer than 5 calls) is never used to judge rebuttal use, since not every call needs one.
