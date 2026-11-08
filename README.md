@@ -45,7 +45,7 @@ Then the transcript goes through up to three stages. Each stage only runs if the
 
 **Auto-learning:** when stage 2 or 3 finds a real rebuttal that wasn't in the phrase library, VOS records it as a "learned phrase." High-confidence ones get added automatically; anything less certain goes to the **Phrases page** (Owner-only) for a human to approve or reject. This is how the library grows past 2,000 phrases over time instead of needing someone to maintain it by hand.
 
-`screenshots/rebuttal-detection/screenshot.png`
+![Rebuttal detection on the Call Review page](screenshots/rebuttal-detection/screenshot.png)
 
 ## 2. Late Hello & Releasing detection
 
@@ -59,7 +59,7 @@ These two checks never look at the transcript at all — they analyze the raw au
 
 *Example:* a 90-second call where the agent channel has no speech at all → Releasing = Yes. A call where the agent's first word lands at 7.2 seconds in → Late Hello = Yes. A call where the agent says "Hi, this is Ahmed calling about—" at 1.1 seconds → both are No.
 
-`screenshots/late-hello-releasing/screenshot.png`
+![Late Hello / Releasing flag on a call](screenshots/late-hello-releasing/screenshot.png)
 
 ## 3. The auditing workflow
 
@@ -70,7 +70,7 @@ This is the path a batch of calls actually takes through the app:
 3. **Actions page** — the queue of calls that tripped a flag: Late Hello, Releasing, No Rebuttal, agent-only (customer never spoke — likely a wrong number or voicemail), or a long/dead call. This is the triage list an auditor actually works from.
 4. **Call Review page** — pick a flagged call and get the audio player next to the transcript and the specific reason it flagged (e.g., "LLM identified a rebuttal attempt" or "no speech detected in agent channel"), so you don't have to re-derive why VOS flagged it.
 
-`screenshots/call-auditing/screenshot.png`
+![Audit page pulling calls from a dialer](screenshots/call-auditing/screenshot.png)
 
 ## 4. Dashboard & reporting
 
@@ -80,7 +80,7 @@ Three dashboard views, for three different jobs:
 - **Lite Audit Dashboard** — a faster, lighter scan focused on reachability and dispositions (did the call connect, what was the outcome) rather than full quality scoring. Useful for a quick campaign health check without running every detection on every call.
 - **Campaign Audit Dashboard** — rolls results up by campaign instead of by agent, for comparing how different campaigns are performing.
 
-`screenshots/dashboard/screenshot.png`
+![Agent Audit dashboard](screenshots/dashboard/screenshot.png)
 
 ## 5. Scoring system ("Audit & Score")
 
@@ -92,13 +92,13 @@ This is the one-click version of what a human QA auditor does with a spreadsheet
 
 The rebuttal column is deliberately stricter than the others: it's only flagged as an issue when a *full* set of 5 samples was scored and fewer than 2 of them used a rebuttal — a thin sample (fewer than 5 calls) is never used to judge rebuttal use, since not every call needs one.
 
-`screenshots/scoring/screenshot.png`
+![Scoring page with generated per-agent rows](screenshots/scoring/screenshot.png)
 
 ## 6. Campaign reports
 
 A one-click export: pick a campaign and a date range, and VOS generates a Google Sheet and a Google Doc summarizing that campaign's results, using the user's connected Google Workspace account. If they haven't connected Google yet, the request comes back asking them to do that first instead of silently failing.
 
-`screenshots/campaign-reports/screenshot.png`
+![Campaign report export](screenshots/campaign-reports/screenshot.png)
 
 ## 7. User management
 
@@ -110,7 +110,7 @@ Three roles, in a strict hierarchy: **Owner → Admin → Auditor.**
 
 **Bulk dialer user creation** is the part that actually saves hours: instead of logging into each ReadyMode dialer and creating accounts one at a time, you paste a list of names and login IDs, pick which dialers they should exist on, and hit one button. VOS creates every account across every selected dialer and streams the result back live (so you see each one succeed or fail as it happens, not just a spinner until the whole batch is done). The same screen also handles bulk delete and finding duplicate/inactive accounts across dialers. A batch that used to take hours of manual clicking typically finishes in about a minute.
 
-`screenshots/user-management/screenshot.png`
+![Bulk dialer user creation](screenshots/user-management/screenshot.png)
 
 ## 8. Team Leader & HR features (TL Actions)
 
@@ -121,7 +121,7 @@ When an agent gets flagged enough to warrant a real consequence (a warning, a de
 - **Submission** — for a missing action, VOS builds a pre-filled link (a Podio webform, or a Google Form as a fallback) so the responsible Team Leader can formally submit the paperwork in one click instead of starting from a blank form.
 - **Podio integration** — once the company's Podio account is connected (OAuth), VOS can confirm a submission actually landed in Podio rather than someone saying "I submitted it" with no record.
 
-`screenshots/tl-actions/screenshot.png`
+![TL Actions reconciliation view](screenshots/tl-actions/screenshot.png)
 
 ## 9. Phrase management
 
@@ -137,11 +137,11 @@ Owner-only. This is where the rebuttal phrase library (see section 1) gets curat
 - **Quota redistribution** — an Admin can rebalance daily quota across the Auditors they manage without the Owner having to do it; the Owner sets the overall limits each Admin works within.
 - **Sharing groups** — by default every user's dashboard is isolated to their own audits. An Admin can put a group of users into a shared dashboard mode so a team sees one combined view instead of everyone's data staying siloed.
 
-`screenshots/settings-sharing/screenshot.png`
+![Settings and sharing-group panel](screenshots/settings-sharing/screenshot.png)
 
 ## Screenshots
 
-The images referenced above live in [`screenshots/`](screenshots/) and aren't included yet — see [`screenshots/README.md`](screenshots/README.md) for exactly what to capture for each one and where to save it. Once a file is dropped in with the right name, it shows up on this page automatically; nothing else needs to change.
+The images above live in [`screenshots/`](screenshots/), one subfolder per feature. See [`screenshots/README.md`](screenshots/README.md) if a shot ever needs retaking — it says what to capture for each one and where to save it.
 
 ## Stack
 
