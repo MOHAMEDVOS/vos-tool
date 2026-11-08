@@ -1,8 +1,5 @@
 """ReadyMode call downloader using ReadyModeHTTPClient for everything — report queries,
-pagination, and the recording downloads themselves never touch a browser. The one
-exception is login: ReadyModeHTTPClient.login() can fall back to a real browser if a
-dialer puts up a Cloudflare challenge (see automation/readymode_http.py's module
-docstring).
+pagination, and the recording downloads themselves: pure HTTP, no browser automation.
 
 Agent audits, Campaign audits, and the scoring sampler use this module to query
 ReadyMode's JSON report endpoint and download recordings.

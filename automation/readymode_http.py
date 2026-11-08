@@ -1,5 +1,4 @@
-"""ReadyMode client for call-log and report jobs — plain HTTP for everything it does,
-with one deliberate exception: login can fall back to a real browser.
+"""ReadyMode client for call-log and report jobs — pure HTTP, no browser automation.
 
 Agent audits, Campaign audits, scoring, and auxiliary report lookups use this client.
 
@@ -10,13 +9,9 @@ Key facts (see spec for detail):
   * Login = single POST to ``/login_new/?then=/`` with ``logout_other_sessions=on`` and
     browser-like headers (Origin/Referer/Sec-Fetch-*). Success sets the ``stationId`` cookie.
     Without the browser headers the server 500s ("cURL error 3: url malformed").
-  * If that POST comes back behind a Cloudflare challenge instead of a session, ``login()``
-    falls back to a real Playwright/Chromium browser (see
-    ``automation/readymode_browser_login.py``) just long enough to clear the challenge and
-    hand its cookies back to this client's plain ``requests.Session`` — every other method
-    here (report fetch, CSV export, user create/delete/list, agent activity) stays pure
-    HTTP, never browser automation. Toggle with ``READYMODE_BROWSER_FALLBACK=0`` to disable
-    the fallback entirely.
+  * Requests go through an approved proxy, so logins no longer hit a Cloudflare challenge
+    in practice — the Playwright-based browser fallback that used to handle that case was
+    removed (it's no longer needed, and kept it out of the deploy image/dependencies).
   * The report endpoint returns JSON with ``campaignlist`` / ``userlist`` (name->id maps),
     ``pages`` (total page count) and ``results`` (25 rows/page). Filters are all query params.
 """
@@ -395,33 +390,6 @@ class ReadyModeHTTPClient:
             _log_login_response("login POST", r, self.session)
         if "stationId" not in self.session.cookies.get_dict():
             response_body = r.text or ""
-            indicators = _security_block_indicators(r, response_body)
-            if "Cloudflare challenge" in indicators:
-                from automation.readymode_browser_login import (
-                    browser_fallback_enabled,
-                    solve_login_with_browser,
-                )
-                if browser_fallback_enabled():
-                    logger.warning(
-                        "ReadyMode login got a Cloudflare challenge on %s; "
-                        "falling back to a real-browser login to solve it.",
-                        self.dialer,
-                    )
-                    try:
-                        cookies = solve_login_with_browser(self.dialer, username, password)
-                    except Exception as browser_error:
-                        raise ReadyModeLoginError(
-                            f"ReadyMode login hit a Cloudflare challenge on {self.dialer}, "
-                            f"and the browser fallback also failed: {browser_error}"
-                        ) from browser_error
-                    self.session.cookies.update(cookies)
-                    if "stationId" not in self.session.cookies.get_dict():
-                        raise ReadyModeLoginError(
-                            f"ReadyMode login hit a Cloudflare challenge on {self.dialer}; "
-                            f"the browser fallback ran but still did not yield a stationId "
-                            f"cookie for '{username}'."
-                        )
-                    return  # browser fallback succeeded; session now has valid cookies
             snippet = _redact_diagnostic_body(response_body[:160]).replace("\n", " ")
             raise ReadyModeLoginError(
                 f"ReadyMode login did not establish a session for '{username}' on {self.dialer} "

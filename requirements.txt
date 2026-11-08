@@ -39,10 +39,6 @@ thefuzz>=0.19.0  # Fuzzy string matching (used in audio_pipeline/detections.py)
 # ==================== Transcription Service ====================
 assemblyai>=0.48.0  # Cloud-based transcription (replaces local Whisper/Vosk)
 
-# ==================== Automation (ReadyMode Integration) ====================
-# Requests handles normal logins; Playwright is used only for Cloudflare challenges.
-playwright>=1.40.0
-
 # ==================== Security ====================
 cryptography>=41.0.0  # Encryption for sensitive data (lib/security_utils.py)
 

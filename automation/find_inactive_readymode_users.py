@@ -1,7 +1,4 @@
-"""Inactive-user scan orchestrator — HTTP throughout, except that
-ReadyModeHTTPClient.login() can launch a real browser if a dialer puts up a Cloudflare
-challenge (see automation/readymode_http.py's module docstring). Nothing else here
-touches a browser.
+"""Inactive-user scan orchestrator — pure HTTP, no browser automation.
 
 Login to every requested dialer, build the FULL account roster from every writable
 folder on each (see ReadyModeHTTPClient.list_folder_users() — not limited to accounts

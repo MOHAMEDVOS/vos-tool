@@ -1,7 +1,4 @@
-"""Duplicate-user scan orchestrator — HTTP throughout, except that
-ReadyModeHTTPClient.login() can launch a real browser if a dialer puts up a Cloudflare
-challenge (see automation/readymode_http.py's module docstring). Nothing else here
-touches a browser.
+"""Duplicate-user scan orchestrator — pure HTTP, no browser automation.
 
 Login once per dialer, build a name->uid roster from two sources, group by shared
 display name, and return one result per dialer for the SSE stream in

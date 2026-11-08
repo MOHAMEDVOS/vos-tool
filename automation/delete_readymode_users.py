@@ -1,7 +1,4 @@
-"""Bulk user deletion orchestrator — HTTP throughout, except that
-ReadyModeHTTPClient.login() can launch a real browser if a dialer puts up a Cloudflare
-challenge (see automation/readymode_http.py's module docstring). Nothing else here
-touches a browser.
+"""Bulk user deletion orchestrator — pure HTTP, no browser automation.
 
 Login once per dialer, then delete each target either by exact uid (when the caller
 already knows it — e.g. from a duplicate scan) or by resolving a name to a uid. Name

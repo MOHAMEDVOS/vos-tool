@@ -1,7 +1,4 @@
-"""Bulk user creation orchestrator — HTTP throughout, except that
-ReadyModeHTTPClient.login() can launch a real browser if a dialer puts up a Cloudflare
-challenge (see automation/readymode_http.py's module docstring). Nothing else here
-touches a browser.
+"""Bulk user creation orchestrator — pure HTTP, no browser automation.
 
 Login once per dialer, create each user sequentially (one request per user so
 each carries its own password), print a progress line per user consumed by the
