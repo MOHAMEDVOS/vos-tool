@@ -1,6 +1,6 @@
 # VOS (Voice Observation System)
 
-Call QA automation for Egyptian real estate sales teams. VOS pulls recordings from ReadyMode dialers, transcribes them, checks whether the agent answered the customer's objection, flags quality problems, and scores the audit.
+Call QA automation for an Egyptian real estate cold-calling team that buys houses directly from owners for cash. VOS pulls recordings from ReadyMode dialers, transcribes them, checks whether the agent tried to overcome the owner's objection instead of just hanging up, flags quality problems, and scores the audit.
 
 Manual review of the same calls took about 45 seconds each.
 
@@ -26,20 +26,22 @@ Everything below explains one box at a time.
 
 ## 1. Call auditing & rebuttal detection
 
-A **rebuttal** is just: the customer raised an objection ("too expensive", "I'm not interested", "let me think about it"), and did the agent actually respond to it instead of going silent or changing the subject? VOS has to answer that for every call, in plain English, without a human listening to it.
+VOS agents are cold callers reaching out to **property owners** to buy their house for cash (a wholesale/cash-buyer acquisitions model — "we buy houses as-is, no commission, no fees"). Most owners say no. That's expected. The question VOS has to answer for every call is: when the owner declined, did the agent actually try to keep the lead alive instead of just hanging up?
 
-**Step 0 — transcription.** AssemblyAI turns the audio into text with separate speaker tracks (agent vs. customer), so VOS knows who said what. Egyptian-accented English trips up transcription in predictable ways (certain words get swapped for similar-sounding ones), so `lib/egyptian_accent_correction.py` fixes those known errors before anything else runs.
+A **rebuttal**, in VOS, is that pivot attempt: asking if they'd consider it later, asking if they own any *other* property they'd sell, asking for a referral, or negotiating the offer — anything that isn't giving up on the first "no." An agent who gets a flat "not interested" and says nothing back gets flagged. An agent who says "no worries — not even down the road?" does not.
+
+**Step 0 — transcription.** AssemblyAI turns the audio into text with separate speaker tracks (agent vs. owner), so VOS knows who said what. Egyptian-accented English trips up transcription in predictable ways (certain words get swapped for similar-sounding ones), so `lib/egyptian_accent_correction.py` fixes those known errors before anything else runs.
 
 Then the transcript goes through up to three stages. Each stage only runs if the one before it couldn't decide with confidence — most calls stop after stage 1.
 
-**Stage 1 — exact & pattern matching.** VOS keeps a library of 2,000+ known rebuttal phrases (`rebuttal_phrases.txt`), grouped by category (price, timeline, trust, competing properties, etc.). It checks the agent's words after the objection against that list, plus a set of flexible regex patterns for phrasing the fixed list doesn't cover word-for-word.
-- *Example:* customer says "I found a place 20% cheaper elsewhere." Agent says "I found a place cheaper" is in the library → instant match, confidence 1.00, done. Takes ~0.2 seconds, costs nothing.
+**Stage 1 — exact & pattern matching.** VOS keeps a library of 2,000+ known rebuttal phrases (`rebuttal_phrases.txt`), grouped by category (other-property pivots, timing/future interest, price negotiation, referrals, etc.). It checks the agent's words after the owner's decline against that list, plus a set of flexible regex patterns for phrasing the fixed list doesn't cover word-for-word.
+- *Real example, from an actual audited call:* owner says "Not selling. Nothing in the near future. No, never." Agent says "Do you have any other property?" — matches the `OTHER_PROPERTY_FAMILY` pattern directly → confidence 1.00, done. Takes ~0.2 seconds, costs nothing.
 
 **Stage 2 — semantic matching.** If nothing matched exactly, VOS encodes the agent's sentence into a vector (via sentence-transformers, running locally) and compares it to the same phrase library by *meaning* rather than exact wording. A similarity score above ~0.68 counts as a match.
-- *Example:* customer worries the area is "too noisy." Agent never says a phrase from the library verbatim, but says something close enough in meaning to "Is the neighborhood quiet?" (similarity 0.65 in this case) — close, but not quite confident enough on its own, so it moves to stage 3.
+- *Example:* owner says "No, I'm not interested, thank you." Agent says "Maybe sometime in 2027? February? March?" — not a verbatim library phrase, but close enough in meaning to a "would you reconsider later" pivot to score a mid-range similarity. Not quite confident enough on its own, so it moves to stage 3.
 
-**Stage 3 — LLM verification.** Only for the genuinely ambiguous cases. VOS sends the exchange to Groq (Llama 3.3 70B) with the full conversation context and asks it to judge like a sales coach would. The LLM has the final say — it can confirm a shaky match *or* overrule it and clear it if it decides there was no real rebuttal.
-- *Example continued:* the LLM reads "customer is worried about noise and resale value" and reasons that's a real objection about the property, not small talk — confidence 0.85, rebuttal confirmed.
+**Stage 3 — LLM verification.** Only for the genuinely ambiguous cases — often a trailed-off or half-finished pivot attempt. VOS sends the exchange to Groq (Llama 3.3 70B) with the full conversation context and asks it to judge like a sales coach would. The LLM has the final say — it can confirm a shaky match *or* overrule it and clear it if it decides there was no real rebuttal.
+- *Real example:* owner says "No, thank you. Have a good day." Agent says "Not even..." and the call ends there. The LLM has to decide whether that half-sentence counts as a genuine attempt to pivot or is just a trailing non-answer — a judgment call the first two stages can't make on their own.
 
 **Why three stages instead of one:** doing an LLM call on every single response would be accurate but slow and expensive. Running exact-match first and only escalating when needed means roughly 80% of calls never need the expensive step. On 1,000 calls that's the difference between ~$2–3 and ~$15–20, and about 2.5 hours instead of 12.5.
 
@@ -55,7 +57,7 @@ These two checks never look at the transcript at all — they analyze the raw au
 
 **Releasing** — "Yes" if the agent's side of the call has *zero* detected speech for the entire call. In practice this usually means the agent muted themselves, put the call down, or walked away while it was still connected.
 
-**Late Hello** — "Yes" if the agent's *first* detected speech comes more than 5 seconds (configurable) after the call connects. That's the "the customer had to say hello first" problem — the agent was slow to pick up or distracted.
+**Late Hello** — "Yes" if the agent's *first* detected speech comes more than 5 seconds (configurable) after the call connects. That's the "the owner had to say hello first" problem — the agent was slow to pick up or distracted.
 
 *Example:* a 90-second call where the agent channel has no speech at all → Releasing = Yes. A call where the agent's first word lands at 7.2 seconds in → Late Hello = Yes. A call where the agent says "Hi, this is Ahmed calling about—" at 1.1 seconds → both are No.
 
@@ -67,7 +69,7 @@ This is the path a batch of calls actually takes through the app:
 
 1. **Audit page** — pull recordings straight from a ReadyMode dialer (pick the dialer, a date, optionally a campaign) or upload MP3 files directly if you already have them. No browser automation involved — VOS talks to ReadyMode over plain HTTP (`automation/readymode_http.py`), which is faster and doesn't need a browser running.
 2. **Processing** — every call goes through transcription and all the detections above, in parallel batches.
-3. **Actions page** — the queue of calls that tripped a flag: Late Hello, Releasing, No Rebuttal, agent-only (customer never spoke — likely a wrong number or voicemail), or a long/dead call. This is the triage list an auditor actually works from.
+3. **Actions page** — the queue of calls that tripped a flag: Late Hello, Releasing, No Rebuttal, agent-only (the owner never spoke — likely a wrong number or voicemail), or a long/dead call. This is the triage list an auditor actually works from.
 4. **Call Review page** — pick a flagged call and get the audio player next to the transcript and the specific reason it flagged (e.g., "LLM identified a rebuttal attempt" or "no speech detected in agent channel"), so you don't have to re-derive why VOS flagged it.
 
 ![Audit page pulling calls from a dialer](screenshots/call-auditing/screenshot.png)
