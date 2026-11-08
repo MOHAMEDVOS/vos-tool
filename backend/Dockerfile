@@ -105,7 +105,6 @@ COPY backend/models/ /app/backend/models/
 COPY backend/job_tasks/ /app/backend/job_tasks/
 COPY backend/celery_app.py /app/backend/celery_app.py
 COPY backend/main.py /app/backend/main.py
-COPY backend/requirements.txt /app/backend/requirements.txt
 # Verify backend/models was copied correctly
 RUN ls -la /app/backend/models/ && \
     test -f /app/backend/models/__init__.py && \

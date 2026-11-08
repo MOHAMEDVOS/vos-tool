@@ -1,7 +1,14 @@
 # Releasing Detection — False Negative Investigation
 
 **Symptom reported:** calls where the agent actually released (never spoke) are NOT being flagged `Releasing: Yes`.
-**Status:** RESOLVED (2026-06-16, no commit yet) — root-caused against live production data and fixed in `audio_pipeline/detections.py`. See "Resolution" at the bottom.
+**Status:** NOT RESOLVED — the fix below was committed (`4910d93`) and reverted the same day,
+2.5 hours later (`11dd40f`, "revert: releasing detection back to original zero-speech-segments
+rule"). `audio_pipeline/detections.py` currently runs the original all-or-nothing check described
+under hypothesis #1, not the fix described below. No commit message or follow-up explains why it
+was reverted, so it's unclear whether the 300ms floor caused a regression elsewhere (most likely,
+given how fast the revert followed) or the revert was itself accidental. Read the rest of this doc
+as "what was tried and backed out," not as current behavior. Hypotheses #2 and #3 were never
+tested and are the more promising leads if this is revisited.
 
 ## Where it lives
 
@@ -82,3 +89,14 @@ Two concrete, reproducible bugs in `releasing_detection()`:
 No other module reimplements this logic — `optimized_audio_processor.py`, `fast_audio_processor.py`, `semantic_audio_processor.py`, and `audio_processor.py` all import `releasing_detection` from `detections.py`, so the fix applies everywhere automatically.
 
 **Still open / not investigated further:** hypothesis #2 (silent fallback to the more permissive `simple_energy_vad`) and #3 (unverified left=agent channel assumption) from above — neither was needed to explain the confirmed false negatives, but could still be worth a logging pass if false negatives persist after this fix ships.
+
+### Update (2026-11-08): this fix was reverted
+
+The 300ms-floor fix above was live for about 2.5 hours (`4910d93` → `11dd40f` same day,
+2026-06-16) before being reverted back to the original `len(speech_segments) == 0` check. No
+reason was recorded. Given the timing, the most likely explanation is the floor introduced false
+*positives* elsewhere (a call with a brief real "hello?" now reading as released) that surfaced
+fast enough to roll back same-day — but this hasn't been confirmed, and it's equally possible the
+revert itself was a mistake. If releasing-detection false negatives are an active problem again,
+start with hypotheses #2 and #3 above (neither was ever tested) rather than re-applying the 300ms
+floor as-is, since whatever made that approach get reverted would likely resurface.

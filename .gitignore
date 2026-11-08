@@ -60,6 +60,11 @@ dashboard_data_backup_*/
 # Large external dependencies (not needed in repo)
 llama.cpp/
 
+# ────────────── LOCAL TOOLING (not project source) ──────────────
+.pytest_cache/
+graphify-out/
+.codex/
+
 # ────────────── PYTHON & DEVELOPMENT ──────────────
 # Python cache
 __pycache__/

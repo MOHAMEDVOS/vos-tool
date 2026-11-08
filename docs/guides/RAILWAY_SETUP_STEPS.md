@@ -40,3 +40,13 @@ Do not configure:
 - `FRONTEND_PORT=8501`
 - Streamlit health checks
 - `_stcore` routes
+
+## Post-Deployment Verification
+
+- [ ] Backend `/health` responds
+- [ ] Webapp loads and can log in
+- [ ] Database connection working
+- [ ] Test user creation
+- [ ] Test audio processing
+- [ ] Test phrase management
+- [ ] Monitor logs for errors

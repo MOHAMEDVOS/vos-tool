@@ -45,7 +45,6 @@ playwright>=1.40.0
 
 # ==================== Security ====================
 cryptography>=41.0.0  # Encryption for sensitive data (lib/security_utils.py)
-bleach>=6.0.0         # HTML sanitization (lib/html_sanitizer.py)
 
 # ==================== Utilities ====================
 psutil>=5.9.0  # System monitoring and CPU optimization

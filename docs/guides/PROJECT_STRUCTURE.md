@@ -18,4 +18,3 @@ Retired:
 - Streamlit `app.py`
 - Python `frontend/` package
 - Streamlit `ui/` helpers
-- local utility `scripts/`

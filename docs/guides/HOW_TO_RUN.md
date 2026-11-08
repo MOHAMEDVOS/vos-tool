@@ -30,7 +30,7 @@ The Vite dev server runs on `http://localhost:3000` and proxies `/api` to the ba
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Set database, JWT, ReadyMode, and AssemblyAI variables from `env.template`.
+Set database, JWT, ReadyMode, and AssemblyAI variables from `.env.example`.
 
 ## Notes
 
