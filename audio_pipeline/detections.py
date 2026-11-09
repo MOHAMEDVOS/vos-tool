@@ -59,6 +59,16 @@ def extract_left_channel(audio_segment):
     return audio_segment
 
 
+def extract_right_channel(audio_segment):
+    """
+    Extract right channel (owner) from stereo audio.
+    Returns None if mono -- there's no separate owner channel to check.
+    """
+    if audio_segment.channels == 2:
+        return audio_segment.split_to_mono()[1]
+    return None
+
+
 def estimate_noise_floor(audio_array, frame_rate, percentile=10):
     """
     Estimate adaptive noise floor from audio signal.
@@ -205,7 +215,12 @@ def simple_energy_vad(audio_segment, energy_threshold=None):
 
 def releasing_detection(agent_segment):
     """
-    Returns 'Yes' if agent channel contains no speech events for entire call duration.
+    Returns 'Yes' if the agent channel has no speech for the entire call AND
+    the owner channel does -- the agent abandoned a live caller. If the owner
+    is silent too, there's nothing to release from (a dead/unreachable call,
+    not an agent problem), so that returns 'No'. Stereo only: a mono call has
+    no separate owner channel to check, so it falls back to the old agent-only
+    rule rather than risk a wrong read of the mixed channel as "owner speech".
     """
     agent_channel = extract_left_channel(agent_segment)
     call_duration_s = len(agent_channel) / 1000.0
@@ -221,7 +236,21 @@ def releasing_detection(agent_segment):
         use_adaptive=True
     )
 
-    return "Yes" if len(speech_segments) == 0 else "No"
+    if len(speech_segments) > 0:
+        return "No"
+
+    owner_channel = extract_right_channel(agent_segment)
+    if owner_channel is None:
+        return "Yes"
+
+    owner_speech_segments = voice_activity_detection(
+        owner_channel,
+        energy_threshold=app_settings.vad_energy_threshold,
+        min_speech_duration=app_settings.vad_min_speech_duration,
+        use_adaptive=True
+    )
+
+    return "Yes" if len(owner_speech_segments) > 0 else "No"
 
 
 def late_hello_detection(agent_segment, customer_segment=None, debug=False):

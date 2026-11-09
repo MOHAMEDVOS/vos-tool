@@ -25,9 +25,18 @@ _SILENT_PEAK = 100
 # never reaches _SOUND_RMS. Mohamed listened to 11 flagged calls: the 2 he confirmed silent
 # measured about 3 here, and 8 of the 9 with air sound measured 5.9 or more. Energy
 # below 200 Hz is left out because the confirmed-silent calls can carry a line hum.
+#
+# 2026-11-09: lowered from 4.5 after Mohamed reviewed two flagged "Unknown"
+# calls -- (317) 777-0900 and (317) 712-7437, both 12s, air_level 3.00-3.05 --
+# and confirmed by ear it's line static, not dead silence. That readout sits
+# right where the "confirmed silent" calibration above said ~3 was silent, so
+# this call overrides that assumption rather than refining it: static this
+# faint isn't worth flagging the agent over. Per Mohamed: don't be strict here,
+# a bunch of invalid samples isn't acceptable. New ceiling sits below both
+# measured values with a small margin.
 _AIR_MIN_HZ = 200
 _AIR_PERCENTILE = 90
-_SILENT_AIR_LEVEL = 4.5
+_SILENT_AIR_LEVEL = 2.5
 _MIN_OWNER_SOUND_MS = 300
 
 
