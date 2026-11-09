@@ -198,7 +198,15 @@ _WRONG_NUMBER_PIVOT = re.compile(
     r"|\bdo\s+you\s+know\s+(?:the\s+)?owner'?s?\s+(?:number|contact)\b"
     r"|\b(?:nothing|anything)\b.*\bsell"
     # The question was started and the recording cut off.
-    r"|\b(?:do|would)\s+you\s+have\W*$",
+    r"|\b(?:do|would)\s+you\s+have\W*$"
+    # AssemblyAI's known mishearing of this exact pivot question on noisy
+    # wrong-number calls: "do you have any [properties]" -> "any problems",
+    # "...you want to [sell]" -> "you understand". Scoped to this one literal
+    # shape (not a general problems->properties/understand->sell swap) because
+    # those words are common and legitimate elsewhere in a pitch -- see
+    # analyzer/rebuttal_detection.py's own "any problems with the property"
+    # qualifying question. Gate-verdict-only: never rewrites the transcript.
+    r"|\bany\s+problems?\b.{0,40}\bunderstand\b",
     re.IGNORECASE,
 )
 # The agent had already given up, so an owner's "bye" after this isn't the owner
