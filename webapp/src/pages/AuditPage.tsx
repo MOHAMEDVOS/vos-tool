@@ -771,7 +771,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
         : undefined,
       dispositions,
       audit_type: auditType,
-      force_reaudit: forceReaudit,
+      force_reaudit: isCampaign ? true : forceReaudit,
     }
     if (isCampaign) {
       body.duration_filter = durationFilter
@@ -1091,21 +1091,23 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                   </div>
                   <NumberStepper value={maxCalls} onChange={setMaxCalls} min={1} max={2000} disabled={isRunning} />
                 </div>
-                <label className="flex items-start gap-2 text-sm cursor-pointer" style={{ color: 'var(--t-label)' }}>
-                  <input
-                    type="checkbox"
-                    checked={forceReaudit}
-                    onChange={(event) => setForceReaudit(event.target.checked)}
-                    disabled={isRunning}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    Re-audit previously processed calls
-                    <span className="block text-xs" style={{ color: 'var(--t-muted)' }}>
-                      This downloads and analyzes those recordings again.
+                {!isCampaign && (
+                  <label className="flex items-start gap-2 text-sm cursor-pointer" style={{ color: 'var(--t-label)' }}>
+                    <input
+                      type="checkbox"
+                      checked={forceReaudit}
+                      onChange={(event) => setForceReaudit(event.target.checked)}
+                      disabled={isRunning}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      Re-audit previously processed calls
+                      <span className="block text-xs" style={{ color: 'var(--t-muted)' }}>
+                        This downloads and analyzes those recordings again.
+                      </span>
                     </span>
-                  </span>
-                </label>
+                  </label>
+                )}
                 <div className="flex items-center justify-between w-full mt-2 gap-3 flex-wrap">
                   <Button
                     variant="action"
