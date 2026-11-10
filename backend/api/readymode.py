@@ -362,7 +362,11 @@ async def download_readymode_calls(
         start_date = _date.fromisoformat(request.start_date) if request.start_date else _date.today()
         end_date   = _date.fromisoformat(request.end_date)   if request.end_date   else _date.today()
         run_id = str(uuid.uuid4())
-        claim_recordings, release_recordings = _recording_registry_callbacks(current_user["username"])
+        if is_campaign:
+            # Campaign audits never dedupe against prior runs — always re-pull everything.
+            claim_recordings, release_recordings = None, None
+        else:
+            claim_recordings, release_recordings = _recording_registry_callbacks(current_user["username"])
 
         import functools
         loop = asyncio.get_event_loop()
@@ -446,7 +450,11 @@ async def stream_readymode_audit(
     start_date = _date.fromisoformat(request.start_date) if request.start_date else _date.today()
     end_date   = _date.fromisoformat(request.end_date)   if request.end_date   else _date.today()
     run_id = str(uuid.uuid4())
-    claim_recordings, release_recordings = _recording_registry_callbacks(current_user["username"])
+    if is_campaign:
+        # Campaign audits never dedupe against prior runs — always re-pull everything.
+        claim_recordings, release_recordings = None, None
+    else:
+        claim_recordings, release_recordings = _recording_registry_callbacks(current_user["username"])
 
     username = current_user["username"]
     dialer_urls = [dialer_url] + ([request.dialer_url_2] if request.dialer_url_2 else [])
