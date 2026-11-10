@@ -1,4 +1,4 @@
-"""Tests for the Lite Audit's Dead Call vs Unknown check. Synthetic audio, no DB, no network."""
+"""Tests for the Lite Audit's actually-Dead-Call check. Synthetic audio, no DB, no network."""
 
 import json
 import sys
@@ -136,9 +136,59 @@ def test_agent_channel_sound_is_ignored():
 
 @pytest.mark.parametrize("disposition", [
     "Decision Maker - NYI", "Wrong Number", "DNC - Unknown", "DNC - Decision Maker",
-    "Voicemail", "Spanish Speaker", "", None,
+    "Voicemail", "Spanish Speaker",
 ])
-def test_other_dispositions_are_never_flagged(disposition):
+def test_other_dispositions_flag_when_actually_dead(disposition):
+    assert lite_wrong_dispo_detail(_call(_silence()), disposition) == ("Yes", f"{disposition} instead of Dead")
+
+
+@pytest.mark.parametrize("disposition", [
+    "Decision Maker - NYI", "Wrong Number", "DNC - Unknown", "DNC - Decision Maker",
+    "Voicemail", "Spanish Speaker",
+])
+def test_other_dispositions_not_flagged_when_owner_actually_spoke(disposition):
+    assert lite_wrong_dispo_detail(_call(_owner((2, _noise(1)))), disposition) == ("No", None)
+
+
+@pytest.mark.parametrize("disposition", [
+    "Decision Maker - NYI", "Wrong Number", "DNC - Unknown", "DNC - Decision Maker",
+    "Voicemail", "Spanish Speaker",
+])
+def test_other_dispositions_flag_when_short_and_static_only(disposition):
+    audio = AudioSegment.from_mono_audiosegments(
+        _mono(_noise(6, seed=2)), _mono(_noise(6, loudness=11)),
+    )
+    assert lite_wrong_dispo_detail(audio, disposition) == ("Yes", f"{disposition} instead of Unknown")
+
+
+@pytest.mark.parametrize("disposition", [
+    "Decision Maker - NYI", "Wrong Number", "DNC - Unknown", "DNC - Decision Maker",
+    "Voicemail", "Spanish Speaker",
+])
+def test_other_dispositions_not_flagged_when_static_only_but_long(disposition):
+    audio = AudioSegment.from_mono_audiosegments(
+        _mono(_noise(8, seed=2)), _mono(_noise(8, loudness=11)),
+    )
+    assert lite_wrong_dispo_detail(audio, disposition) == ("No", None)
+
+
+def test_dead_call_short_and_static_only_still_not_flagged():
+    # Mohamed's call: leave "Dead Call" out of the short-static-call rule for now.
+    audio = AudioSegment.from_mono_audiosegments(
+        _mono(_noise(6, seed=2)), _mono(_noise(6, loudness=11)),
+    )
+    assert lite_wrong_dispo_detail(audio, "Dead Call") == ("No", None)
+
+
+def test_unknown_short_and_static_only_still_not_flagged():
+    audio = AudioSegment.from_mono_audiosegments(
+        _mono(_noise(6, seed=2)), _mono(_noise(6, loudness=11)),
+    )
+    assert lite_wrong_dispo_detail(audio, "Unknown") == ("No", None)
+
+
+@pytest.mark.parametrize("disposition", ["", None])
+def test_blank_disposition_is_never_flagged(disposition):
     assert lite_wrong_dispo_detail(_call(_silence()), disposition) == ("No", None)
     assert lite_wrong_dispo_detail(_call(_owner((2, _noise(1)))), disposition) == ("No", None)
 
@@ -166,8 +216,25 @@ def test_lite_pipeline_flags_a_real_mp3(tmp_path):
     assert result["Wrong Dispo Reason"] == "Unk instead of Dead"
 
 
-def test_lite_pipeline_leaves_other_dispositions_alone(tmp_path):
+def test_lite_pipeline_flags_other_dispositions_when_actually_dead(tmp_path):
     result = process_single_file_lite(_write_call(tmp_path, "Wrong Number", _silence()))
+    assert result["Wrong Dispo Detection"] == "Yes"
+    assert result["Wrong Dispo Reason"] == "Wrong Number instead of Dead"
+
+
+def test_lite_pipeline_leaves_other_dispositions_alone_when_owner_spoke(tmp_path):
+    result = process_single_file_lite(_write_call(tmp_path, "Wrong Number", _owner((2, _noise(1)))))
+    assert result["Wrong Dispo Detection"] == "No"
+    assert result["Wrong Dispo Reason"] == ""
+
+
+def test_lite_pipeline_suppresses_wrong_dispo_when_releasing_flagged(tmp_path, monkeypatch):
+    # Releasing wins: an early release explains a dead/quiet-looking owner channel
+    # on its own, so Wrong Dispo shouldn't also show up on top of it.
+    monkeypatch.setattr("audio_pipeline.detections.releasing_detection", lambda *a, **k: "Yes")
+    path = _write_call(tmp_path, "Dead Call", _owner((2, _noise(1))))
+    result = process_single_file_lite(path)
+    assert result["Releasing Detection"] == "Yes"
     assert result["Wrong Dispo Detection"] == "No"
     assert result["Wrong Dispo Reason"] == ""
 

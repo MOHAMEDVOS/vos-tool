@@ -1,9 +1,20 @@
-"""Lite Audit Wrong Dispo check: does the owner channel match Dead Call or Unknown?
+"""Lite Audit Wrong Dispo check: was this actually a Dead Call or Unknown, whatever got logged?
 
-Lite Audit has no transcript, so this looks at the audio only. An Unknown call
-needs some sound from the owner, and a Dead Call needs none. Anything else, or
-audio that isn't clearly one or the other, is not flagged. Thresholds were
-measured on 495 real recordings, see
+Lite Audit has no transcript, so this looks at the audio only.
+
+- A truly silent owner channel for the whole call is a Dead Call no matter what
+  disposition the agent picked (Wrong Number, Not Interested, etc.) -- so that
+  check applies to every disposition, not just "Dead Call" and "Unknown".
+- A short call (<=7s) where the owner channel never reaches real speech but
+  isn't silent either (just static/air noise) is an Unknown no matter what got
+  logged, with the same exception: Mohamed asked to leave "Dead Call" out of
+  this one, so a short, static-only "Dead Call" stays uncaught for now.
+- The remaining direction (logged Dead Call but the owner clearly spoke, so it
+  should've been Unknown) only makes sense when Dead Call was actually logged --
+  generalizing it would flag almost every real conversation, since any call has
+  well over 300ms of owner speech.
+
+Thresholds were measured on 495 real recordings, see
 docs/superpowers/plans/2026-11-05-lite-dead-vs-unknown-dispo.md.
 """
 
@@ -38,6 +49,10 @@ _AIR_MIN_HZ = 200
 _AIR_PERCENTILE = 90
 _SILENT_AIR_LEVEL = 2.5
 _MIN_OWNER_SOUND_MS = 300
+# A call this short with no real owner speech (static/air noise only, not
+# silence) is an Unknown regardless of what got logged -- past this length a
+# quiet stretch could just be part of a longer real conversation.
+_MAX_UNKNOWN_CALL_SECONDS = 7
 
 
 def _owner_channel_levels(audio: AudioSegment) -> tuple[int, float, float]:
@@ -83,14 +98,23 @@ def _owner_channel_levels(audio: AudioSegment) -> tuple[int, float, float]:
 
 
 def lite_wrong_dispo_detail(audio: AudioSegment, disposition: str | None) -> tuple[str, str | None]:
-    """("Yes"|"No", reason). Only stereo Dead Call and Unknown calls can flag."""
+    """("Yes"|"No", reason). Only stereo calls can flag."""
     logged = " ".join((disposition or "").lower().split())
-    if logged not in ("dead call", "unknown") or audio.channels != 2:
+    if not logged or audio.channels != 2:
         return "No", None
 
     sound_ms, peak, air_level = _owner_channel_levels(audio)
-    if logged == "unknown" and peak <= _SILENT_PEAK and air_level <= _SILENT_AIR_LEVEL:
-        return "Yes", "Unk instead of Dead"
-    if logged == "dead call" and sound_ms >= _MIN_OWNER_SOUND_MS:
+    actually_dead = peak <= _SILENT_PEAK and air_level <= _SILENT_AIR_LEVEL
+    if actually_dead and logged != "dead call":
+        reason = "Unk instead of Dead" if logged == "unknown" else f"{(disposition or '').strip()} instead of Dead"
+        return "Yes", reason
+
+    has_real_speech = sound_ms >= _MIN_OWNER_SOUND_MS
+    is_short_call = len(audio) <= _MAX_UNKNOWN_CALL_SECONDS * 1000
+    if (not actually_dead and not has_real_speech and is_short_call
+            and logged not in ("unknown", "dead call")):
+        return "Yes", f"{(disposition or '').strip()} instead of Unknown"
+
+    if logged == "dead call" and has_real_speech:
         return "Yes", "Dead instead of Unk"
     return "No", None

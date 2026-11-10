@@ -1040,9 +1040,11 @@ def process_single_file_lite(file_path: Path, additional_metadata: Optional[dict
             late_hello = "Error"
 
         # Dead Call vs Unknown, from the owner channel. Campaign audits reuse this
-        # function but aren't in scope for the check.
+        # function but aren't in scope for the check. Skipped entirely when the agent
+        # released the call -- an early release explains a quiet/dead-looking owner
+        # channel on its own, so Wrong Dispo would just be noise on top of Releasing.
         wrong_dispo, wrong_dispo_reason = "No", None
-        if not (additional_metadata or {}).get("Campaign Name"):
+        if not (additional_metadata or {}).get("Campaign Name") and str(releasing).strip().lower() != "yes":
             try:
                 from lib.lite_wrong_dispo_detector import lite_wrong_dispo_detail
                 wrong_dispo, wrong_dispo_reason = lite_wrong_dispo_detail(audio, disposition)
