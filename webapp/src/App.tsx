@@ -11,7 +11,6 @@ import { TopLoadingBar } from '@/components/ui/TopLoadingBar'
 import { LoginPage }      from '@/pages/LoginPage'
 import { DashboardPage }  from '@/pages/DashboardPage'
 import { ActionsPage }    from '@/pages/ActionsPage'
-import { CallReviewPage } from '@/pages/CallReviewPage'
 import { AuditPage }      from '@/pages/AuditPage'
 import { PhrasesPage }    from '@/pages/PhrasesPage'
 import { SettingsPage }   from '@/pages/SettingsPage'
@@ -75,7 +74,6 @@ function InnerApp() {
       {activeTab === 'Audit'             && <AuditPage />}
       {activeTab === 'Actions'           && <ActionsPage />}
       {activeTab === 'TL Actions'        && <TlActionsPage />}
-      {activeTab === 'Call Review'       && <CallReviewPage />}
       {activeTab === 'Dashboard'         && <DashboardPage />}
       {activeTab === 'Scoring'           && <ScoringPage />}
       {activeTab === 'Users'             && <UsersPage />}

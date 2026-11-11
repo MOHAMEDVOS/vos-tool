@@ -14,7 +14,7 @@ MP3 upload ────────┘                                          
                                                               Actions queue <── flagged calls
                                                                     │
                                                                     v
-                                                    Call Review (listen + see why it flagged)
+                                                    Actions page (listen + see why it flagged)
                                                                     │
                             ┌───────────────────────────────────────┼──────────────────────┐
                             v                                       v                      v
@@ -47,7 +47,7 @@ Then the transcript goes through up to three stages. Each stage only runs if the
 
 **Auto-learning:** when stage 2 or 3 finds a real rebuttal that wasn't in the phrase library, VOS records it as a "learned phrase." High-confidence ones get added automatically; anything less certain goes to the **Phrases page** (Owner-only) for a human to approve or reject. This is how the library grows past 2,000 phrases over time instead of needing someone to maintain it by hand.
 
-![Rebuttal detection on the Call Review page](screenshots/rebuttal-detection/screenshot.png)
+![Rebuttal detection on a call card](screenshots/rebuttal-detection/screenshot.png)
 
 ## 2. Late Hello & Releasing detection
 
@@ -69,8 +69,7 @@ This is the path a batch of calls actually takes through the app:
 
 1. **Audit page** — pull recordings straight from a ReadyMode dialer (pick the dialer, a date, optionally a campaign) or upload MP3 files directly if you already have them. No browser automation involved — VOS talks to ReadyMode over plain HTTP (`automation/readymode_http.py`), which is faster and doesn't need a browser running.
 2. **Processing** — every call goes through transcription and all the detections above, in parallel batches.
-3. **Actions page** — the queue of calls that tripped a flag: Late Hello, Releasing, No Rebuttal, agent-only (the owner never spoke — likely a wrong number or voicemail), or a long/dead call. This is the triage list an auditor actually works from.
-4. **Call Review page** — pick a flagged call and get the audio player next to the transcript and the specific reason it flagged (e.g., "LLM identified a rebuttal attempt" or "no speech detected in agent channel"), so you don't have to re-derive why VOS flagged it.
+3. **Actions page** — the queue of calls that tripped a flag: Late Hello, Releasing, No Rebuttal, agent-only (the owner never spoke — likely a wrong number or voicemail), or a long/dead call. This is the triage list an auditor actually works from. Pick an agent and each flagged call opens as a card with the audio player next to the transcript and the specific reason it flagged (e.g., "LLM identified a rebuttal attempt" or "no speech detected in agent channel"), so you don't have to re-derive why VOS flagged it.
 
 ![Audit page pulling calls from a dialer](screenshots/call-auditing/screenshot.png)
 

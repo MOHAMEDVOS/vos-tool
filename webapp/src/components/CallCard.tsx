@@ -1,15 +1,12 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { useFlaggedCalls, useAgentAudits, useLiteAudits } from '@/hooks/useDashboard'
 import { Spinner } from '@/components/ui/Spinner'
 import { Badge } from '@/components/ui/Badge'
 import type { FlaggedCall, WordTimestamp } from '@/types/api'
 import { apiUrl, authHeaders, api } from '@/api/client'
-import { Play, Pause, Volume2, MoreVertical, Search, Download } from 'lucide-react'
-import { CustomSelect } from '@/components/ui/Select'
+import { Play, Pause, Volume2, MoreVertical, Download } from 'lucide-react'
 import { KaraokeTranscript } from '@/components/KaraokeTranscript'
-import { AgentDeductionsTable, type AgentDeductionRow } from '@/pages/ActionsPage'
-import { dedupeLongCallRows, isFairRebuttalMiss, getCallIssues, buildAgentDeductions } from '@/utils/audit'
+import { getCallIssues } from '@/utils/audit'
 
 interface AudioPlayerProps {
   src: string
@@ -157,108 +154,7 @@ function CustomAudioPlayer({ src, isLateHello, audioRef, onAudioMounted, downloa
   )
 }
 
-type IssueFilter = 'All Issues' | 'Releasing Only' | 'Late Hello Only' | 'No Rebuttals Only' | 'Wrong Dispo Only'
-
-
-export function CallReviewPage() {
-  const { data: calls, isLoading, isError } = useFlaggedCalls()
-  const { data: allAuditsData } = useAgentAudits()
-  const { data: liteAuditsData } = useLiteAudits()
-  const [issueFilter, setIssueFilter] = useState<IssueFilter>('All Issues')
-  const [agentFilter, setAgentFilter] = useState('All Agents')
-  const [search, setSearch] = useState('')
-
-  const totalCallsMap = useMemo(() => {
-    const agentRecords = allAuditsData?.records?.map((r) => r.metadata ?? r) ?? []
-    const liteRecords = liteAuditsData?.records?.map((r) => r.metadata ?? r) ?? []
-    const map = new Map<string, number>()
-    for (const row of [...agentRecords, ...liteRecords]) {
-      const name = ((row as Record<string, unknown>)['Agent Name'] as string | undefined)?.trim()
-      if (name) map.set(name, (map.get(name) ?? 0) + 1)
-    }
-    return map
-  }, [allAuditsData, liteAuditsData])
-
-  const agentDeductions = useMemo<AgentDeductionRow[]>(
-    () => buildAgentDeductions(dedupeLongCallRows(calls ?? []), totalCallsMap),
-    [calls, totalCallsMap],
-  )
-
-  const agents = useMemo(() => {
-    const names = [...new Set((calls ?? []).map((call) => call['Agent Name']).filter(Boolean) as string[])]
-    return ['All Agents', ...names.sort()]
-  }, [calls])
-
-  const filtered = useMemo<FlaggedCall[]>(() => {
-    let rows = calls ?? []
-    if (issueFilter === 'Releasing Only') rows = rows.filter((row) => row['Releasing Detection'] === 'Yes')
-    if (issueFilter === 'Late Hello Only') rows = rows.filter((row) => row['Late Hello Detection'] === 'Yes')
-    if (issueFilter === 'No Rebuttals Only') rows = rows.filter(isFairRebuttalMiss)
-    if (issueFilter === 'Wrong Dispo Only') rows = rows.filter((row) => row['Wrong Dispo Detection'] === 'Yes')
-    if (agentFilter !== 'All Agents') rows = rows.filter((row) => row['Agent Name'] === agentFilter)
-    if (search.trim()) {
-      const q = search.trim().toLowerCase()
-      rows = rows.filter((row) => JSON.stringify(row).toLowerCase().includes(q))
-    }
-    return rows
-  }, [calls, issueFilter, agentFilter, search])
-
-  if (isLoading) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>
-  if (isError) return <p className="text-ship-red text-sm">Failed to load flagged calls.</p>
-
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold text-t-primary tracking-tight">Call Review</h1>
-        <p className="text-vos-400 text-sm">Listen to flagged calls. Audio is loaded securely from the backend.</p>
-      </div>
-
-      {agentDeductions.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <p className="text-[10px] font-black uppercase tracking-[0.15em] text-vos-500">Agent Deductions</p>
-          <AgentDeductionsTable rows={agentDeductions} />
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center gap-3">
-        <CustomSelect
-          options={['All Issues', 'Releasing Only', 'Late Hello Only', 'No Rebuttals Only', 'Wrong Dispo Only']}
-          value={issueFilter}
-          onChange={(v) => setIssueFilter(v as IssueFilter)}
-          className="w-48"
-        />
-
-        <CustomSelect
-          options={agents}
-          value={agentFilter}
-          onChange={setAgentFilter}
-          className="w-48"
-        />
-
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-vos-600" size={14} />
-          <input
-            type="text"
-            placeholder="Search phone / filename..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-[38px] bg-c-base border border-b-subtle rounded-md pl-9 pr-3 py-1.5 text-sm text-t-primary placeholder:text-vos-600 focus:outline-none focus:border-b-strong focus:ring-2 focus:ring-c-raised/50 transition-all"
-          />
-        </div>
-      </div>
-
-      <p className="text-sm text-vos-600">Showing {filtered.length} of {calls?.length ?? 0} flagged calls</p>
-
-      {filtered.length === 0 && <p className="py-4 text-sm text-vos-400">No calls match the selected filters.</p>}
-
-      <div className="flex flex-col gap-4">
-        {filtered.map((call, index) => <CallCard key={index} call={call} />)}
-      </div>
-    </div>
-  )
-}
-
-function CallCard({ call }: { call: FlaggedCall }) {
+export function CallCard({ call }: { call: FlaggedCall }) {
   const issues = getCallIssues(call)
 
   const filePath = call['File Path'] as string | undefined

@@ -48,8 +48,7 @@ The React app uses:
 Important pages:
 
 - Audit: ReadyMode download and MP3 upload
-- Actions: flagged call review queue
-- Call Review: audio playback and flagged-call context
+- Actions: flagged call review queue with per-call audio playback and transcript (the former Call Review tab was merged in)
 - Dashboard: agent, lite, and campaign dashboards
 - Phrase Management: owner-only phrase review/repository/settings
 - Settings: profile, users, quota, sharing, sessions, system health, app config

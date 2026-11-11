@@ -141,7 +141,7 @@ export function detectionVariant(val: unknown, col: string, row?: AgentAuditRow)
 }
 
 // Builds the human issue labels for one flagged call -- shared by the Actions page's
-// list + Copy All text and Call Review's per-call badges.
+// Copy All text and the per-call card badges.
 export function getCallIssues(row: FlaggedCall): string[] {
   const issues: string[] = []
   if (row['Releasing Detection'] === 'Yes') issues.push('Releasing')
@@ -162,8 +162,7 @@ export function getCallIssues(row: FlaggedCall): string[] {
 }
 
 // Aggregates flagged calls (already deduped via dedupeLongCallRows) into one row per agent
-// with the 6 detection counters -- shared by ActionsPage and CallReviewPage, which both used
-// to build this with their own copy-pasted Map loop.
+// with the 6 detection counters -- used by ActionsPage.
 export function buildAgentDeductions(rows: FlaggedCall[], totalCallsMap: Map<string, number>): AgentDeductionRow[] {
   const agentMap = new Map<string, { flagged: FlaggedCall[]; releasing: number; lateHello: number; noRebuttals: number; longCall: number; wrongDispo: number; dialerNames: Set<string> }>()
   for (const call of rows) {

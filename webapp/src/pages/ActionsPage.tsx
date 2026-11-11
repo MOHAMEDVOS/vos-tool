@@ -10,9 +10,12 @@ import { RefreshCw, Search, Check, Copy, ArrowUp, ArrowDown, Trash2 } from 'luci
 import { CustomSelect } from '@/components/ui/Select'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CountUp, Metric } from '@/components/ui/Metric'
+import { CallCard } from '@/components/CallCard'
 import { dedupeLongCallRows, isLongCallFlagged, isFairRebuttalMiss, getCallIssues, buildAgentDeductions } from '@/utils/audit'
 
 type FlagTypeFilter = 'All Flags' | 'Releasing' | 'Late Hello' | 'No Rebuttal' | 'Wrong Dispo' | 'Long VM/Dead'
+
+const ALL_AGENTS = 'All Agents'
 
 const FLAG_TYPE_OPTIONS: FlagTypeFilter[] = ['All Flags', 'Releasing', 'Late Hello', 'No Rebuttal', 'Wrong Dispo', 'Long VM/Dead']
 
@@ -41,11 +44,15 @@ export function AgentDeductionsTable({
   onDeleteAgent,
   deletingAgent,
   deletableAgents,
+  onSelectAgent,
+  selectedAgent,
 }: {
   rows: AgentDeductionRow[]
   onDeleteAgent?: (agentName: string) => void
   deletingAgent?: string | null
   deletableAgents?: Set<string>
+  onSelectAgent?: (agentName: string) => void
+  selectedAgent?: string | null
 }) {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [sortCol, setSortCol] = useState<keyof AgentDeductionRow | null>('flaggedCalls')
@@ -142,12 +149,16 @@ export function AgentDeductionsTable({
             const copyId = `action-${idx}`
             
             return (
-              <tr key={row.agentName} className="hover:bg-c-raised/50 transition-colors group/row">
+              <tr
+                key={row.agentName}
+                onClick={() => onSelectAgent?.(row.agentName)}
+                className={`hover:bg-c-raised/50 transition-colors group/row ${onSelectAgent ? 'cursor-pointer' : ''} ${selectedAgent === row.agentName ? 'bg-c-raised/50' : ''}`}
+              >
                 <td className="border-r border-b-subtle px-2.5 py-2.5 text-t-primary font-medium group/cell relative">
                   <div className="flex items-center justify-start gap-2">
                     <span className="block break-words">{row.agentName}</span>
                     <button 
-                      onClick={() => copyToClipboard(row.agentName, copyId)}
+                      onClick={(e) => { e.stopPropagation(); copyToClipboard(row.agentName, copyId) }}
                       className="opacity-0 group-hover/cell:opacity-100 p-1 rounded hover:bg-c-raised transition-all text-vos-500 hover:text-t-primary shrink-0"
                     >
                       <AnimatePresence mode="wait">
@@ -196,9 +207,10 @@ export function AgentDeductionsTable({
                       aria-label={`Delete audit results for ${row.agentName}`}
                       title={`Delete Agent and Lite Audit results for ${row.agentName}`}
                       disabled={Boolean(deletingAgent)}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation()
                         const confirmed = window.confirm(
-                          `Permanently delete Agent Audit and Lite Audit results for ${row.agentName} from your shared dashboard? This removes matching calls from Agent Audit, Lite Audit, Actions, and Call Review. Separate Campaign Audit results are not deleted.`,
+                          `Permanently delete Agent Audit and Lite Audit results for ${row.agentName} from your shared dashboard? This removes matching calls from Agent Audit, Lite Audit, and Actions. Separate Campaign Audit results are not deleted.`,
                         )
                         if (confirmed) onDeleteAgent(row.agentName)
                       }}
@@ -226,6 +238,8 @@ export function ActionsPage() {
   const { data: liteAuditsData, isLoading: liteLoading } = useLiteAudits()
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null)
   const [flagTypeFilter, setFlagTypeFilter] = useState<FlagTypeFilter>('All Flags')
+  const [search, setSearch] = useState('')
+  const [expandedList, setExpandedList] = useState<string | null>(null)
   const [showConfirm, setShowConfirm] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [deleteNotice, setDeleteNotice] = useState<string | null>(null)
@@ -315,16 +329,29 @@ export function ActionsPage() {
       wrongDispo: all.filter((r) => r['Wrong Dispo Detection'] === 'Yes').length }
   }, [dedupedCalls])
 
-  const activeAgent = selectedAgent ?? agentDeductions[0]?.agentName ?? null
+  // A deleted/cleared agent can still be the remembered pick -- fall back to the first row.
+  const activeAgent = selectedAgent === ALL_AGENTS || agentDeductions.some((r) => r.agentName === selectedAgent)
+    ? selectedAgent
+    : agentDeductions[0]?.agentName ?? null
   const selectedAgentCalls = useMemo<FlaggedCall[]>(() => {
     if (!activeAgent) return []
+    if (activeAgent === ALL_AGENTS) return dedupedCalls
     return dedupedCalls.filter((c) => (c['Agent Name'] || 'Unknown').trim() === activeAgent)
   }, [dedupedCalls, activeAgent])
 
   const filteredAgentCalls = useMemo<FlaggedCall[]>(
-    () => selectedAgentCalls.filter((c) => callMatchesFlagType(c, flagTypeFilter)),
-    [selectedAgentCalls, flagTypeFilter],
+    () => {
+      const q = search.trim().toLowerCase()
+      return selectedAgentCalls.filter((c) =>
+        callMatchesFlagType(c, flagTypeFilter) && (!q || JSON.stringify(c).toLowerCase().includes(q)))
+    },
+    [selectedAgentCalls, flagTypeFilter, search],
   )
+
+  // Each card downloads its recording on mount, so only the first 20 render until asked.
+  // Keyed on the current filters, so changing any of them collapses the list again.
+  const listKey = `${activeAgent}|${flagTypeFilter}|${search}`
+  const visibleCalls = expandedList === listKey ? filteredAgentCalls : filteredAgentCalls.slice(0, 20)
 
   useEffect(() => { if (!flaggedLoading) markAsSeen() }, [markAsSeen, flaggedCalls, flaggedLoading])
 
@@ -350,7 +377,7 @@ export function ActionsPage() {
       <div className="flex items-start justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-bold text-t-primary tracking-tight">Actions</h1>
-          <p className="text-vos-500 text-sm">Flagged calls requiring attention.</p>
+          <p className="text-vos-500 text-sm">Flagged calls requiring attention. Pick an agent to listen.</p>
         </div>
         <Button size="sm" variant="action" onClick={() => { qc.invalidateQueries({ queryKey: ['flagged-calls'] }); qc.invalidateQueries({ queryKey: ['agent-audits'] }) }}>
           <RefreshCw size={14} className="mr-2" /> Refresh
@@ -376,6 +403,8 @@ export function ActionsPage() {
             <AgentDeductionsTable
               rows={agentDeductions}
               deletableAgents={deletableAgents}
+              selectedAgent={activeAgent}
+              onSelectAgent={setSelectedAgent}
               onDeleteAgent={(agentName) => {
                 setDeleteError(null)
                 setDeleteNotice(null)
@@ -414,9 +443,9 @@ export function ActionsPage() {
       </div>
 
       <div className="flex flex-col gap-2">
-        <label className="text-[10px] font-black uppercase tracking-widest text-vos-500 ml-1">Select agent to view detailed flagged calls</label>
+        <label className="text-[10px] font-black uppercase tracking-widest text-vos-500 ml-1">Agent — or click a row above</label>
         <CustomSelect 
-          options={agentDeductions.map(row => row.agentName)}
+          options={[ALL_AGENTS, ...agentDeductions.map(row => row.agentName)]}
           value={activeAgent || ''}
           onChange={(v) => setSelectedAgent(v)}
           placeholder="Select an agent..."
@@ -432,59 +461,46 @@ export function ActionsPage() {
                 <div className="w-1 h-4 bg-ship-red rounded-full" />
                 <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Detailed flagged calls — {activeAgent}</h3>
               </div>
-              <CustomSelect
-                options={FLAG_TYPE_OPTIONS}
-                value={flagTypeFilter}
-                onChange={(v) => setFlagTypeFilter(v as FlagTypeFilter)}
-                className="w-44"
-              />
-            </div>
-
-            <div className="rounded-2xl bg-surface-card border border-b-strong shadow-2xl overflow-hidden flex flex-col backdrop-blur-xl">
-              {filteredAgentCalls.length > 0 && (
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-b-subtle bg-c-raised/50">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-vos-500">{filteredAgentCalls.length} calls</span>
-                  <Button
-                    variant="action"
-                    size="sm"
-                    onClick={() => {
-                      const text = filteredAgentCalls.map(c => {
-                        const issues = callIssues(c)
-                        return `${formatPhone(c['Phone Number'])} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}`
-                      }).join('\n')
-                      copyToClipboard(text, 'all')
-                    }}
-                  >
-                    <AnimatePresence mode="wait">
-                      {copiedId === 'all'
-                        ? <Check size={12} className="text-green-500" />
-                        : <Copy size={12} />}
-                    </AnimatePresence>
-                    Copy All
-                  </Button>
+              <div className="flex items-center gap-3">
+                <div className="relative w-56">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-vos-600" size={14} />
+                  <input
+                    type="text"
+                    placeholder="Search phone / filename..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full h-[38px] bg-c-base border border-b-subtle rounded-md pl-9 pr-3 py-1.5 text-sm text-t-primary placeholder:text-vos-600 focus:outline-none focus:border-b-strong focus:ring-2 focus:ring-c-raised/50 transition-all"
+                  />
                 </div>
-              )}
-
-              <div className="overflow-y-auto custom-scrollbar flex-1 min-h-[400px] max-h-[600px]">
-                {filteredAgentCalls.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-20 opacity-30">
-                    <Search size={40} strokeWidth={1} className="mb-4" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">No detailed calls found</span>
-                  </div>
-                ) : (
-                  <div className="p-4 font-mono text-sm leading-7 text-t-label whitespace-pre select-text">
-                    {filteredAgentCalls.map((c, i) => {
-                      const issues = callIssues(c)
-                      return (
-                        <div key={i} className="hover:text-t-primary transition-colors">
-                          {formatPhone(c['Phone Number'])} - {issues.join(', ') || 'Flagged'} - {c['Dialer Name'] || 'Unknown'}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                <CustomSelect
+                  options={FLAG_TYPE_OPTIONS}
+                  value={flagTypeFilter}
+                  onChange={(v) => setFlagTypeFilter(v as FlagTypeFilter)}
+                  className="w-44"
+                />
               </div>
             </div>
+
+            {filteredAgentCalls.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-20 opacity-30">
+                <Search size={40} strokeWidth={1} className="mb-4" />
+                <span className="text-[10px] font-black uppercase tracking-widest">No detailed calls found</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-vos-500">{filteredAgentCalls.length} calls</span>
+                </div>
+                {visibleCalls.map((c, i) => (
+                  <CallCard key={`${c['File Path'] ?? c['Phone Number'] ?? ''}-${i}`} call={c} />
+                ))}
+                {visibleCalls.length < filteredAgentCalls.length && (
+                  <Button variant="action" size="sm" className="self-center" onClick={() => setExpandedList(listKey)}>
+                    Show all {filteredAgentCalls.length} calls
+                  </Button>
+                )}
+              </>
+            )}
           </div>
 
           <div className="flex flex-col gap-3">
@@ -520,6 +536,33 @@ export function ActionsPage() {
                 </tbody>
               </table>
             </div>
+
+            {filteredAgentCalls.length > 0 && (
+              <>
+              <div className="rounded-2xl bg-surface-card border border-b-strong shadow-2xl backdrop-blur-xl p-4 max-h-[600px] overflow-auto custom-scrollbar font-mono text-xs leading-6 text-t-label whitespace-pre select-text">
+                {filteredAgentCalls.map((c, i) => (
+                  <div key={i} className="hover:text-t-primary transition-colors">
+                    {formatPhone(c['Phone Number'])} - {callIssues(c).join(', ') || 'Flagged'} - {c['Dialer Name'] || 'Unknown'}
+                  </div>
+                ))}
+              </div>
+                  <Button
+                    className="self-end"
+                    variant="action"
+                    size="sm"
+                    onClick={() => {
+                      const text = filteredAgentCalls.map(c => {
+                        const issues = callIssues(c)
+                        return `${formatPhone(c['Phone Number'])} - ${issues.join(', ') || 'Flagged'} - ${c['Dialer Name'] || 'Unknown'}`
+                      }).join('\n')
+                      copyToClipboard(text, 'all')
+                    }}
+                  >
+                    {copiedId === 'all' ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                    Copy All
+                  </Button>
+              </>
+            )}
           </div>
         </div>
       )}

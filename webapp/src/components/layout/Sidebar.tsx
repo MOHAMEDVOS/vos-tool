@@ -4,7 +4,7 @@ import { useUiStore, type NavTab } from '@/store/uiStore'
 import { useUnreadCount } from '@/store/badgeStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  LayoutDashboard, Mic, Flag, PlayCircle, BookOpen, Settings, LogOut, ClipboardCheck,
+  LayoutDashboard, Mic, Flag, BookOpen, Settings, LogOut, ClipboardCheck,
   ChevronRight, Sun, Moon, UserPlus, ClipboardList,
 } from 'lucide-react'
 import { UsageCard } from './UsageCard'
@@ -17,7 +17,6 @@ interface NavItem { id: NavTab; label: string; icon: React.ReactElement; feature
 const ALL_ITEMS: NavItem[] = [
   { id: 'Audit',             label: 'Audit',       icon: <Mic size={15} /> },
   { id: 'Actions',           label: 'Actions',     icon: <Flag size={15} /> },
-  { id: 'Call Review',       label: 'Call Review', icon: <PlayCircle size={15} /> },
   { id: 'TL Actions',        label: 'TL Actions',  icon: <ClipboardCheck size={15} />, feature: 'tl-actions-tab' },
   { id: 'Dashboard',         label: 'Dashboard',   icon: <LayoutDashboard size={15} /> },
   { id: 'Scoring',           label: 'Scoring',     icon: <ClipboardList size={15} />, feature: 'scoring-tab' },
