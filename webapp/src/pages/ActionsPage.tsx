@@ -442,43 +442,37 @@ export function ActionsPage() {
         )}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <label className="text-[10px] font-black uppercase tracking-widest text-vos-500 ml-1">Agent — or click a row above</label>
-        <CustomSelect 
-          options={[ALL_AGENTS, ...agentDeductions.map(row => row.agentName)]}
-          value={activeAgent || ''}
-          onChange={(v) => setSelectedAgent(v)}
-          placeholder="Select an agent..."
-          className="max-w-sm"
-        />
-      </div>
-
       {activeAgent && (
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8">
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 ml-1">
-                <div className="w-1 h-4 bg-ship-red rounded-full" />
-                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Detailed flagged calls — {activeAgent}</h3>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="relative w-56">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-vos-600" size={14} />
-                  <input
-                    type="text"
-                    placeholder="Search phone / filename..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full h-[38px] bg-c-base border border-b-subtle rounded-md pl-9 pr-3 py-1.5 text-sm text-t-primary placeholder:text-vos-600 focus:outline-none focus:border-b-strong focus:ring-2 focus:ring-c-raised/50 transition-all"
-                  />
-                </div>
-                <CustomSelect
-                  options={FLAG_TYPE_OPTIONS}
-                  value={flagTypeFilter}
-                  onChange={(v) => setFlagTypeFilter(v as FlagTypeFilter)}
-                  className="w-44"
+            <div className="flex items-center gap-3 ml-1">
+              <div className="w-1 h-4 bg-ship-red rounded-full" />
+              <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-vos-500">Flagged calls — pick an agent or click a row above</h3>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <CustomSelect
+                options={[ALL_AGENTS, ...agentDeductions.map(row => row.agentName)]}
+                value={activeAgent || ''}
+                onChange={(v) => setSelectedAgent(v)}
+                placeholder="Select an agent..."
+                className="flex-1 min-w-[12rem]"
+              />
+              <div className="relative w-56">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-vos-600" size={14} />
+                <input
+                  type="text"
+                  placeholder="Search phone / filename..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full h-[38px] bg-c-base border border-b-subtle rounded-md pl-9 pr-3 py-1.5 text-sm text-t-primary placeholder:text-vos-600 focus:outline-none focus:border-b-strong focus:ring-2 focus:ring-c-raised/50 transition-all"
                 />
               </div>
+              <CustomSelect
+                options={FLAG_TYPE_OPTIONS}
+                value={flagTypeFilter}
+                onChange={(v) => setFlagTypeFilter(v as FlagTypeFilter)}
+                className="w-44"
+              />
             </div>
 
             {filteredAgentCalls.length === 0 ? (
