@@ -10,7 +10,7 @@ import { SuccessFlash } from '@/components/ui/SuccessFlash'
 import { isRowFlagged, isFairRebuttalMiss } from '@/utils/audit'
 import type { AgentAuditRow, ReachabilityScan } from '@/types/api'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, FileText } from 'lucide-react'
+import { RefreshCw, FileText, Copy, Check } from 'lucide-react'
 import { CustomDatePicker } from '@/components/ui/DatePicker'
 import { CustomSelect } from '@/components/ui/Select'
 import { useGenerateCampaignReport } from '@/hooks/useReports'
@@ -109,7 +109,7 @@ function ReachabilityPanel({ scan }: { scan: ReachabilityScan }) {
 export function CampaignAuditDashboard() {
   const qc = useQueryClient()
   const [showConfirm, setShowConfirm] = useState(false)
-  const [reportLinks, setReportLinks] = useState<{ sheet_url: string } | null>(null)
+  const [reportLinks, setReportLinks] = useState<{ sheet_url: string; doc_url: string | null } | null>(null)
   const [reportError, setReportError] = useState<string | null>(null)
   const { data: campaigns, isLoading: loadingCampaigns } = useCampaigns()
   const [selected, setSelected] = useState<string>('')
@@ -164,6 +164,20 @@ export function CampaignAuditDashboard() {
     }
     return { total: displayRows.length, flagged, releasing, lateHello, noRebuttal, wrongDispo }
   }, [displayRows])
+
+  const [summaryCopied, setSummaryCopied] = useState(false)
+  const copySummary = () => {
+    const text = [
+      `${summary.releasing} Releasing out of 1000`,
+      `${summary.lateHello} Late Hello out of 1000`,
+      `${summary.noRebuttal} No Rebuttal out of 200`,
+      `${summary.wrongDispo} Wrong Dispo out of 1000`,
+    ].join('\n')
+    navigator.clipboard.writeText(text).then(() => {
+      setSummaryCopied(true)
+      setTimeout(() => setSummaryCopied(false), 2000)
+    })
+  }
 
   if (loadingCampaigns) return <div className="flex justify-center py-20"><Spinner size="lg" /></div>
   if (!campaigns?.length) return <p className="text-sm text-t-muted py-8">No campaign data. Run a Campaign Audit first.</p>
@@ -241,6 +255,11 @@ export function CampaignAuditDashboard() {
               {generateReport.isPending ? 'Generating…' : 'Generate Campaign Report'}
             </Button>
 
+            <Button size="md" variant="action" onClick={copySummary} disabled={!summary.total}>
+              {summaryCopied ? <Check size={14} /> : <Copy size={14} />}
+              {summaryCopied ? 'Copied!' : 'Copy Summary'}
+            </Button>
+
             <SuccessFlash show={generateReport.isSuccess} label="Report ready" />
 
             {reportLinks && (
@@ -251,6 +270,17 @@ export function CampaignAuditDashboard() {
                 className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
               >
                 Open Sheet
+              </a>
+            )}
+
+            {reportLinks?.doc_url && (
+              <a
+                href={reportLinks.doc_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2"
+              >
+                Open Doc
               </a>
             )}
 

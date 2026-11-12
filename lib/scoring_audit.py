@@ -93,7 +93,7 @@ def aggregate_agent(agent: str, fresh_rows: list, action_calls: list, dialer: st
     action_calls = action_calls or []
 
     # Only fresh rows that actually classified contribute votes (skip "Error" rows).
-    valid_rows = [r for r in fresh_rows if _get(r, "Status") != "Error"]
+    valid_rows = [r for r in fresh_rows if not _get(r, "Status").lower().startswith("error")]
 
     def _yes_no_valid(*keys):
         """(#valid, #'Yes', #'No') for a Yes/No detection column across the valid fresh rows."""

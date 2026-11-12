@@ -64,6 +64,13 @@ async def lifespan(app: FastAPI):
         logger.info("✅ [STARTUP] Database initialized successfully")
 
         try:
+            from backend.services.readymode_recording_registry import release_unfinished_claims
+            released = release_unfinished_claims()
+            logger.info(f"✅ [STARTUP] Released {released} ReadyMode recording claims left by a previous run")
+        except Exception as e:
+            logger.error(f"❌ [STARTUP] Could not release stale recording claims: {e}")
+
+        try:
             from lib.phrase_learning import PhraseLearningManager
             PhraseLearningManager()  # warms the singleton + validates DB connectivity at startup
             logger.info("✅ [STARTUP] Phrase learning manager initialized")

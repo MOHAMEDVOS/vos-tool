@@ -111,47 +111,33 @@ def test_wrong_address_alone_not_treated_as_wrong_number():
     assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
 
 
-# ── Check 3: Decision Maker - NYI used as a dumping ground ──────────────────
-
-def test_nyi_contradiction_phrase_with_nyi_disposition_flags():
+def test_nyi_with_acceptance_phrase_not_flagged():
+    # The NYI-vs-acceptance check was removed 2026-11-08 ("Interested" isn't a real disposition).
     transcript = "Owner: yes I'm interested, send me the offer."
-    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "Yes"
-
-
-def test_nyi_contradiction_phrase_dash_variant_flags():
-    transcript = "Owner: I want to sell, when can we close?"
-    assert wrong_dispo_detection(transcript, "Decision Maker – NYI") == "Yes"
-
-
-def test_nyi_contradiction_phrase_only_fires_for_nyi_disposition():
-    # Same contradicting phrase, but the disposition isn't NYI -- check 3
-    # is scoped specifically to "Decision Maker - NYI", not any disposition.
-    transcript = "Owner: yes I'm interested, send me the offer."
-    assert wrong_dispo_detection(transcript, "Decision Maker") == "No"
-    assert wrong_dispo_detection(transcript, "Wrong Number") == "No"
+    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
 
 
 # ── Tier 2: semantic paraphrase matching ─────────────────────────────────────
-# Fast, no real model: a tiny fake encoder maps "signal_dnc" / "signal_wn" /
-# "signal_nyi" markers to one-hot vectors, matched against one-hot phrase
-# embeddings for the same three categories. Cosine similarity is then either
-# ~1.0 (marker present) or ~0 (absent) -- deterministic, no network/model load.
+# Fast, no real model: a tiny fake encoder maps "signal_dnc" / "signal_wn"
+# markers to one-hot vectors, matched against one-hot phrase embeddings for
+# the same two categories. Cosine similarity is then either ~1.0 (marker
+# present) or ~0 (absent) -- deterministic, no network/model load.
 
 class _FakeEncoder:
-    _DIMS = {"dnc": 0, "wrong_number": 1, "nyi": 2}
-    _MARKERS = {"signal_dnc": "dnc", "signal_wn": "wrong_number", "signal_nyi": "nyi"}
+    _DIMS = {"dnc": 0, "wrong_number": 1}
+    _MARKERS = {"signal_dnc": "dnc", "signal_wn": "wrong_number"}
 
     def encode(self, texts, **kwargs):
         import numpy as np
         vectors = []
         for text in texts:
-            vec = [0.0, 0.0, 0.0]
+            vec = [0.0, 0.0]
             lowered = text.lower()
             for marker, category in self._MARKERS.items():
                 if marker in lowered:
                     vec[self._DIMS[category]] = 1.0
-            if vec == [0.0, 0.0, 0.0]:
-                vec = [0.01, 0.01, 0.01]  # near-zero on every axis, stays under threshold
+            if vec == [0.0, 0.0]:
+                vec = [0.01, 0.01]  # near-zero on every axis, stays under threshold
             vectors.append(vec)
         return np.array(vectors)
 
@@ -159,9 +145,8 @@ class _FakeEncoder:
 def _fake_phrase_embeddings():
     import numpy as np
     return {
-        "dnc": np.array([[1.0, 0.0, 0.0]]),
-        "wrong_number": np.array([[0.0, 1.0, 0.0]]),
-        "nyi": np.array([[0.0, 0.0, 1.0]]),
+        "dnc": np.array([[1.0, 0.0]]),
+        "wrong_number": np.array([[0.0, 1.0]]),
     }
 
 
@@ -219,14 +204,6 @@ def test_semantic_denial_word_in_another_sentence_does_not_count(monkeypatch):
 def test_semantic_denial_word_rule_only_applies_to_wrong_number(monkeypatch):
     _enable_fake_semantic_tier(monkeypatch)
     assert wrong_dispo_detection("Owner: signal_dnc", "Decision Maker - NYI") == "Yes"
-    assert wrong_dispo_detection("Owner: signal_nyi", "Decision Maker - NYI") == "Yes"
-
-
-def test_semantic_nyi_only_applies_to_nyi_disposition(monkeypatch):
-    _enable_fake_semantic_tier(monkeypatch)
-    transcript = "Owner: signal_nyi"
-    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "Yes"
-    assert wrong_dispo_detection(transcript, "Wrong Number") == "No"
 
 
 def test_semantic_irrelevant_transcript_not_flagged(monkeypatch):
@@ -258,13 +235,6 @@ def test_reason_wrong_number_check_shows_logged_disposition_instead_of_wn():
     assert wrong_dispo_reason(transcript, "Decision Maker - NYI") == "NYI instead of WN"
 
 
-def test_reason_nyi_check_has_no_single_correct_disposition_to_name():
-    # Check 3 only knows NYI is contradicted, not what it should be instead --
-    # see _CHECK_TARGET_LABEL's comment.
-    transcript = "Owner: yes I'm interested, send me the offer."
-    assert wrong_dispo_reason(transcript, "Decision Maker - NYI") == "NYI instead of Interested"
-
-
 def test_reason_falls_back_to_raw_disposition_when_unrecognized():
     transcript = "Caller: do not call me again."
     assert wrong_dispo_reason(transcript, "Some Custom Dispo") == "Some Custom Dispo instead of DNC"
@@ -278,12 +248,6 @@ def test_reason_matches_detection_result_via_shared_detail_call():
     assert result == wrong_dispo_detection(transcript, "Wrong Number")
     assert reason == wrong_dispo_reason(transcript, "Wrong Number")
     assert result == "Yes" and reason == "WN instead of DNC"
-
-
-def test_semantic_reason_reported_for_tier_2_matches(monkeypatch):
-    _enable_fake_semantic_tier(monkeypatch)
-    transcript = "Owner: signal_nyi"
-    assert wrong_dispo_reason(transcript, "Decision Maker - NYI") == "NYI instead of Interested"
 
 
 # ── Owner lines only ─────────────────────────────────────────────────────────
@@ -445,77 +409,3 @@ def test_real_model_owner_with_no_other_property_not_flagged(monkeypatch):
         "Agent: Oh,\nOwner: I don't have any other property."
     )
     assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
-
-
-@pytest.mark.parametrize("owner_line", [
-    "Are you asking if I want to sell it?",
-    "No, if I want to sell it, I put it on the market, you know?",
-    "Oh, my God. Are you guys asking me if I want to sell my house? The answer is still no.",
-    "You know, if I want to sell it, I advertise it.",
-    "They got money in hand. If I want to sell right now for 75.",
-    "And I also don't have any other properties that I want to sell.",
-    "Well, you know, I don't think I want to sell it yet.",
-    "Do I want to sell? Why would you ask that",
-])
-def test_nyi_phrase_inside_a_question_or_condition_not_flagged(owner_line):
-    assert wrong_dispo_detection(f"Owner: {owner_line}", "Decision Maker - NYI") == "No"
-
-
-@pytest.mark.parametrize("owner_lines", [
-    "Yes, I'm interested. Actually no, not interested. Thank you.",
-    "I want to sell.\nOwner: Well, I'm not selling to you.",
-    "Let's do it.\nOwner: No. Not. Not interested. Thank you. Bye.",
-])
-def test_nyi_owner_who_says_not_interested_not_flagged(owner_lines):
-    assert wrong_dispo_detection(f"Owner: {owner_lines}", "Decision Maker - NYI") == "No"
-
-
-@pytest.mark.parametrize("owner_line", [
-    "I want to sell.",
-    "Yeah, I want to sell it this year.",
-    "Yes, I'm interested.",
-    "Okay. Send me the offer.",
-    "When can we close?",
-    "Like, you call me if I want to sell. Sure. Let's sell it.",
-])
-def test_nyi_clear_acceptance_still_flags(owner_line):
-    transcript = f"Agent: Have you thought about selling?\nOwner: {owner_line}"
-    assert wrong_dispo_reason(transcript, "Decision Maker - NYI") == "NYI instead of Interested"
-
-
-def test_semantic_nyi_ignores_owner_questions(monkeypatch):
-    _enable_fake_semantic_tier(monkeypatch)
-    assert wrong_dispo_detection("Owner: are you asking about signal_nyi?", "Decision Maker - NYI") == "No"
-
-
-def test_semantic_nyi_ignores_an_owner_who_declined(monkeypatch):
-    _enable_fake_semantic_tier(monkeypatch)
-    assert wrong_dispo_detection("Owner: signal_nyi. Not interested.", "Decision Maker - NYI") == "No"
-
-
-def test_real_model_owner_asking_if_they_want_to_sell_not_flagged(monkeypatch):
-    # The phrase list can't catch this once the literal match is scoped, so the
-    # model must not either.
-    monkeypatch.setattr(wrong_dispo_detector, "_get_semantic_resources", _REAL_GET_SEMANTIC_RESOURCES)
-    model, _ = wrong_dispo_detector._get_semantic_resources()
-    if model is None:
-        pytest.skip("semantic model not available in this environment")
-    transcript = "Owner: Are you asking if I want to sell it?\nAgent: Yes.\nOwner: No."
-    assert wrong_dispo_detection(transcript, "Decision Maker - NYI") == "No"
-
-
-def test_semantic_real_model_loads_and_scores_sanely(monkeypatch):
-    # Integration smoke test against the real sentence-transformers model --
-    # NOT a pass/fail paraphrase check. Measured similarity scores for real
-    # DNC/Wrong Number/NYI paraphrases against this model land mostly in the
-    # 0.48-0.80 range (see chat / plan doc "threshold finding" note), with no
-    # clean gap from some false-signal sentences -- so this only confirms the
-    # pipeline runs end to end, not that any fixed threshold is safe yet.
-    # Skips cleanly if the model can't load in this environment.
-    monkeypatch.setattr(wrong_dispo_detector, "_get_semantic_resources", _REAL_GET_SEMANTIC_RESOURCES)
-    model, embeddings = wrong_dispo_detector._get_semantic_resources()
-    if model is None:
-        pytest.skip("semantic model not available in this environment")
-    assert wrong_dispo_detector._semantic_category_match(
-        "Caller: can you take my number off whatever list this is.", "dnc", model, embeddings,
-    ) in (True, False)  # runs without error; see note above on threshold reliability

@@ -55,4 +55,6 @@ fi
 # Uncapped, each audit worker thread opens one model thread per host core and the container hits its thread limit.
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
 
+# One worker only: startup releases every held recording claim (release_unfinished_claims),
+# which would steal live claims from a second worker.
 exec uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1

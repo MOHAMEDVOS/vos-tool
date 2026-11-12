@@ -12,9 +12,11 @@ from datetime import date
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from lib.dashboard_manager import dashboard_manager
+from backend.services.campaign_report_doc import create_campaign_doc
 from backend.services.dashboard_service import is_call_flagged
 from lib.google_workspace import (
     get_service_account_credentials,
+    build_docs,
     build_drive,
     build_sheets,
     create_spreadsheet,
@@ -51,7 +53,8 @@ def generate_campaign_report(
     1. Fetch audit rows for the campaign.
     2. Build a styled Google Sheet with the data.
     3. Share the file with the logged-in user.
-    4. Return { sheet_url }.
+    4. Fill a copy of the Doc template with the campaign's numbers (the Sheet is still returned if this fails).
+    5. Return { sheet_url, doc_url }.
     """
     from backend.core.config import settings
 
@@ -84,5 +87,18 @@ def generate_campaign_report(
     logger.info(f"Sharing sheet with {username}")
     share_file_with_user(drive, sheet_id, username)
 
-    logger.info(f"Campaign report generated: sheet={sheet_url}")
-    return {"sheet_url": sheet_url}
+    doc_url = None
+    try:
+        scan = dashboard_manager.get_campaign_disposition_scan(campaign_name, username, start_date, end_date)
+        doc_url = create_campaign_doc(
+            drive, build_docs(creds),
+            template_id=settings.GOOGLE_DOC_TEMPLATE_ID, folder_id=folder_id, campaign=campaign_name,
+            start_date=start_date, end_date=end_date, rows=rows, scan=scan, sheet_url=sheet_url,
+            dialer=str(rows[0].get("Dialer Name") or ""),
+        )
+        share_file_with_user(drive, doc_url.split("/d/")[1].split("/")[0], username)
+    except Exception:
+        logger.error(f"Campaign doc failed for '{campaign_name}'; sheet is still returned", exc_info=True)
+
+    logger.info(f"Campaign report generated: sheet={sheet_url} doc={doc_url}")
+    return {"sheet_url": sheet_url, "doc_url": doc_url}

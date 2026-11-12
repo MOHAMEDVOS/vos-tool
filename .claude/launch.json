@@ -8,6 +8,12 @@
       "port": 3000
     },
     {
+      "name": "backend",
+      "runtimeExecutable": ".venv/bin/uvicorn",
+      "runtimeArgs": ["backend.main:app", "--reload", "--port", "8000"],
+      "port": 8000
+    },
+    {
       "name": "graphify-view",
       "runtimeExecutable": "/Users/vos/.local/share/uv/tools/graphifyy/bin/python",
       "runtimeArgs": ["-m", "http.server", "8799", "--directory", "graphify-out"],

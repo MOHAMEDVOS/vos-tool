@@ -157,3 +157,35 @@ def test_downloader_does_not_download_a_recording_it_cannot_claim(monkeypatch, t
     assert manifest["skipped_count"] == 1
     assert manifest["records"] == []
     download_mock.assert_not_called()
+
+
+def test_force_reaudit_reclaims_a_recording_a_crashed_run_left_processing(monkeypatch, tmp_path):
+    _initialize_registry_database(monkeypatch, tmp_path)
+    host, rid = "resva.readymode.com", "/recording/crashed.mp3"
+
+    assert registry.claim_recordings("auditor", host, [rid], "run-1") == {rid}
+    # run-1 dies without releasing; its 6 hour lease is still live.
+    assert registry.claim_recordings("auditor", host, [rid], "run-2") == set()
+    assert registry.claim_recordings("auditor", host, [rid], "run-3", True) == {rid}
+
+
+def test_startup_release_makes_crashed_claims_retryable_and_keeps_audited(monkeypatch, tmp_path):
+    _initialize_registry_database(monkeypatch, tmp_path)
+    host = "resva.readymode.com"
+    crashed, done = "/recording/crashed.mp3", "/recording/done.mp3"
+
+    registry.claim_recordings("auditor", host, [crashed, done], "run-1")
+    registry.mark_recordings_audited("auditor", [{"dialer_host": host, "recording_id": done}], "run-1")
+    registry.release_unfinished_claims()
+
+    assert registry.claim_recordings("auditor", host, [crashed], "run-2") == {crashed}
+    assert registry.claim_recordings("auditor", host, [done], "run-2") == set()
+
+
+def test_a_rebuttal_step_that_did_not_finish_is_an_error_not_a_no():
+    from audio_pipeline.audio_processor import rebuttal_step_error
+
+    assert rebuttal_step_error({"result": "No", "transcript": "", "error": "timeout"}) == "timeout"
+    assert rebuttal_step_error({"result": "Error"}) == "detector error"
+    assert rebuttal_step_error({"result": "No", "transcript": ""}) is None
+    assert rebuttal_step_error({"result": "Yes", "confidence_score": 0.9}) is None

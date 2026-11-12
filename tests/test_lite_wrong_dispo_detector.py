@@ -83,9 +83,10 @@ def test_air_sound_on_the_owner_side_makes_unknown_valid():
     assert lite_wrong_dispo_detail(audio, "Unknown") == ("No", None)
 
 
-def test_air_sound_on_the_owner_side_makes_dead_call_wrong():
+def test_air_sound_alone_does_not_make_dead_call_wrong():
+    # Only clear owner speech flags Dead instead of Unk (afdef1b), not faint hiss.
     audio = _call(_noise(SECONDS, loudness=11))
-    assert lite_wrong_dispo_detail(audio, "Dead Call") == ("Yes", "Dead instead of Unk")
+    assert lite_wrong_dispo_detail(audio, "Dead Call") == ("No", None)
 
 
 def test_low_line_hum_alone_keeps_dead_call_valid():

@@ -200,3 +200,6 @@ xet/
 
 # Rebuttal evaluation harness data - contains real call transcripts
 eval_data/
+
+# local generated files
+output/

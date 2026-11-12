@@ -2,7 +2,7 @@ import { api } from './client'
 
 export interface GenerateReportResponse {
   sheet_url: string
-  doc_url: string
+  doc_url: string | null
 }
 
 export interface WorkspaceStatusResponse {

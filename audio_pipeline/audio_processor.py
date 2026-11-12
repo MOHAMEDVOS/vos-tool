@@ -62,6 +62,19 @@ _agent_detectors: Dict[str, AgentOnlyRebuttalDetector] = {}
 _agent_detectors_lock = threading.Lock()
 
 
+def rebuttal_step_error(rebuttal: dict) -> Optional[str]:
+    """Why the rebuttal step didn't finish, or None if it did.
+
+    A timed-out or failed step still reports result 'No'. Treating that as a finished
+    call would flag the agent for "no rebuttal" and mark the recording audited for good.
+    """
+    if rebuttal.get('error'):
+        return str(rebuttal['error'])
+    if rebuttal.get('result') == 'Error':
+        return 'detector error'
+    return None
+
+
 def get_agent_detector(user_api_key: Optional[str] = None):
     user_key = user_api_key or "__default__"
     if user_key not in _agent_detectors:
@@ -273,7 +286,10 @@ class AudioProcessor:
             overall_time = time.time() - overall_start
             logger.debug(f"All parallel detections completed for {file_name} in {overall_time:.2f}s")
 
-            result['classification_success'] = True
+            step_error = rebuttal_step_error(result['rebuttal_detection'])
+            result['classification_success'] = step_error is None
+            if step_error:
+                result['error'] = f"Rebuttal step failed: {step_error}"
             total_time = time.time() - start_time
             logger.info(f"Classification completed for {file_name} in {total_time:.2f}s: Rel={result['releasing_detection']}, LH={result['late_hello_detection']}, Reb={result['rebuttal_detection'].get('result', 'N/A')}")
 
