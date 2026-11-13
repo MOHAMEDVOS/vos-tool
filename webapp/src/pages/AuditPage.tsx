@@ -8,7 +8,6 @@ import { Spinner } from '@/components/ui/Spinner'
 import { useAuthStore } from '@/store/authStore'
 import { canAccess } from '@/utils/permissions'
 import { ChevronDown, Settings2, Square } from 'lucide-react'
-import { CustomDatePicker } from '@/components/ui/DatePicker'
 import { DateRangePicker } from '@/components/ui/DateRangePicker'
 import { CustomSelect } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
@@ -912,7 +911,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
           <motion.section variants={itemVariants}>
             <h2 className={`${sectionHeaderClass} lowercase`} style={{ color: 'var(--t-primary)' }}>Date parameters</h2>
             <div className="flex flex-col gap-4 w-full">
-              {isCampaign && <div>
+              <div>
                 <label className={labelClass} style={{ color: 'var(--t-label)' }}>Date Range</label>
                 <DateRangePicker
                   startDate={startDate}
@@ -920,11 +919,7 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                   onChange={(start, end) => { setCampaignRangeCustomized(true); setStartDate(start); setEndDate(end) }}
                   disabled={isRunning}
                 />
-              </div>}
-              {!isCampaign && <div>
-                <label className={labelClass} style={{ color: 'var(--t-label)' }}>Start Date</label>
-                <CustomDatePicker value={startDate} onChange={setStartDate} disabled={isRunning} />
-              </div>}
+              </div>
 
               <div>
                 <label
@@ -1002,11 +997,6 @@ function ReadyModeAuditForm({ mode }: { mode: 'agent' | 'campaign' }) {
                   </div>
                 )}
               </div>
-
-              {!isCampaign && <div>
-                <label className={labelClass} style={{ color: 'var(--t-label)' }}>End Date</label>
-                <CustomDatePicker value={endDate} onChange={setEndDate} disabled={isRunning} />
-              </div>}
             </div>
           </motion.section>
         </div>

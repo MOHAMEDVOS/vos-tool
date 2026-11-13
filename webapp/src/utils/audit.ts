@@ -154,8 +154,10 @@ export function getCallIssues(row: FlaggedCall): string[] {
   const lc = row['Long VM/Dead Detection']
   if (isLongCallFlagged(lc)) {
     const s = String(lc).toLowerCase()
-    if (s.startsWith('voicemail')) issues.push('voicemail above 15 sec')
-    else if (s.startsWith('dead call')) issues.push('Dead call above 15 sec')
+    const secs = s.match(/(\d+)\s*s/)?.[1]
+    const above = secs ? `${secs} sec` : 'above 15 sec'
+    if (s.startsWith('voicemail')) issues.push(`voicemail ${above}`)
+    else if (s.startsWith('dead call')) issues.push(`Dead call ${above}`)
     else issues.push('Long VM/Dead')
   }
   return issues
