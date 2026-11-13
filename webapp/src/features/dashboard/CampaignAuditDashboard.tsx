@@ -168,10 +168,11 @@ export function CampaignAuditDashboard() {
   const [summaryCopied, setSummaryCopied] = useState(false)
   const copySummary = () => {
     const text = [
-      `${summary.releasing} Releasing out of 1000`,
-      `${summary.lateHello} Late Hello out of 1000`,
-      `${summary.noRebuttal} No Rebuttal out of 200`,
-      `${summary.wrongDispo} Wrong Dispo out of 1000`,
+      'Issue Type\tRatio',
+      `Releasing\t${summary.releasing} / 1,000`,
+      `Late Hello\t${summary.lateHello} / 1,000`,
+      `No Rebuttal\t${summary.noRebuttal} / 200`,
+      `Wrong Dispo\t${summary.wrongDispo} / 1,000`,
     ].join('\n')
     navigator.clipboard.writeText(text).then(() => {
       setSummaryCopied(true)

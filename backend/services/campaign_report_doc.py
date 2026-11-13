@@ -76,10 +76,10 @@ def create_campaign_doc(
     replaced = docs.documents().batchUpdate(documentId=doc_id, body={"requests": [
         {"replaceAllText": {"containsText": {"text": old, "matchCase": True}, "replaceText": new}}
         for old, new in [
-            ("Releasing Calls : out of 1000", f"{n['releasing']} Releasing out of 1000"),
-            ("Late Hello Calls : out of 1000", f"{n['late_hello']} Late Hello out of 1000"),
+            ("Releasing Calls : out of 1000", f"Releasing\t{n['releasing']} / 1,000"),
+            ("Late Hello Calls : out of 1000", f"Late Hello\t{n['late_hello']} / 1,000"),
             ("No rebuttals / early hang ups from the owners  : out of 200",
-             f"{n['no_rebuttal']} No Rebuttal out of 200\n{n['wrong_dispo']} Wrong Dispo out of 1000"),
+             f"No Rebuttal\t{n['no_rebuttal']} / 200\nWrong Dispo\t{n['wrong_dispo']} / 1,000"),
         ]
     ]}).execute()
     if any(r.get("occurrencesChanged", 0) < 1 for r in replaced["replies"]):
