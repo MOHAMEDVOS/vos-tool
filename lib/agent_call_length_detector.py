@@ -79,6 +79,7 @@ def flag_long_calls(
             "disposition": disp_raw,
             "duration":    int(secs),
             "agent":       (row.get("Agent name") or "").strip(),
+            "recording_id": (row.get("Recording ID") or "").strip(),
         })
 
     return flagged

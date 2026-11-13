@@ -236,6 +236,46 @@ def _run_campaign_disposition_scan(
         logger.error(f"Campaign disposition scan failed (non-fatal): {exc}", exc_info=True)
 
 
+def _download_long_call_recordings(client, wanted) -> int:
+    """Save the flagged long VM/Dead-call recordings so Call Review can play them.
+
+    The one exception to "voicemail is never downloaded": these files are only played back,
+    never transcribed or audited. A failed download is logged and skipped.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from urllib.parse import quote
+    from config import RECORDINGS_ROOT
+    from automation.readymode_http import recording_paths
+
+    folder = Path(RECORDINGS_ROOT) / "longcalls"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    def fetch(item) -> bool:
+        filename, recording_id = item
+        target = folder / filename
+        if target.exists():
+            return True
+        for path in recording_paths(recording_id):
+            try:
+                with client.session.get(f"{client.dialer}{quote(path, safe='/')}?force_dl=1",
+                                        stream=True, timeout=30) as r:
+                    if r.status_code != 200 or "html" in r.headers.get("Content-Type", "").lower():
+                        continue
+                    tmp = target.with_suffix(".tmp")
+                    with open(tmp, "wb") as out:
+                        for chunk in r.iter_content(chunk_size=65536):
+                            out.write(chunk)
+                    tmp.replace(target)
+                    return True
+            except Exception as exc:
+                logger.warning(f"Long VM/dead recording {filename} failed: {exc}")
+        logger.warning(f"Long VM/dead recording {filename} not found (recording id {recording_id!r})")
+        return False
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        return sum(pool.map(fetch, wanted))
+
+
 # ── Agent long VM/Dead-call scan (fire-and-forget, called after agent lite audit) ─────
 def _run_agent_call_length_scan(
     *,
@@ -251,8 +291,8 @@ def _run_agent_call_length_scan(
     and return a DataFrame of flagged rows to merge into the lite-audit results.
 
     CSV-only: the export gives the exact 'Recording Length (Seconds)' plus agent / disposition /
-    phone / Call Log ID. No report paging and no audio download — rows are built straight from
-    the CSV (so there is no playable recording for these rows, just the flagged metadata).
+    phone / Call Log ID / Recording ID. No report paging — rows are built straight from the CSV,
+    then only the flagged calls' recordings are downloaded for playback.
 
     Returns None on any failure or when nothing is flagged (non-fatal — never breaks the audit).
     """
@@ -282,6 +322,7 @@ def _run_agent_call_length_scan(
                 ("Recording Length (Seconds)", "Duration"),
                 ("CCS_Profile.phone",          "Phone"),
                 ("Call Log ID",                "Call Log ID"),
+                ("Recording ID",               "Recording ID"),
             ],
         )
         text = csv_bytes.decode("utf-8", errors="replace")
@@ -298,6 +339,7 @@ def _run_agent_call_length_scan(
 
         dialer_text = extract_dialer_name_from_url(dialer_url)
         records = []
+        wanted = []  # (file name, recording id) for the audio fetch below
         for i, f in enumerate(flagged):
             disp_text  = f["disposition"]
             agent_text = f.get("agent") or (agent_name if specific_agent else "") or "Unknown_Agent"
@@ -306,6 +348,7 @@ def _run_agent_call_length_scan(
             # collapse all these rows into one. Call Log ID is unique per call (stable across
             # re-runs, so repeat audits dedupe); fall back to phone+index if it's ever missing.
             fid = f["call_log_id"] or f"{f['phone'] or 'x'}-{i}"
+            wanted.append((f"longcall_{fid}.mp3", f.get("recording_id")))
             records.append({
                 "Agent Name":             agent_text,
                 "File Name":              f"longcall_{fid}.mp3",
@@ -323,6 +366,8 @@ def _run_agent_call_length_scan(
 
         if not records:
             return None
+        saved = _download_long_call_recordings(client, wanted)
+        logger.info(f"Long VM/dead scan: saved {saved} of {len(wanted)} recordings")
         logger.info(f"Long VM/dead scan: flagged {len(records)} calls for {agent_name or 'all agents'}")
         return pd.DataFrame(records)
     except Exception as exc:

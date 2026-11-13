@@ -104,3 +104,10 @@ def test_fields_carried_through():
     flagged = flag_long_calls([_row("Voicemail", "30", phone="(813) 933-3426", call_log_id="7164070")])
     assert flagged[0]["phone"] == "(813) 933-3426"
     assert flagged[0]["call_log_id"] == "7164070"
+
+
+def test_recording_id_maps_to_the_readymode_file_path():
+    from automation.readymode_http import recording_paths
+    assert recording_paths("19316963")[0] == "/File types/data/callrec/db/63/69/31/19/19316963_hq.mp3"
+    assert recording_paths("7245770")[1] == "/File types/data/callrec/db/70/57/24/7245770.mp3"
+    assert recording_paths("") == []

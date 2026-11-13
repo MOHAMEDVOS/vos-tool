@@ -167,6 +167,19 @@ def normalize_recording_id(recording_id: str) -> str:
     return urlunsplit(("", "", path, urlencode(query, doseq=True), ""))
 
 
+def recording_paths(recording_id) -> list[str]:
+    """Candidate mp3 paths for a call-log CSV 'Recording ID'.
+
+    ReadyMode files a recording under its id's digit pairs read from the end:
+    19316963 -> /File types/data/callrec/db/63/69/31/19/19316963_hq.mp3 (older ones have no _hq).
+    """
+    rid = re.sub(r"\D", "", str(recording_id or ""))
+    if not rid:
+        return []
+    folders = "/".join(rid[i - 2:i] for i in range(len(rid), 1, -2))
+    return [f"/File types/data/callrec/db/{folders}/{rid}{suffix}.mp3" for suffix in ("_hq", "")]
+
+
 def is_blocked_disposition(label) -> bool:
     """True if this disposition label may never be downloaded."""
     text = str(label or "").strip().lower()
