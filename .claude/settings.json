@@ -10,6 +10,19 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-edit.sh\"",
+            "timeout": 60,
+            "statusMessage": "Checking edited file..."
+          }
+        ]
+      }
     ]
   }
 }
