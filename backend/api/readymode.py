@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import date as _date
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import sys, io, threading, json, uuid, asyncio
+import sys, io, re, threading, json, uuid, asyncio
 
 # ── Thread-local stdout router ────────────────────────────────────────────────
 # Each worker thread registers its own QueueWriter here so concurrent audits
@@ -323,6 +323,7 @@ def _run_agent_call_length_scan(
                 ("CCS_Profile.phone",          "Phone"),
                 ("Call Log ID",                "Call Log ID"),
                 ("Recording ID",               "Recording ID"),
+                ("Log Time",                   "Log Time"),
             ],
         )
         text = csv_bytes.decode("utf-8", errors="replace")
@@ -356,6 +357,8 @@ def _run_agent_call_length_scan(
                 "Disposition":            disp_text,
                 "Dialer Name":            dialer_text,
                 "Call Duration":          f"{f['duration']}s",
+                # Drop the seconds: _format_time reads "4:17:29 PM" as "17:29 PM".
+                "Timestamp":              re.sub(r"(\d{1,2}:\d{2}):\d{2}", r"\1", f.get("time", "")),
                 "Call Log ID":            f["call_log_id"],
                 "Releasing Detection":    "No",
                 "Late Hello Detection":   "No",

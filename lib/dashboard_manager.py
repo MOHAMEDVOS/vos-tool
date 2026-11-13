@@ -118,7 +118,7 @@ def _parse_lite_filename_metadata(file_name: str) -> Tuple[str, str, str]:
                 _, timestamp, phone_number, disposition = parts
             elif len(parts) == 2:
                 _, phone_number = parts
-            else:
+            elif not stem.startswith("longcall_"):  # long VM/Dead rows carry their time separately
                 timestamp = stem
 
             if timestamp:
