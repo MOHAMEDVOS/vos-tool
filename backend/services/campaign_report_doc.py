@@ -66,9 +66,10 @@ def create_campaign_doc(
     scan: Optional[Dict[str, Any]], sheet_url: str, dialer: str = "",
 ) -> str:
     """Copy the template, fill it, and return the new doc's URL (the caller shares it)."""
+    month = (end_date or start_date or date.today()).strftime("%b")
     doc_id = drive.files().copy(
         fileId=template_id, supportsAllDrives=True,
-        body={"name": f"{campaign} - Campaign Report", "parents": [folder_id]},
+        body={"name": f"{campaign.replace(' ', '_')}_week_{month}", "parents": [folder_id]},
     ).execute()["id"]
 
     n = count_issues(rows)
